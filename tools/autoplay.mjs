@@ -11,6 +11,8 @@ const flag = (n, d) => {
 };
 const CLS = flag('class', 'ritter');
 const ACTS = +flag('acts', 5);
+const START_ACT = +flag('startAct', 0);
+const START_LEVEL = +flag('startLevel', 0);
 const BUDGET = +flag('budget', 150); // seconds of wall time per act
 const W = +flag('w', 904);
 const H = +flag('h', 407);
@@ -37,10 +39,31 @@ await page.waitForFunction(() => document.getElementById('loader')?.classList.co
   timeout: 60000,
 });
 
+// Expose the loot factory so a mid-campaign start can be geared realistically.
+await page.evaluate(async () => {
+  const loot = await import('/src/game/loot.js');
+  const { RNG } = await import('/src/core/rng.js');
+  const rng = new RNG(4242);
+  window.__makeItem = (o) => loot.makeItem({ rng, ...o });
+});
+
 await page.evaluate(
-  ([cls, speed]) => {
+  ([cls, speed, startAct, startLevel]) => {
     const g = window.__game;
     g.newRun(cls, 20260808);
+    if (startLevel) {
+      // Kit the character out the way a real run would have by this point.
+      g.player.level = startLevel;
+      g.recompute();
+      for (const slot of ['weapon', 'offhand', 'head', 'chest', 'hands', 'feet', 'ring', 'amulet']) {
+        const it = window.__makeItem({ ilvl: startLevel, slot, minRarity: 'rare' });
+        if (it) g.equip(it, true);
+      }
+      g.recompute();
+      g.player.hp = g.stats.maxLife;
+      g.player.resource = g.stats.maxResource;
+    }
+    if (startAct) g.loadAct(startAct);
     const inp = window.__input;
 
     // Bot state, driven from the game loop through the normal input surface.
@@ -296,7 +319,7 @@ await page.evaluate(
     };
     requestAnimationFrame(tick);
   },
-  [CLS, SPEED]
+  [CLS, SPEED, START_ACT, START_LEVEL]
 );
 
 const snapshot = () =>

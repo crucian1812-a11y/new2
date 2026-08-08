@@ -2199,7 +2199,7 @@ export class Game {
     if (boss && boss.alive) {
       // Partial heal, not a full reset: dying costs you ground without
       // erasing the fight, so an under-levelled player can still grind it out.
-      boss.hp = Math.min(boss.maxHp, boss.hp + boss.maxHp * 0.35);
+      boss.hp = Math.min(boss.maxHp, boss.hp + boss.maxHp * 0.25);
       boss.x = this.zone.bossArena.x;
       boss.y = this.zone.bossArena.y;
       boss.aggro = false;
