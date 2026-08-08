@@ -2327,14 +2327,29 @@ export class Game {
     const zoom = R.cam.zoom * R.pxScale;
     const vw = R.viewW * 0.5 + 260;
     const vh = R.viewH * 0.5 + 420;
+    const p = this.player;
+    // Where the player's chest sits on screen, for the occlusion test.
+    const hx = R.sx(p.x);
+    const hy = R.sy(p.y) - p.size * 0.5 * zoom;
+
     for (const pr of this.zone.props) {
       if (Math.abs(pr.x - cam.x) > vw) continue;
       if (pr.y - cam.y < -vh || pr.y - cam.y > vh) continue;
       const spr = getScaledProp(pr.name, pr.variant, zoom, pr.flip || 0);
+
+      // Anything tall standing between the camera and the hero fades out, so
+      // a pine or a brazier can never hide the fight.
+      let want = 1;
+      if (pr.y > p.y && spr.h > 60 * zoom) {
+        const b = R.spriteBounds(spr, pr.x, pr.y);
+        if (hx > b.x && hx < b.x + b.w && hy > b.y && hy < b.y + b.h) want = 0.34;
+      }
+      pr.fade = pr.fade === undefined ? want : damp(pr.fade, want, 12, 1 / 60);
+
       R.push(pr.y, (ctx, r) => {
         // No per-frame shadow blit: the bake already carries contact darkening.
         const swayPx = pr.sway ? Math.round(Math.sin(r.time * 0.9 + pr.phase) * pr.sway * 1.6) : 0;
-        r.drawScaled(spr, pr.x, pr.y, swayPx);
+        r.drawScaled(spr, pr.x, pr.y, swayPx, pr.fade);
         if (spr.emissive) r.drawScaledEmissive(spr, pr.x, pr.y, swayPx);
       });
     }

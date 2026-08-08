@@ -672,13 +672,27 @@ export class Renderer {
    * `swayPx` is an integer horizontal nudge — enough to read as wind without
    * forcing a filtered transform.
    */
-  drawScaled(spr, x, y, swayPx = 0) {
+  drawScaled(spr, x, y, swayPx = 0, alpha = 1) {
     const ctx = this.ctx;
     const dx = Math.round(this.sx(x) - spr.ox + swayPx);
     const dy = Math.round(this.sy(y) - spr.oy);
     if (dx > this.w || dy > this.h || dx + spr.w < 0 || dy + spr.h < 0) return false;
-    ctx.drawImage(spr.canvas, dx, dy);
+    if (alpha >= 0.999) {
+      ctx.drawImage(spr.canvas, dx, dy);
+    } else {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.drawImage(spr.canvas, dx, dy);
+      ctx.restore();
+    }
     return true;
+  }
+
+  /** Screen-space bounds of a pre-scaled sprite placed at a world point. */
+  spriteBounds(spr, x, y) {
+    const dx = this.sx(x) - spr.ox;
+    const dy = this.sy(y) - spr.oy;
+    return { x: dx, y: dy, w: spr.w, h: spr.h };
   }
 
   drawScaledEmissive(spr, x, y, swayPx = 0) {
