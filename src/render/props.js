@@ -59,19 +59,6 @@ function vgrad(ctx, y0, y1, stops) {
   return g;
 }
 
-/** Cold key light from the upper left, warm bounce from below. */
-function rimLight(ctx, path, color, alpha, offset = 2) {
-  ctx.save();
-  ctx.clip(path);
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.globalAlpha = alpha;
-  ctx.strokeStyle = css(color);
-  ctx.lineWidth = 2.4;
-  ctx.translate(-offset, -offset);
-  ctx.stroke(path);
-  ctx.restore();
-}
-
 /** Sprinkles subtle value noise inside the current clip so fills gain texture. */
 function grainPass(ctx, rng, amount = 0.1, count = 220, box) {
   ctx.save();
@@ -491,10 +478,10 @@ function drawBirch(rng) {
 }
 
 function drawOak(rng, opts = {}) {
-  const H = opts.h ?? rng.range(252, 322);
-  const W = H;
+  const H = opts.h ?? rng.range(186, 236);
+  const W = H * 0.82;
   const w = Math.ceil(W * 1.5);
-  const h = Math.ceil(H * 1.3);
+  const h = Math.ceil(H * 1.32);
   const sacred = opts.sacred ?? false;
   return sprite(w, h, w / 2, h - 14, (ctx, ectx, lights) => {
     const cx = w / 2;
@@ -991,14 +978,14 @@ function drawBrazier(rng) {
       }
     }
     if (ectx) {
-      const eg = ectx.createRadialGradient(cx, baseY - 146, 0, cx, baseY - 146, 66);
-      eg.addColorStop(0, css(PAL.torchCore, 0.95));
-      eg.addColorStop(0.4, css(PAL.torch, 0.6));
+      const eg = ectx.createRadialGradient(cx, baseY - 150, 0, cx, baseY - 150, 42);
+      eg.addColorStop(0, css(PAL.torchCore, 0.55));
+      eg.addColorStop(0.4, css(PAL.torch, 0.3));
       eg.addColorStop(1, css(PAL.torch, 0));
       ectx.fillStyle = eg;
-      ectx.fillRect(cx - 70, baseY - 216, 140, 140);
+      ectx.fillRect(cx - 46, baseY - 196, 92, 92);
     }
-    lights.push({ x: cx, y: baseY - 150, r: 420, color: PAL.torch, i: 1.4, flicker: 1 });
+    lights.push({ x: cx, y: baseY - 150, r: 360, color: PAL.torch, i: 1.05, flicker: 1 });
   }, { radius: 30, solid: true, emissive: true });
 }
 
@@ -1031,8 +1018,8 @@ function crossPattee(ctx, cx, cy, arm, thin, thick) {
 }
 
 function drawBanner(rng, opts = {}) {
-  const w = 130;
-  const h = 330;
+  const w = 96;
+  const h = 236;
   const white = opts.white ?? true;
   return sprite(w, h, w * 0.32, h - 8, (ctx) => {
     const px = w * 0.32;
@@ -1631,7 +1618,7 @@ export const PROP_DEFS = {
   pineDead: (rng) => drawPine(rng, { dead: true }),
   birch: (rng) => drawBirch(rng),
   oak: (rng) => drawOak(rng, {}),
-  oakSacred: (rng) => drawOak(rng, { sacred: true, h: 400 }),
+  oakSacred: (rng) => drawOak(rng, { sacred: true, h: 300 }),
   deadTree: (rng) => drawDeadTree(rng),
   rock: (rng) => drawRock(rng, {}),
   rockMossy: (rng) => drawRock(rng, { mossy: true }),

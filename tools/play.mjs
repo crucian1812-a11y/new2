@@ -1,7 +1,6 @@
 // Drives the real game in a headless Chromium with Poco X7 Pro-ish metrics.
 //   node tools/play.mjs <outPrefix> [--script boot|fight|full] [--w..] [--h..]
 import { chromium } from 'playwright';
-import fs from 'node:fs';
 
 const args = process.argv.slice(2);
 const prefix = args[0] || '/tmp/shot';

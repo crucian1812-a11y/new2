@@ -1,0 +1,66 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>actor rigs</title>
+<style>
+  body{margin:0;background:#1b1e22;color:#bbb;font:11px monospace}
+  canvas{display:block}
+</style>
+</head><body>
+<canvas id="c" width="1500" height="1500"></canvas>
+<script type="module">
+// Renders every rig in the game straight from the real definitions, so this
+// page can never drift from what ships.
+import { renderActor } from '../src/render/actors.js';
+import { LOOKS, MOB_LOOKS } from '../src/game/content.js';
+
+const errors = [];
+window.addEventListener('error', (e) => errors.push(String(e.message)));
+window.addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
+
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+
+const entries = [
+  ...Object.entries(LOOKS).map(([k, v]) => ['player:' + k, v]),
+  ...Object.entries(MOB_LOOKS).map(([k, v]) => ['mob:' + k, v]),
+];
+
+const anims = [
+  ['idle', 'idle', 0, 0],
+  ['run', 'idle', 0, 1],
+  ['attack', 'attack', 0.45, 0],
+  ['cast', 'cast', 0.5, 0],
+  ['hit', 'hit', 0.4, 0],
+  ['die', 'die', 0.7, 0],
+];
+
+const rowH = 165;
+c.height = rowH * entries.length + 20;
+ctx.fillStyle = '#20242a';
+ctx.fillRect(0, 0, c.width, c.height);
+ctx.font = '12px monospace';
+
+entries.forEach(([name, def], row) => {
+  const y = rowH * (row + 1) - 12;
+  ctx.fillStyle = '#8899aa';
+  ctx.fillText(name, 6, y - rowH * 0.7);
+  let x = 130;
+  for (const [label, anim, at, spd] of anims) {
+    ctx.fillStyle = '#556';
+    ctx.fillText(label, x - 34, y + 10);
+    renderActor(ctx, def, {
+      t: 1.2, anim, animT: at, facing: -0.6, speed: spd, phase: 1.4, flash: 0, alpha: 1,
+    }, x, y, 1.35, null);
+    x += 118;
+  }
+  // Facing sweep
+  for (let i = 0; i < 8; i++) {
+    renderActor(ctx, def, {
+      t: 1.2, anim: 'idle', animT: 0, facing: (i / 8) * Math.PI * 2, speed: 0.9, phase: 1.4,
+    }, x, y, 1.15, null);
+    x += 84;
+  }
+});
+
+window.__stats = { errors, rigs: entries.length };
+</script>
+</body></html>

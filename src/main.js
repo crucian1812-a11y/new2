@@ -130,7 +130,6 @@ function clampZoom(z) {
 }
 
 let last = performance.now();
-let acc = 0;
 
 function loop(now) {
   requestAnimationFrame(loop);

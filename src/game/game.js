@@ -11,7 +11,6 @@ import {
   MOB_LOOKS,
   xpForLevel,
   MAX_LEVEL,
-  SLOTS,
 } from './content.js';
 import { Zone } from './worldgen.js';
 import { makeItem, rollDrop, computeStats, mitigation, emptyEquipment, itemScore } from './loot.js';
@@ -27,16 +26,16 @@ import {
   angleDelta,
   angleTowards,
   inCone,
-  smoothstep,
 } from '../core/math.js';
 import { renderActor } from '../render/actors.js';
 import { getProp, getScaledProp } from '../render/props.js';
-import { PAL, hex, css, mixc } from '../render/palette.js';
+import { PAL, hex, css } from '../render/palette.js';
 import { bakeBloodDecal, bakeScorchDecal } from '../render/textures.js';
 import { ISO_Y } from '../render/renderer.js';
 import { audio } from '../core/audio.js';
 import { save, load, clearSave } from '../core/save.js';
 
+const BAG_SIZE = 40;
 const POTION_HEAL = 0.36;
 const POTION_CD = 11;
 
@@ -89,8 +88,8 @@ export class Game {
       level: 1,
       xp: 0,
       gold: 0,
-      potions: 4,
-      maxPotions: 4,
+      potions: 5,
+      maxPotions: 5,
       potionCd: 0,
       hp: 1,
       resource: 0,
@@ -231,6 +230,27 @@ export class Game {
     audio.play('ui');
   }
 
+  /** Sells every common item in the bag; the bag fills fast otherwise. */
+  sellJunk() {
+    const p = this.player;
+    let gold = 0;
+    let n = 0;
+    for (let i = p.inventory.length - 1; i >= 0; i--) {
+      const it = p.inventory[i];
+      if (it.rarity !== 'common' && it.rarity !== 'magic') continue;
+      if (this.isUpgrade(it)) continue;
+      gold += it.value;
+      n++;
+      p.inventory.splice(i, 1);
+    }
+    if (n) {
+      p.gold += gold;
+      audio.play('coin');
+      this.pushMessage(`${n} Stücke verkauft`, `+${gold} Gold`, 1.8);
+    }
+    return n;
+  }
+
   sellItem(item) {
     const p = this.player;
     const i = p.inventory.indexOf(item);
@@ -262,7 +282,19 @@ export class Game {
       audio.play('levelUp');
       this.fx.ring(p.x, p.y, { r0: 10, r1: 220, life: 0.9, color: PAL.holy, width: 9 });
       this.fx.embers(p.x, p.y, 20, 40, PAL.holy, 40);
-      this.fx.text(p.x, p.y, 96, 'STUFE ' + p.level, { color: PAL.holy, size: 22, bold: true, life: 1.6, vz: 40 });
+      // Replace any level text still on screen so a double level-up doesn't
+      // print two overlapping banners.
+      for (let i = this.fx.texts.length - 1; i >= 0; i--) {
+        if (this.fx.texts[i].levelUp) this.fx.texts.splice(i, 1);
+      }
+      this.fx.text(p.x, p.y, 96, 'STUFE ' + p.level, {
+        color: PAL.holy,
+        size: 22,
+        bold: true,
+        life: 1.6,
+        vz: 40,
+        levelUp: true,
+      });
       this.pushMessage('Stufe ' + p.level, this.unlockedSkillName(p.level) || 'Deine Kraft wächst', 2.6);
       this.r.addShake(8);
     }
@@ -286,7 +318,10 @@ export class Game {
   monsterLevel() {
     const a = this.act.levelRange;
     const t = clamp01(this.kills / Math.max(1, this.killQuota));
-    return Math.round(lerp(a[0], a[1], t) * this.difficulty);
+    const byAct = lerp(a[0], a[1], t);
+    // The act sets the floor, the player's own level the ceiling. Without the
+    // cap an under-levelled player meets monsters eight tiers above them.
+    return Math.round(clamp(Math.min(byAct, this.player.level + 3), a[0], a[1]));
   }
 
   spawnMonster(defId, x, y, opts = {}) {
@@ -376,9 +411,12 @@ export class Game {
     const b = BOSSES[this.act.boss];
     const arena = this.zone.bossArena;
     this.bossSpawned = true;
+    const range = this.act.levelRange;
     const m = this.spawnMonster(this.act.boss, arena.x, arena.y - 120, {
-      level: this.act.levelRange[1],
+      level: Math.round(clamp(this.player.level + 1, range[0], range[1])),
     });
+    // A full flask belt: the fight should be decided by play, not by supply.
+    this.player.potions = this.player.maxPotions;
     m.aggro = true;
     this.boss = m;
     audio.play('bossRoar');
@@ -422,11 +460,11 @@ export class Game {
     }
 
     const col = opts.crit ? [255, 214, 120] : [246, 240, 228];
-    this.fx.text(m.x + rnd(-8, 8), m.y, m.size * 0.7 + rnd(0, 16), Math.round(dmg).toString(), {
+    this.fx.damage(m, m.x + rnd(-6, 6), m.y, m.size * 0.7 + rnd(0, 14), dmg, {
       color: col,
-      size: opts.crit ? 22 : 15,
+      size: opts.crit ? 21 : 15,
       crit: opts.crit,
-      life: opts.crit ? 1.2 : 0.85,
+      life: opts.crit ? 1.15 : 0.85,
     });
 
     if (opts.knock) {
@@ -1241,6 +1279,28 @@ export class Game {
       this.player.gold += d.amount;
       audio.play('coin');
     } else {
+      // A full bag melts its least valuable piece rather than refusing loot.
+      if (this.player.inventory.length >= BAG_SIZE) {
+        let worst = null;
+        for (const it of this.player.inventory) if (!worst || it.value < worst.value) worst = it;
+        if (worst && worst.value < d.item.value) {
+          this.sellItem(worst);
+          this.fx.text(this.player.x, this.player.y, 104, `Beutel voll — ${worst.name} verkauft`, {
+            color: [200, 176, 120],
+            size: 11,
+            life: 1.8,
+          });
+        } else {
+          this.player.gold += d.item.value;
+          this.fx.text(d.x, d.y, 40, `Beutel voll — ${d.item.value} Gold`, {
+            color: PAL.gold,
+            size: 11,
+            life: 1.5,
+          });
+          audio.play('coin');
+          return;
+        }
+      }
       this.player.inventory.push(d.item);
       audio.play(d.item.rarity === 'unique' ? 'legendary' : 'loot');
       this.fx.text(d.x, d.y, 40, d.item.name, {
@@ -1954,7 +2014,7 @@ export class Game {
       if (alive < cap && !this.boss) {
         const pos = z.randomSpawn(this.rng, p.x, p.y, 620);
         if (pos) {
-          const m = this.spawnMonster(this.rng.pick(this.act.monsters), pos.x, pos.y, {
+          this.spawnMonster(this.rng.pick(this.act.monsters), pos.x, pos.y, {
             elite: chance(0.09),
           });
         }
@@ -2074,6 +2134,63 @@ export class Game {
     this.player.hp = Math.min(this.stats.maxLife, this.player.hp + this.stats.maxLife * 0.4);
     this.player.potions = this.player.maxPotions;
     this.save();
+  }
+
+  /**
+   * Death is a setback, not a dead end. The field is cleared but the boss is
+   * kept and reset to full — wiping it from `monsters` while `boss` still
+   * pointed at it used to strand the act with no way to finish.
+   */
+  respawnPlayer() {
+    const p = this.player;
+    p.gold = Math.floor(p.gold * 0.5);
+    p.alive = true;
+    p.anim = 'idle';
+    p.animT = 0;
+    p.animDur = 0;
+    p.pendingHit = null;
+    p.channel = null;
+    p.dashT = 0;
+    p.dashSkill = null;
+    p.flash = 0;
+    p.hp = this.stats.maxLife * 0.6;
+    p.resource = this.cls.resource.id === 'zorn' ? 0 : this.stats.maxResource;
+    p.potions = Math.max(2, p.potions);
+    p.invuln = 3;
+    p.buffs = {};
+    p.x = this.zone.start.x;
+    p.y = this.zone.start.y;
+    p.vx = p.vy = 0;
+
+    const boss = this.boss;
+    for (let i = this.monsters.length - 1; i >= 0; i--) {
+      if (this.monsters[i] !== boss) this.monsters.splice(i, 1);
+    }
+    this.projectiles.length = 0;
+    this.ground.length = 0;
+    clearTimers();
+
+    if (boss && boss.alive) {
+      boss.hp = boss.maxHp;
+      boss.x = this.zone.bossArena.x;
+      boss.y = this.zone.bossArena.y;
+      boss.aggro = false;
+      boss.windup = 0;
+      boss.lungeT = 0;
+      boss.stun = 0;
+      boss.abilityCd = 4;
+      boss.knockX = boss.knockY = 0;
+    } else if (this.bossSpawned && !this.bossDead) {
+      // The boss is gone but the act is unfinished — let it be summoned again.
+      this.bossSpawned = false;
+      this.boss = null;
+    }
+
+    this.spawnTimer = 3;
+    this.state = 'playing';
+    this.pushMessage('Wiederauferstanden', 'Der Weg geht weiter', 2.4);
+    audio.play('holy');
+    this.logLine('Wiederauferstanden bei der Wegmarke.');
   }
 
   // =========================================================================
@@ -2445,14 +2562,15 @@ export class Game {
         ctx.beginPath();
         ctx.ellipse(x, y, rr, rr * ISO_Y, 0, 0, TAU);
         ctx.stroke();
-        // Rotating cross inscribed in the circle
-        ctx.globalAlpha = 0.3 * fade;
-        ctx.lineWidth = 1.6 * zoom;
+        // A slowly turning cross inscribed in the ring, kept faint so it reads
+        // as consecrated ground rather than a wireframe.
+        ctx.globalAlpha = 0.14 * fade;
+        ctx.lineWidth = 1.4 * zoom;
         for (let i = 0; i < 4; i++) {
-          const a = R.time * 0.4 + (i / 4) * TAU;
+          const a = R.time * 0.28 + (i / 4) * TAU;
           ctx.beginPath();
-          ctx.moveTo(x, y);
-          ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr * ISO_Y);
+          ctx.moveTo(x + Math.cos(a) * rr * 0.35, y + Math.sin(a) * rr * 0.35 * ISO_Y);
+          ctx.lineTo(x + Math.cos(a) * rr * 0.94, y + Math.sin(a) * rr * 0.94 * ISO_Y);
           ctx.stroke();
         }
         ctx.restore();

@@ -9,7 +9,7 @@
 // tree root agree about where the ground is.
 
 import { TAU, clamp01, lerp, clamp } from '../core/math.js';
-import { css, mixc, hex, PAL } from './palette.js';
+import { css, mixc, PAL } from './palette.js';
 import { ISO_Y } from './renderer.js';
 
 // ---------------------------------------------------------------------------

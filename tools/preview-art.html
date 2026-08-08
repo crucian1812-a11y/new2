@@ -6,9 +6,9 @@
 <body>
 <div id="out"></div>
 <script type="module">
-import { seedNoise } from './src/render/noise.js';
-import { getMaterial, MATERIALS } from './src/render/textures.js';
-import { getProp, PROP_DEFS } from './src/render/props.js';
+import { seedNoise } from '../src/render/noise.js';
+import { getMaterial, MATERIALS } from '../src/render/textures.js';
+import { getProp, PROP_DEFS } from '../src/render/props.js';
 
 seedNoise(1234);
 const out = document.getElementById('out');

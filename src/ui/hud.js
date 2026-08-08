@@ -1,10 +1,10 @@
 // The interface. Everything is drawn on the same canvas as the game so the
 // frame is one picture — no DOM overlays fighting the art direction.
 
-import { clamp, clamp01, lerp, TAU, fmtNum, smoothstep } from '../core/math.js';
+import { clamp01, TAU, fmtNum } from '../core/math.js';
 import { css, mixc, hex, PAL } from '../render/palette.js';
-import { CLASSES, SKILLS, SLOTS, SLOT_NAMES, xpForLevel, MAX_LEVEL, ACTS } from '../game/content.js';
-import { formatStat, itemScore, damageRange } from '../game/loot.js';
+import { CLASSES, SKILLS, SLOTS, xpForLevel, MAX_LEVEL } from '../game/content.js';
+import { formatStat, damageRange } from '../game/loot.js';
 import { drawItemGlyph } from '../game/game.js';
 import { audio } from '../core/audio.js';
 
@@ -149,6 +149,7 @@ export class HUD {
     if (g.state === 'menu') {
       this.drawMenu(ctx);
     } else {
+      this.drawLowHealth(ctx);
       this.drawStick(ctx);
       this.drawTopLeft(ctx);
       this.drawTopRight(ctx);
@@ -164,6 +165,27 @@ export class HUD {
 
     ctx.restore();
     this.input.setButtons(this.buttons);
+  }
+
+  /** Blood at the edges of vision below a third health — the oldest tell there is. */
+  drawLowHealth(ctx) {
+    const g = this.game;
+    if (!g.player || !g.player.alive) return;
+    const frac = g.player.hp / g.stats.maxLife;
+    if (frac > 0.34) return;
+    const t = clamp01((0.34 - frac) / 0.34);
+    const pulse = 0.55 + 0.45 * Math.sin(this.pulse * (3.4 + t * 3.6));
+    const w = this.r.w;
+    const h = this.r.h;
+    ctx.save();
+    ctx.globalAlpha = t * pulse * 0.72;
+    const grad = ctx.createRadialGradient(w * 0.5, h * 0.5, Math.min(w, h) * 0.24, w * 0.5, h * 0.5, w * 0.72);
+    grad.addColorStop(0, 'rgba(120,10,10,0)');
+    grad.addColorStop(0.65, 'rgba(120,10,10,0.22)');
+    grad.addColorStop(1, 'rgba(92,4,6,0.85)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
   }
 
   // -- the stick ------------------------------------------------------------
@@ -851,16 +873,17 @@ export class HUD {
 
     // --- right: bag -------------------------------------------------------
     this.text(ctx, 'Beutel', rightX + 10, pad + 18, { size: 13, serif: true, color: hex('#e6d3a0') });
-    this.text(ctx, `${p.inventory.length} / 40`, rightX + rightW - 96, pad + 18, {
+    this.text(ctx, `${p.inventory.length} / 40`, rightX + rightW - 176, pad + 18, {
       size: 10,
       align: 'right',
-      color: hex('#a8a190'),
+      color: p.inventory.length >= 38 ? hex('#e07a5a') : hex('#a8a190'),
     });
-    this.text(ctx, `⬤ ${fmtNum(p.gold)}`, rightX + rightW - 46, pad + 18, {
+    this.text(ctx, `⬤ ${fmtNum(p.gold)}`, rightX + rightW - 126, pad + 18, {
       size: 10,
       align: 'right',
       color: PAL.gold,
     });
+    this.textButton(ctx, 'sellJunk', rightX + rightW - 118, pad + 6, 82, 18, 'Graues verk.', { size: 9 });
 
     const cardH = 68;
     const cell = Math.min(46, (rightW - 24) / 8 - 6);
@@ -1052,9 +1075,9 @@ export class HUD {
       g.fillRect(0, 0, W, H);
 
       // Moon and halo
-      const mx = W * 0.76;
-      const my = H * 0.24;
-      const mr = Math.min(W, H) * 0.075;
+      const mx = W * 0.87;
+      const my = H * 0.17;
+      const mr = Math.min(W, H) * 0.065;
       const halo = g.createRadialGradient(mx, my, 0, mx, my, mr * 7);
       halo.addColorStop(0, 'rgba(190,208,236,0.30)');
       halo.addColorStop(0.35, 'rgba(150,172,208,0.09)');
@@ -1105,9 +1128,9 @@ export class HUD {
         g.closePath();
         g.fill();
       };
-      ridge(H * 0.78, H * 0.30, '#161c26', 13, 6);
-      ridge(H * 0.88, H * 0.36, '#0e131b', 10, 8);
-      ridge(H * 1.02, H * 0.42, '#070a10', 8, 10);
+      ridge(H * 0.74, H * 0.30, '#1e2735', 13, 6);
+      ridge(H * 0.86, H * 0.36, '#141b26', 10, 8);
+      ridge(H * 1.0, H * 0.44, '#090d15', 8, 10);
 
       // Ground haze
       const haze = g.createLinearGradient(0, H * 0.6, 0, H);
@@ -1130,7 +1153,7 @@ export class HUD {
     // Snow on the wind, drawn live.
     const t = performance.now() / 1000;
     ctx.save();
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 150; i++) {
       const s = (i * 37.13) % 1;
       const depth = 0.35 + s * 0.65;
       const x = (((i * 97.7) % 1) * this.r.w + t * 26 * depth + Math.sin(t * 0.7 + i) * 22 * depth) % (this.r.w + 40);
@@ -1138,7 +1161,7 @@ export class HUD {
       ctx.globalAlpha = (0.18 + s * 0.42) * depth;
       ctx.fillStyle = '#e8f0fb';
       ctx.beginPath();
-      ctx.arc(x - 20, y - 20, (0.9 + s * 2.1) * depth * k, 0, TAU);
+      ctx.arc(x - 20, y - 20, (0.6 + s * 1.3) * depth * k, 0, TAU);
       ctx.fill();
     }
     ctx.restore();
@@ -1393,6 +1416,10 @@ export class HUD {
     }
 
     if (this.panel === 'bag') {
+      if (inp.wasPressed('sellJunk')) {
+        g.sellJunk();
+        this.selected = null;
+      }
       for (let i = 0; i < g.player.inventory.length; i++) {
         if (inp.wasPressed('inv:' + i)) {
           this.selected = g.player.inventory[i];
@@ -1445,24 +1472,7 @@ export class HUD {
     }
 
     if (g.state === 'dead') {
-      if (inp.wasPressed('respawn')) {
-        const p = g.player;
-        p.gold = Math.floor(p.gold * 0.5);
-        p.alive = true;
-        p.anim = 'idle';
-        p.animT = 0;
-        p.hp = g.stats.maxLife * 0.6;
-        p.potions = Math.max(1, p.potions);
-        p.invuln = 2.5;
-        p.x = g.zone.start.x;
-        p.y = g.zone.start.y;
-        g.monsters.length = 0;
-        g.projectiles.length = 0;
-        g.ground.length = 0;
-        g.state = 'playing';
-        g.pushMessage('Wiederauferstanden', 'Der Weg geht weiter', 2.4);
-        audio.play('holy');
-      }
+      if (inp.wasPressed('respawn')) g.respawnPlayer();
       if (inp.wasPressed('quitRun')) {
         g.state = 'menu';
         audio.play('uiBig');

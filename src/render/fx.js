@@ -4,7 +4,7 @@
 
 import { TAU, clamp01, lerp } from '../core/math.js';
 import { css, mixc, PAL } from './palette.js';
-import { rnd, rndInt, chance } from '../core/rng.js';
+import { rnd } from '../core/rng.js';
 import { ISO_Y } from './renderer.js';
 
 const MAX_PARTICLES = 900;
@@ -204,6 +204,45 @@ export class FX {
     });
   }
 
+  /**
+   * Damage on a target merges into the number already floating above it, so a
+   * whirlwind reads as one rising total instead of a column of digits.
+   */
+  damage(owner, x, y, z, amount, opts = {}) {
+    for (const t of this.texts) {
+      if (t.owner === owner && t.age < 0.42) {
+        t.value += amount;
+        t.str = Math.round(t.value).toString();
+        t.age = Math.min(t.age, 0.1);
+        t.size = Math.min(t.baseSize * 1.5, t.size + 1.4);
+        if (opts.crit) {
+          t.crit = true;
+          t.color = opts.color || t.color;
+        }
+        return;
+      }
+    }
+    const size = opts.size ?? 15;
+    this.texts.push({
+      owner,
+      value: amount,
+      baseSize: size,
+      x,
+      y,
+      z,
+      str: Math.round(amount).toString(),
+      life: opts.life ?? 0.95,
+      age: 0,
+      color: opts.color || [240, 236, 226],
+      size,
+      vx: rnd(-18, 18),
+      vz: rnd(70, 110),
+      crit: opts.crit || false,
+      bold: false,
+    });
+    if (this.texts.length > 40) this.texts.shift();
+  }
+
   text(x, y, z, str, opts = {}) {
     this.texts.push({
       x,
@@ -218,6 +257,7 @@ export class FX {
       vz: opts.vz ?? rnd(70, 110),
       crit: opts.crit || false,
       bold: opts.bold || false,
+      levelUp: opts.levelUp || false,
     });
     if (this.texts.length > 60) this.texts.shift();
   }

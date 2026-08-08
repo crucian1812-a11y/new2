@@ -3,8 +3,8 @@
 // at the far end. Everything derives from the act seed so a run is repeatable.
 
 import { RNG } from '../core/rng.js';
-import { warpFbm, fbm } from '../render/noise.js';
-import { clamp01, dist, TAU, lerp, smoothstep } from '../core/math.js';
+import { warpFbm } from '../render/noise.js';
+import { clamp01, dist, TAU, lerp } from '../core/math.js';
 import { getProp, PROP_VARIANTS } from '../render/props.js';
 
 export class Zone {

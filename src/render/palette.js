@@ -71,8 +71,8 @@ export const PAL = {
   leatherDark: hex('#2e1f15'),
   linen: hex('#d8d2c2'),
   cloth: hex('#6b5f52'),
-  bone: hex('#ded3ba'),
-  boneDark: hex('#8d8267'),
+  bone: hex('#b9ae95'),
+  boneDark: hex('#6f6650'),
   wood: hex('#4a3524'),
   woodLight: hex('#7a5c3c'),
 

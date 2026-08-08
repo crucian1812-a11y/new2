@@ -80,18 +80,9 @@ await page.evaluate(
       if (g.state === 'dead') {
         bot.deaths++;
         bot.log.push(`died in act ${g.actIndex + 1} at level ${g.player.level}`);
-        // Same button a player would press.
+        // Exactly what the "Wiederauferstehen" button does.
         window.__hud.panel = null;
-        const p = g.player;
-        p.gold = Math.floor(p.gold * 0.5);
-        p.alive = true;
-        p.anim = 'idle';
-        p.hp = g.stats.maxLife * 0.6;
-        p.invuln = 2.5;
-        p.x = g.zone.start.x;
-        p.y = g.zone.start.y;
-        g.monsters.length = 0;
-        g.state = 'playing';
+        g.respawnPlayer();
         return;
       }
       if (g.state !== 'playing') return;

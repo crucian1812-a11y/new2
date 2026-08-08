@@ -530,9 +530,9 @@ export class Renderer {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.imageSmoothingEnabled = true;
-    ctx.globalAlpha = 0.8;
+    ctx.globalAlpha = 0.6;
     ctx.drawImage(this.emisCanvas, 0, 0, this.w, this.h);
-    ctx.globalAlpha = 0.9;
+    ctx.globalAlpha = 0.72;
     ctx.drawImage(this.blurA, 0, 0, this.w, this.h);
     if (this.quality >= 2) {
       // Wide halo — the expensive one, first to go when frames get tight.
