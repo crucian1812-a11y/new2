@@ -352,10 +352,10 @@ export class Game {
       phase: rnd(0, TAU),
       speed01: 0,
       level: lvl,
-      maxHp: Math.round(def.life * hpScale * (elite ? 3.4 : 1) * (def.boss ? 0.5 : 1)),
+      maxHp: Math.round(def.life * hpScale * (elite ? 3.4 : 1) * (def.boss ? 0.42 : 1)),
       hp: 0,
       dmg: def.dmg * dmgScale * (elite ? 1.35 : 1),
-      armor: def.armor * (1 + 0.25 * t),
+      armor: def.armor * (1 + 0.14 * t),
       speed: def.speed * (elite ? 1.1 : 1) * (opts.speedMul ?? 1),
       radius: def.radius * (elite ? 1.22 : 1),
       size: def.size * (elite ? 1.24 : 1),
@@ -2177,11 +2177,18 @@ export class Game {
     p.potions = Math.max(2, p.potions);
     p.invuln = 3;
     p.buffs = {};
-    p.x = this.zone.start.x;
-    p.y = this.zone.start.y;
-    p.vx = p.vy = 0;
-
     const boss = this.boss;
+    if (boss && boss.alive) {
+      // Come back at the arena's edge: a two-minute walk back is a punishment
+      // nobody enjoys, and the fight itself is the interesting part.
+      const a = this.zone.bossArena;
+      p.x = a.x;
+      p.y = a.y + a.r * 0.85;
+    } else {
+      p.x = this.zone.start.x;
+      p.y = this.zone.start.y;
+    }
+    p.vx = p.vy = 0;
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       if (this.monsters[i] !== boss) this.monsters.splice(i, 1);
     }
@@ -2190,7 +2197,9 @@ export class Game {
     clearTimers();
 
     if (boss && boss.alive) {
-      boss.hp = boss.maxHp;
+      // Partial heal, not a full reset: dying costs you ground without
+      // erasing the fight, so an under-levelled player can still grind it out.
+      boss.hp = Math.min(boss.maxHp, boss.hp + boss.maxHp * 0.35);
       boss.x = this.zone.bossArena.x;
       boss.y = this.zone.bossArena.y;
       boss.aggro = false;

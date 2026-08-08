@@ -1,0 +1,47 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>rig closeup</title>
+<style>body{margin:0;background:#1a1d21}canvas{display:block}</style>
+</head><body>
+<canvas id="c" width="1200" height="420"></canvas>
+<script type="module">
+// Close-up of a single rig, for judging silhouette and shading.
+// Pick with ?who=player:jaegerin
+import { renderActor } from '../src/render/actors.js';
+import { LOOKS, MOB_LOOKS } from '../src/game/content.js';
+
+const errors = [];
+window.addEventListener('error', (e) => errors.push(String(e.message)));
+
+const all = {
+  ...Object.fromEntries(Object.entries(LOOKS).map(([k, v]) => ['player:' + k, v])),
+  ...Object.fromEntries(Object.entries(MOB_LOOKS).map(([k, v]) => ['mob:' + k, v])),
+};
+const who = new URLSearchParams(location.search).get('who') || 'player:jaegerin';
+const def = all[who] || all['player:ritter'];
+
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+ctx.fillStyle = '#22262c';
+ctx.fillRect(0, 0, c.width, c.height);
+ctx.font = '14px monospace';
+ctx.fillStyle = '#8899aa';
+ctx.fillText(who, 10, 20);
+
+const poses = [
+  ['idle', 'idle', 0, 0, -0.6],
+  ['idle front', 'idle', 0, 0, 1.4],
+  ['idle back', 'idle', 0, 0, -1.7],
+  ['run', 'idle', 0, 1, -0.6],
+  ['attack', 'attack', 0.45, 0, -0.6],
+  ['cast', 'cast', 0.5, 0, 1.2],
+];
+let x = 110;
+for (const [label, anim, at, spd, face] of poses) {
+  ctx.fillStyle = '#667';
+  ctx.fillText(label, x - 50, 400);
+  renderActor(ctx, def, { t: 1.2, anim, animT: at, facing: face, speed: spd, phase: 1.4 }, x, 380, 3.1, null);
+  x += 190;
+}
+window.__stats = { errors, who };
+</script>
+</body></html>

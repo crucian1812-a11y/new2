@@ -751,11 +751,13 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M) {
     ctx.fillStyle = css(metL, 0.55);
     ctx.fill();
   } else if (helm === 'hood') {
+    // A deep cowl with a peak and a mantle over the shoulders.
     ctx.beginPath();
-    ctx.moveTo(H[0] - r * 1.18, H[1] + r * 0.9);
-    ctx.quadraticCurveTo(H[0] - r * 1.3, H[1] - r * 1.5, H[0], H[1] - r * 1.35);
-    ctx.quadraticCurveTo(H[0] + r * 1.3, H[1] - r * 1.5, H[0] + r * 1.18, H[1] + r * 0.9);
-    ctx.quadraticCurveTo(H[0], H[1] + r * 0.3, H[0] - r * 1.18, H[1] + r * 0.9);
+    ctx.moveTo(H[0] - r * 1.5, H[1] + r * 1.5);
+    ctx.quadraticCurveTo(H[0] - r * 1.55, H[1] - r * 1.5, H[0] - r * 0.15, H[1] - r * 1.62);
+    ctx.quadraticCurveTo(H[0] + r * 1.05, H[1] - r * 1.55, H[0] + r * 1.42, H[1] - r * 0.35);
+    ctx.quadraticCurveTo(H[0] + r * 1.62, H[1] + r * 0.9, H[0] + r * 1.5, H[1] + r * 1.5);
+    ctx.quadraticCurveTo(H[0], H[1] + r * 0.55, H[0] - r * 1.5, H[1] + r * 1.5);
     ctx.closePath();
     const g = ctx.createLinearGradient(H[0] - r, H[1] - r, H[0] + r, H[1] + r);
     g.addColorStop(0, css(tint(def.hoodLight || M.torsoLight)));
@@ -767,9 +769,9 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M) {
     if (front > 0.03) {
       ctx.save();
       ctx.globalAlpha = front;
-      ctx.fillStyle = 'rgba(6,6,10,0.82)';
+      ctx.fillStyle = 'rgba(6,6,10,0.85)';
       ctx.beginPath();
-      ctx.ellipse(H[0] - cosF * r * 0.25, H[1] + r * 0.05, r * 0.72, r * 0.8, 0, 0, TAU);
+      ctx.ellipse(H[0] - cosF * r * 0.3, H[1] + r * 0.12, r * 0.82, r * 0.92, 0, 0, TAU);
       ctx.fill();
       ctx.restore();
     }
@@ -814,36 +816,33 @@ function drawCape(ctx, P, D, def, st, s, cosF, sinF, px, py, tint) {
   const M = def.colors;
   const shL = P.shoulderL;
   const shR = P.shoulderR;
-  // The cape trails opposite to travel, and lifts when moving fast.
-  const drift = (st.speed || 0) * 12 + 2;
+
+  // A cloak hangs off the back. Facing the camera you should see only its
+  // edges past the shoulders; facing away it covers the whole figure.
+  const away = clamp01(0.5 - sinF * 0.5);
+  const widthK = 0.44 + 0.56 * away;
+  const lenK = 0.55 + 0.45 * away;
+
+  const cx = (shL[0] + shR[0]) / 2;
+  const lx = cx + (shL[0] - cx) * widthK;
+  const rx = cx + (shR[0] - cx) * widthK;
+  const topY = (shL[1] + shR[1]) / 2 - 2 * s;
+
+  // Trails opposite to travel and lifts when running.
+  const drift = (st.speed || 0) * 16 + 5;
   const flap = Math.sin(st.t * 6 + (st.phase || 0)) * 3 * (0.4 + (st.speed || 0));
-  const backX = -cosF * drift;
-  const backY = (-sinF * drift) * ISO_Y + drift * 0.35;
-  const len = (def.capeLen ?? 44) * s;
+  const backX = -cosF * drift * s;
+  const backY = (-sinF * drift * ISO_Y - drift * 0.5) * s;
+  const len = (def.capeLen ?? 44) * s * lenK;
 
   ctx.beginPath();
-  ctx.moveTo(shL[0], shL[1] - 2 * s);
-  ctx.lineTo(shR[0], shR[1] - 2 * s);
-  ctx.quadraticCurveTo(
-    shR[0] + backX * s * 0.6 + flap,
-    shR[1] + len * 0.55 + backY * s * 0.4,
-    shR[0] + backX * s + flap * 1.6,
-    shR[1] + len + backY * s
-  );
-  ctx.quadraticCurveTo(
-    (shL[0] + shR[0]) / 2 + backX * s,
-    shR[1] + len * 1.14 + backY * s,
-    shL[0] + backX * s - flap * 1.6,
-    shL[1] + len + backY * s
-  );
-  ctx.quadraticCurveTo(
-    shL[0] + backX * s * 0.6 - flap,
-    shL[1] + len * 0.55 + backY * s * 0.4,
-    shL[0],
-    shL[1] - 2 * s
-  );
+  ctx.moveTo(shL[0], topY);
+  ctx.lineTo(shR[0], topY);
+  ctx.quadraticCurveTo(rx + backX * 0.6 + flap, topY + len * 0.55 + backY * 0.4, rx + backX + flap * 1.6, topY + len + backY);
+  ctx.quadraticCurveTo(cx + backX, topY + len * 1.16 + backY, lx + backX - flap * 1.6, topY + len + backY);
+  ctx.quadraticCurveTo(lx + backX * 0.6 - flap, topY + len * 0.55 + backY * 0.4, shL[0], topY);
   ctx.closePath();
-  const g = ctx.createLinearGradient(shL[0], shL[1], shR[0], shR[1] + len);
+  const g = ctx.createLinearGradient(lx, topY, rx, topY + len);
   g.addColorStop(0, css(tint(def.capeColorLight || M.torsoLight)));
   g.addColorStop(0.5, css(tint(def.capeColor || M.torso)));
   g.addColorStop(1, css(tint(def.capeColorDark || M.torsoDark)));
@@ -855,8 +854,8 @@ function drawCape(ctx, P, D, def, st, s, cosF, sinF, px, py, tint) {
   for (let i = 1; i < 4; i++) {
     const t = i / 4;
     ctx.beginPath();
-    ctx.moveTo(lerp(shL[0], shR[0], t), lerp(shL[1], shR[1], t));
-    ctx.lineTo(lerp(shL[0], shR[0], t) + backX * s * 0.9, shR[1] + len * (0.9 + t * 0.1) + backY * s);
+    ctx.moveTo(lerp(shL[0], shR[0], t), topY);
+    ctx.lineTo(lerp(lx, rx, t) + backX * 0.9, topY + len * (0.9 + t * 0.1) + backY);
     ctx.stroke();
   }
 }
@@ -983,21 +982,41 @@ function drawWeapon(ctx, P, D, def, st, s, cosF, sinF, tint, emis) {
       emis(gx, gy, 9 * s, gem, 0.85);
     }
   } else if (w === 'bow') {
+    // Held across the body with the limbs upright, not as a hoop lying flat.
+    ctx.save();
+    ctx.rotate(-Math.PI / 2);
+    const R = L * 0.62;
+    const open = 1.15; // half-angle of the stave
     ctx.strokeStyle = css(wood);
-    ctx.lineWidth = 2.6 * s;
+    ctx.lineWidth = 2.8 * s;
+    ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(2 * s, 0, L * 0.55, -1.9, 1.9);
+    ctx.arc(0, 0, R, -open, open);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(220,214,196,0.6)';
-    ctx.lineWidth = 1 * s;
+    // Recurved tips
+    ctx.lineWidth = 2 * s;
+    for (const d of [-1, 1]) {
+      const ax = Math.cos(d * open) * R;
+      const ay = Math.sin(d * open) * R;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.quadraticCurveTo(ax - R * 0.16, ay + d * R * 0.22, ax - R * 0.32, ay + d * R * 0.3);
+      ctx.stroke();
+    }
+    // Grip
+    ctx.strokeStyle = css(tint(PAL.leatherDark));
+    ctx.lineWidth = 4 * s;
     ctx.beginPath();
-    const bx = 2 * s + Math.cos(-1.9) * L * 0.55;
-    const by = Math.sin(-1.9) * L * 0.55;
-    const bx2 = 2 * s + Math.cos(1.9) * L * 0.55;
-    const by2 = Math.sin(1.9) * L * 0.55;
-    ctx.moveTo(bx, by);
-    ctx.lineTo(bx2, by2);
+    ctx.arc(0, 0, R, -0.22, 0.22);
     ctx.stroke();
+    // String
+    ctx.strokeStyle = 'rgba(226,220,200,0.7)';
+    ctx.lineWidth = 1.1 * s;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(-open) * R - R * 0.32, Math.sin(-open) * R - R * 0.3);
+    ctx.lineTo(Math.cos(open) * R - R * 0.32, Math.sin(open) * R + R * 0.3);
+    ctx.stroke();
+    ctx.restore();
   } else if (w === 'claw') {
     ctx.strokeStyle = css(tint(PAL.bone));
     ctx.lineWidth = 2.2 * s;
