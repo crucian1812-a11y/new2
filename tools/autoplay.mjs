@@ -65,15 +65,126 @@ await page.evaluate(
     };
 
     const ISO_Y = 0.62;
-    // Steering carries a persistent angular offset that kicks in when the bot
-    // stops making progress, which is enough to walk around scenery.
-    const steer = (tx, ty, mag = 1) => {
+
+    // --- coarse grid pathfinding ------------------------------------------
+    // Reactive steering walks into every concave obstacle it meets, so the bot
+    // plans a route over a walkability grid rebuilt once per act.
+    const STEP = 40;
+    const grid = { act: -1, n: 0, open: null, half: 0 };
+    const buildGrid = () => {
+      const z = g.zone;
+      const half = z.half;
+      const n = Math.ceil((half * 2) / STEP);
+      const open = new Uint8Array(n * n);
+      for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+          open[j * n + i] = z.blocked(-half + i * STEP, -half + j * STEP, 26) ? 0 : 1;
+        }
+      }
+      grid.act = g.actIndex;
+      grid.n = n;
+      grid.open = open;
+      grid.half = half;
+    };
+
+    const cellOf = (v) => Math.round((v + grid.half) / STEP);
+    const worldOf = (i) => -grid.half + i * STEP;
+
+    const findPath = (tx, ty) => {
+      if (grid.act !== g.actIndex || !grid.open) buildGrid();
+      const n = grid.n;
+      const open = grid.open;
+      const idx = (i, j) => j * n + i;
+      const clampC = (v) => Math.max(0, Math.min(n - 1, v));
+      const si = clampC(cellOf(g.player.x));
+      const sj = clampC(cellOf(g.player.y));
+      let ti = clampC(cellOf(tx));
+      let tj = clampC(cellOf(ty));
+      // Nudge an unreachable goal to the nearest open cell.
+      if (!open[idx(ti, tj)]) {
+        let best = null;
+        let bd = 1e9;
+        for (let r = 1; r < 8 && !best; r++) {
+          for (let dj = -r; dj <= r; dj++) {
+            for (let di = -r; di <= r; di++) {
+              const a = clampC(ti + di);
+              const b = clampC(tj + dj);
+              if (!open[idx(a, b)]) continue;
+              const d = di * di + dj * dj;
+              if (d < bd) {
+                bd = d;
+                best = [a, b];
+              }
+            }
+          }
+        }
+        if (best) [ti, tj] = best;
+      }
+      const prev = new Int32Array(n * n).fill(-1);
+      const seen = new Uint8Array(n * n);
+      const q = [idx(si, sj)];
+      seen[q[0]] = 1;
+      let head = 0;
+      const goal = idx(ti, tj);
+      while (head < q.length) {
+        const cur = q[head++];
+        if (cur === goal) break;
+        const ci = cur % n;
+        const cj = (cur / n) | 0;
+        for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const a = ci + di;
+          const b = cj + dj;
+          if (a < 0 || b < 0 || a >= n || b >= n) continue;
+          const k = idx(a, b);
+          if (seen[k] || !open[k]) continue;
+          seen[k] = 1;
+          prev[k] = cur;
+          q.push(k);
+        }
+      }
+      if (!seen[goal]) return null;
+      const out = [];
+      let cur = goal;
+      while (cur !== -1 && cur !== idx(si, sj)) {
+        out.push({ x: worldOf(cur % n), y: worldOf((cur / n) | 0) });
+        cur = prev[cur];
+      }
+      out.reverse();
+      return out;
+    };
+
+    const steerRaw = (tx, ty, mag = 1) => {
       const dx = tx - g.player.x;
       const dy = (ty - g.player.y) * ISO_Y;
-      let a = Math.atan2(dy, dx) + (bot.offset || 0);
+      const a = Math.atan2(dy, dx);
       bot.mx = Math.cos(a);
       bot.my = Math.sin(a);
       bot.mag = mag;
+    };
+
+    // Steers along a planned route, replanning when the goal moves or stalls.
+    const steer = (tx, ty, mag = 1) => {
+      const p = g.player;
+      const near = Math.hypot(tx - p.x, ty - p.y) < 180;
+      if (near) {
+        bot.path = null;
+        steerRaw(tx, ty, mag);
+        return;
+      }
+      const moved = !bot.goal || Math.hypot(bot.goal.x - tx, bot.goal.y - ty) > 140;
+      if (moved || !bot.path || bot.replan <= 0) {
+        bot.goal = { x: tx, y: ty };
+        bot.path = findPath(tx, ty);
+        bot.replan = 2.5;
+      }
+      bot.replan -= 1 / 60;
+      const path = bot.path;
+      if (!path || !path.length) {
+        steerRaw(tx, ty, mag);
+        return;
+      }
+      while (path.length > 1 && Math.hypot(path[0].x - p.x, path[0].y - p.y) < STEP * 1.2) path.shift();
+      steerRaw(path[0].x, path[0].y, mag);
     };
 
     let think = 0;
@@ -161,27 +272,26 @@ await page.evaluate(
         }
       }
 
-      // Progress check: no forward motion means lean harder to one side and
-      // keep leaning until the way clears.
+      // If the route still fails to produce motion, force a replan and, after
+      // long enough, pick a different objective entirely.
       const moved = Math.hypot(p.x - bot.lastX, p.y - bot.lastY);
       bot.lastX = p.x;
       bot.lastY = p.y;
       if (moved < 0.6 && bot.mag > 0.1) {
         bot.stuckT += 1 / 60;
-        if (bot.stuckT > 0.35) {
-          if (!bot.offset) bot.side = Math.random() < 0.5 ? 1 : -1;
-          bot.offset = Math.max(-2.4, Math.min(2.4, (bot.offset || 0) + bot.side * 0.9 * (1 / 60) * 6));
+        if (bot.stuckT > 1.0) {
+          bot.replan = 0;
+          bot.path = null;
         }
-        if (bot.stuckT > 4) {
+        if (bot.stuckT > 5) {
           bot.stuckT = 0;
-          bot.offset = 0;
-          bot.side = -(bot.side || 1);
           bot.target = null;
+          bot.goal = null;
+          bot.mx = Math.cos(Math.random() * Math.PI * 2);
+          bot.my = Math.sin(Math.random() * Math.PI * 2);
         }
       } else {
         bot.stuckT = 0;
-        bot.offset = (bot.offset || 0) * 0.97;
-        if (Math.abs(bot.offset) < 0.02) bot.offset = 0;
       }
     };
     requestAnimationFrame(tick);
