@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>preview</title>
+<style>body{margin:0;background:#111;color:#ccc;font:12px monospace}canvas{display:block;image-rendering:auto}h3{margin:6px}</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+import { seedNoise } from './src/render/noise.js';
+import { getMaterial, MATERIALS } from './src/render/textures.js';
+import { getProp, PROP_DEFS } from './src/render/props.js';
+
+seedNoise(1234);
+const out = document.getElementById('out');
+const errors = [];
+window.addEventListener('error', e => errors.push(String(e.message)));
+
+function section(t){ const h=document.createElement('h3'); h.textContent=t; out.appendChild(h); }
+
+section('materials');
+const row = document.createElement('div');
+row.style.display='flex'; row.style.flexWrap='wrap'; row.style.gap='4px';
+out.appendChild(row);
+const t0 = performance.now();
+for (const name of Object.keys(MATERIALS)) {
+  const wrap=document.createElement('div');
+  const c = getMaterial(name, 192);
+  wrap.appendChild(c);
+  const l=document.createElement('div'); l.textContent=name; wrap.appendChild(l);
+  row.appendChild(wrap);
+}
+const t1 = performance.now();
+
+section('props (' + Math.round(t1-t0) + 'ms materials)');
+const row2 = document.createElement('div');
+row2.style.display='flex'; row2.style.flexWrap='wrap'; row2.style.gap='6px';
+row2.style.background='#2a2a2a';
+row2.style.alignItems='flex-end';
+out.appendChild(row2);
+const t2 = performance.now();
+for (const name of Object.keys(PROP_DEFS)) {
+  const s = getProp(name, 0);
+  const wrap=document.createElement('div');
+  wrap.style.textAlign='center';
+  const cc = document.createElement('canvas');
+  const sc = Math.min(1, 170/Math.max(s.w,s.h));
+  cc.width = s.w*sc; cc.height=s.h*sc;
+  cc.getContext('2d').drawImage(s.canvas,0,0,cc.width,cc.height);
+  wrap.appendChild(cc);
+  const l=document.createElement('div'); l.textContent=name; wrap.appendChild(l);
+  row2.appendChild(wrap);
+}
+const t3 = performance.now();
+window.__stats = { materialMs: t1-t0, propMs: t3-t2, errors };
+document.title = 'ok';
+</script>
+</body>
+</html>

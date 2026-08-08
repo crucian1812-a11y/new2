@@ -1,0 +1,123 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>actors</title>
+<style>body{margin:0;background:#1b1e22;color:#bbb;font:11px monospace}canvas{display:block}</style>
+</head><body>
+<canvas id="c" width="1400" height="900"></canvas>
+<script type="module">
+import { renderActor } from './src/render/actors.js';
+import { PAL, hex } from './src/render/palette.js';
+
+const errors=[];
+window.addEventListener('error', e=>errors.push(String(e.message)));
+window.addEventListener('unhandledrejection', e=>errors.push(String(e.reason)));
+
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+ctx.fillStyle='#20242a'; ctx.fillRect(0,0,c.width,c.height);
+
+const knight = {
+  plan:'humanoid', helm:'greathelm', torso:'surcoat', weapon:'sword', offhand:'shield',
+  cape:true, pauldrons:true, weaponHand:'R', weaponLen:42, capeLen:46,
+  capeColor:hex('#cfcabb'), capeColorLight:hex('#e9e6dc'), capeColorDark:hex('#6b6a62'),
+  shieldColor:hex('#ded9cb'), shieldEmblem:PAL.orderBlack,
+  colors:{
+    torso:hex('#d8d3c4'), torsoLight:hex('#f0ece0'), torsoDark:hex('#8a877c'),
+    arms:hex('#7f8794'), armsLight:hex('#c3cbd6'), armsDark:hex('#3a404a'),
+    legs:hex('#6d7480'), legsLight:hex('#a9b2bd'), legsDark:hex('#31363e'),
+    boots:hex('#3a2e22'), metal:hex('#8a94a3'), metalDark:hex('#3b424e'), metalLight:hex('#d3dbe6'),
+    skin:hex('#c9a488'), skinLight:hex('#e6c8ab'), skinDark:hex('#7a5a44'), belt:hex('#3a2a1c'),
+    emblem:PAL.orderBlack,
+  }
+};
+const ranger = {
+  plan:'humanoid', helm:'hood', torso:'fur', weapon:'axe', offhand:'torch', cape:false,
+  weaponHand:'R', weaponLen:34, hood:hex('#3d4a33'), hoodLight:hex('#6a7a55'),
+  colors:{
+    torso:hex('#5a4a34'), torsoLight:hex('#84毛6a'.replace('毛','7')), torsoDark:hex('#2a2318'),
+    arms:hex('#8a6f52'), armsLight:hex('#c0a081'), armsDark:hex('#3e3122'),
+    legs:hex('#4a4030'), legsLight:hex('#7a6c52'), legsDark:hex('#241f16'),
+    boots:hex('#31261a'), metal:hex('#7d8590'), metalDark:hex('#343a42'), metalLight:hex('#c4ccd6'),
+    skin:hex('#c9a488'), skinLight:hex('#e6c8ab'), skinDark:hex('#7a5a44'), belt:hex('#2e2316'),
+  }
+};
+const witch = {
+  plan:'humanoid', helm:'none', hair:hex('#2b2118'), torso:'robe', weapon:'staff', offhand:'orb',
+  cape:true, weaponHand:'R', weaponLen:52, capeLen:52, gem:PAL.amber,
+  capeColor:hex('#4a3a58'), capeColorLight:hex('#6f5a80'), capeColorDark:hex('#231a2c'),
+  colors:{
+    torso:hex('#4e4058'), torsoLight:hex('#7a6688'), torsoDark:hex('#241c2c'),
+    arms:hex('#c9a488'), armsLight:hex('#e6c8ab'), armsDark:hex('#7a5a44'),
+    legs:hex('#3a3044'), legsLight:hex('#5e5070'), legsDark:hex('#1c1622'),
+    boots:hex('#2a2118'), metal:hex('#8a94a3'), metalDark:hex('#3b424e'), metalLight:hex('#d3dbe6'),
+    skin:hex('#c9a488'), skinLight:hex('#e6c8ab'), skinDark:hex('#7a5a44'), belt:hex('#3a2a1c'),
+  }
+};
+const skeleton = {
+  plan:'humanoid', helm:'skull', torso:'mail', weapon:'spear', offhand:'none', cape:false,
+  weaponHand:'R', weaponLen:44, glowEyes:hex('#8fd6ff'),
+  colors:{
+    torso:hex('#4a4a52'), torsoLight:hex('#7d7d88'), torsoDark:hex('#1e1e24'),
+    arms:hex('#c8bda4'), armsLight:hex('#e2d8c0'), armsDark:hex('#6e6552'),
+    legs:hex('#c8bda4'), legsLight:hex('#e2d8c0'), legsDark:hex('#6e6552'),
+    boots:hex('#2a241c'), metal:hex('#7d8590'), metalDark:hex('#343a42'), metalLight:hex('#c4ccd6'),
+    skin:hex('#ded3ba'), skinLight:hex('#f0e8d4'), skinDark:hex('#8d8267'), belt:hex('#2e2316'),
+  }
+};
+const wolf = {
+  plan:'quadruped', shaggy:true, glowEyes:hex('#ffd06a'),
+  build:{bodyLen:52, bodyH:36, legLen:24, headFwd:40, headH:38},
+  colors:{
+    torso:hex('#4a4237'), torsoLight:hex('#7d7462'), torsoDark:hex('#211d17'),
+    legs:hex('#3e372e'), legsLight:hex('#6a6154'), legsDark:hex('#191612'),
+  }
+};
+const wraith = {
+  plan:'wraith', ghostly:true, glowEyes:PAL.bogfire, build:{height:96},
+  colors:{
+    torso:hex('#33474a'), torsoLight:hex('#6d8a86'), torsoDark:hex('#111a1c'),
+    legs:hex('#9fb8b0'),
+  }
+};
+
+const defs = [
+  ['Ordensritter', knight, 1.5],
+  ['Waldläufer', ranger, 1.5],
+  ['Bernsteinhexe', witch, 1.5],
+  ['Skelett', skeleton, 1.5],
+  ['Wolf', wolf, 1.5],
+  ['Sumpfgeist', wraith, 1.5],
+];
+
+const anims = [
+  ['idle', 0, 0],
+  ['run', 0, 1],
+  ['attack:0.45', 0.45, 0],
+  ['cast:0.5', 0.5, 0],
+];
+
+ctx.font = '12px monospace';
+let y = 130;
+for (const [name, def, s] of defs) {
+  let x = 110;
+  ctx.fillStyle='#8899aa';
+  ctx.fillText(name, 10, y);
+  for (const [label, at, spd] of anims) {
+    const anim = label.split(':')[0];
+    const st = { t: 1.2, anim: anim==='run'?'idle':anim, animT: at, facing: -0.6, speed: spd, phase: 1.4, flash:0, alpha:1 };
+    ctx.fillStyle='#556';
+    ctx.fillText(label, x-40, y+16);
+    renderActor(ctx, def, st, x, y, s, null);
+    x += 130;
+  }
+  // facing sweep
+  for (let i=0;i<8;i++){
+    const f = i/8*Math.PI*2;
+    const st = { t: 1.2, anim:'idle', animT:0, facing:f, speed:0.9, phase: 1.4 };
+    renderActor(ctx, def, st, x, y, s*0.9, null);
+    x += 78;
+  }
+  y += 150;
+}
+window.__stats = { errors };
+</script>
+</body></html>
