@@ -111,3 +111,10 @@ node tools/ablate.mjs                       # which render stage costs what
 
 `tools/preview-art.html` and `tools/preview-actors.html` render every material,
 prop and character rig on one page, which is the fastest way to iterate on art.
+
+Beyond the scripted checks, a bot plays the game the way a player would —
+walking, dodging, spending skills off cooldown, drinking, picking up loot. The
+finale was signed off that way: `autoplay.mjs` took a level 36 knight into act
+V, ground out the 52-kill quota to level 40, and killed Perkūnas (48 599 life)
+in a 351-second run with one death, ending on the victory screen. The balance
+numbers in `content.js` are what came out of that loop, not out of a spreadsheet.

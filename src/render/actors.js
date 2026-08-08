@@ -436,6 +436,14 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
       ctx.ellipse(S[0] - 1.8 * s, S[1] - 3.4 * s, 5.2 * s * lw, 3.2 * s * lw, 0, 0, TAU);
       ctx.fillStyle = css(tint(M.metalLight), 0.45);
       ctx.fill();
+      if (def.runes) {
+        // Light caught in the groove around the rim of the shoulder plate.
+        ctx.beginPath();
+        ctx.ellipse(S[0], S[1] - 1.5 * s, 8.4 * s * lw, 6.4 * s * lw, 0, 0.5, Math.PI - 0.5);
+        ctx.strokeStyle = css(def.runes.color, 0.8);
+        ctx.lineWidth = 1.3 * s;
+        ctx.stroke();
+      }
     }
     // Hand
     const Hd = P['hand' + side];
@@ -449,7 +457,7 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
 
   // Torso + head
   push(0, () => {
-    drawTorso(ctx, P, D, def, s, tint, rimC, rimA);
+    drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis);
     drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA);
   });
 
@@ -483,7 +491,58 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
 // Body pieces
 // ---------------------------------------------------------------------------
 
-function drawTorso(ctx, P, D, def, s, tint, rimC, rimA) {
+/**
+ * Carved sigils that glow through the armour. Drawn in the torso's local
+ * frame: `u` runs across the chest, `v` from collar (0) to belt (1).
+ */
+function drawRunes(ctx, P, def, s, emis) {
+  const R = def.runes;
+  const shL = P.shoulderL;
+  const shR = P.shoulderR;
+  const hipL = P.hipL;
+  const hipR = P.hipR;
+  const at = (u, v) => [
+    lerp(lerp(shL[0], shR[0], u), lerp(hipL[0], hipR[0], u), v),
+    lerp(lerp(shL[1], shR[1], u), lerp(hipL[1], hipR[1], u), v),
+  ];
+  // Two columns of short strokes — a lightning ladder, not readable script.
+  const strokes = [
+    [0.5, 0.18, 0, -3.2, 0, 3.2],
+    [0.5, 0.18, 0, -3.2, -2.6, -0.4],
+    [0.5, 0.18, 0, -3.2, 2.6, -0.4],
+    [0.36, 0.42, 0, -2.6, 2.2, 0],
+    [0.36, 0.42, 2.2, 0, 0, 2.6],
+    [0.64, 0.42, 0, -2.6, -2.2, 0],
+    [0.64, 0.42, -2.2, 0, 0, 2.6],
+    [0.5, 0.66, -2.4, -2.2, 0, 0],
+    [0.5, 0.66, 0, 0, 2.4, 2.2],
+    [0.5, 0.66, 0, 0, 2.4, -2.2],
+  ];
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // A dark groove under the light sells the idea that the metal is cut, not
+  // painted; the glow then looks like something behind the plate.
+  for (const pass of [
+    [css(PAL.orderBlack ?? [0, 0, 0], 0.55), 2.6, 1.2, 1.2],
+    [css(R.color, 0.95), 1.5, 0, 0],
+  ]) {
+    ctx.strokeStyle = pass[0];
+    ctx.lineWidth = pass[1] * s;
+    for (const [u, v, ax, ay, bx, by] of strokes) {
+      const o = at(u, v);
+      ctx.beginPath();
+      ctx.moveTo(o[0] + ax * s + pass[2], o[1] + ay * s + pass[3]);
+      ctx.lineTo(o[0] + bx * s + pass[2], o[1] + by * s + pass[3]);
+      ctx.stroke();
+    }
+  }
+  if (emis) {
+    const c = at(0.5, 0.42);
+    emis(c[0], c[1], 16 * s, R.color, R.glow ?? 0.5);
+  }
+}
+
+function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
   const M = def.colors;
   const hipL = P.hipL;
   const hipR = P.hipR;
@@ -551,6 +610,7 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA) {
     sg.addColorStop(0.5, 'rgba(255,255,255,0)');
     ctx.fillStyle = sg;
     ctx.fillRect(shL[0] - 20 * s, shL[1] - 10 * s, 40 * s, 60 * s);
+    if (def.runes) drawRunes(ctx, P, def, s, emis);
   } else if (def.torso === 'surcoat') {
     // The Order's black cross on white linen.
     const cx = lerp(P.chest[0], P.hip[0], 0.42);
@@ -937,12 +997,11 @@ function drawWeapon(ctx, P, D, def, st, s, cosF, sinF, tint, emis) {
     ctx.fillStyle = g;
     ctx.fill();
   } else if (w === 'mace') {
+    // Haft with an iron ferrule, then the flanged head.
     ctx.fillStyle = css(wood);
     ctx.fillRect(-9 * s, -1.8 * s, L * 0.78, 3.6 * s);
-    ctx.fillStyle = css(metal);
-    ctx.beginPath();
-    ctx.arc(L * 0.82, 0, 6 * s, 0, TAU);
-    ctx.fill();
+    ctx.fillStyle = css(metalD);
+    ctx.fillRect(L * 0.62, -2.3 * s, 5 * s, 4.6 * s);
     ctx.fillStyle = css(metalD);
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * TAU;
@@ -952,6 +1011,41 @@ function drawWeapon(ctx, P, D, def, st, s, cosF, sinF, tint, emis) {
       ctx.lineTo(L * 0.82 + Math.cos(a + 0.5) * 5 * s, Math.sin(a + 0.5) * 5 * s);
       ctx.closePath();
       ctx.fill();
+    }
+    const hg = ctx.createRadialGradient(
+      L * 0.82 - 2 * s,
+      -2 * s,
+      0.5 * s,
+      L * 0.82,
+      0,
+      6.5 * s
+    );
+    hg.addColorStop(0, css(metalL));
+    hg.addColorStop(0.6, css(metal));
+    hg.addColorStop(1, css(metalD));
+    ctx.fillStyle = hg;
+    ctx.beginPath();
+    ctx.arc(L * 0.82, 0, 6 * s, 0, TAU);
+    ctx.fill();
+    if (def.weaponGlow) {
+      // Something is loose inside the head, and it wants out.
+      ctx.strokeStyle = css(def.weaponGlow, 0.85);
+      ctx.lineWidth = 1.4 * s;
+      for (let i = 0; i < 3; i++) {
+        const a = i * 2.1 + 0.4;
+        ctx.beginPath();
+        ctx.arc(L * 0.82, 0, 4.2 * s, a, a + 1.1);
+        ctx.stroke();
+      }
+      ctx.fillStyle = css(def.weaponGlow, 0.9);
+      ctx.beginPath();
+      ctx.arc(L * 0.82, 0, 1.9 * s, 0, TAU);
+      ctx.fill();
+      if (emis) {
+        const wx = Hd[0] + Math.cos(ang) * L * 0.82;
+        const wy = Hd[1] + Math.sin(ang) * L * 0.82;
+        emis(wx, wy, 13 * s, def.weaponGlow, 0.8);
+      }
     }
   } else if (w === 'spear') {
     ctx.fillStyle = css(wood);
