@@ -1465,8 +1465,8 @@ function drawCrate(rng) {
 }
 
 function drawStandingStone(rng) {
-  const H = rng.range(140, 200);
-  const w = Math.ceil(H * 0.6);
+  const H = rng.range(116, 164);
+  const w = Math.ceil(H * 0.58);
   const h = Math.ceil(H + 20);
   return sprite(w, h, w / 2, h - 10, (ctx, ectx, lights) => {
     const cx = w / 2;
@@ -1481,9 +1481,9 @@ function drawStandingStone(rng) {
     ctx.lineTo(cx + w * 0.27, baseY);
     ctx.closePath();
     const g = ctx.createLinearGradient(cx - w * 0.3, 0, cx + w * 0.3, 0);
-    g.addColorStop(0, css(hex('#797d84')));
-    g.addColorStop(0.42, css(hex('#4c5055')));
-    g.addColorStop(1, css(hex('#22262a')));
+    g.addColorStop(0, css(hex('#4e5359')));
+    g.addColorStop(0.42, css(hex('#2f3338')));
+    g.addColorStop(1, css(hex('#15181b')));
     ctx.fillStyle = g;
     ctx.fill();
     ctx.clip();
@@ -1523,10 +1523,10 @@ function drawStandingStone(rng) {
       }
       c2.stroke();
     };
-    traceRunes(ctx, 'rgba(9,11,15,0.85)', 5);
-    traceRunes(ctx, css(PAL.thunder, 0.7), 2.2);
-    if (ectx) traceRunes(ectx, css(PAL.thunder, 0.85), 3.6);
-    lights.push({ x: cx, y: baseY - H * 0.5, r: 190, color: PAL.thunder, i: 0.45, flicker: 0.25 });
+    traceRunes(ctx, 'rgba(9,11,15,0.9)', 5);
+    traceRunes(ctx, css(PAL.thunder, 0.34), 1.8);
+    if (ectx) traceRunes(ectx, css(PAL.thunder, 0.4), 2.6);
+    lights.push({ x: cx, y: baseY - H * 0.5, r: 150, color: PAL.thunder, i: 0.22, flicker: 0.25 });
   }, { radius: w * 0.26, solid: true, emissive: true });
 }
 

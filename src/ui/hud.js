@@ -4,7 +4,7 @@
 import { clamp01, TAU, fmtNum } from '../core/math.js';
 import { css, mixc, hex, PAL } from '../render/palette.js';
 import { CLASSES, SKILLS, SLOTS, xpForLevel, MAX_LEVEL } from '../game/content.js';
-import { formatStat, damageRange } from '../game/loot.js';
+import { formatStat, damageRange, itemScore } from '../game/loot.js';
 import { drawItemGlyph } from '../game/game.js';
 import { audio } from '../core/audio.js';
 import { renderActor } from '../render/actors.js';
@@ -301,9 +301,11 @@ export class HUD {
         flash: 0,
         alpha: 1,
       },
+      // Positioned so the medallion frames a head-and-shoulders bust: the
+      // feet sit well below the disc and the clip does the cropping.
       (x + R) * k,
-      (y + R * 2.5) * k,
-      R * 0.031 * k,
+      (y + R * 5.0) * k,
+      R * 0.046 * k,
       null
     );
     // Vignette inside the medallion so the figure sits in it.
@@ -1043,14 +1045,39 @@ export class HUD {
     const col = g.rarityColor(item.rarity);
     this.panelBg(ctx, x, y, w, h, { border: css(col, 0.6) });
     this.text(ctx, item.name, x + 8, y + 15, { size: 11, color: col, weight: 700 });
+
+    // Compare against what is currently in that slot.
+    const equippedHere = g.player.equipment[item.slot];
+    const isWorn = equippedHere === item;
+    const delta = (now, was) => {
+      if (isWorn || !equippedHere || now === was) return null;
+      const d = Math.round(now - was);
+      if (d === 0) return null;
+      return { txt: (d > 0 ? '+' : '') + d, col: d > 0 ? hex('#6fd07a') : hex('#d07a6f') };
+    };
+
     let ly = y + 28;
     if (item.dmg) {
       this.text(ctx, `${item.dmg[0]}–${item.dmg[1]} Schaden`, x + 8, ly, { size: 10, color: [220, 216, 200] });
+      const d = delta(
+        (item.dmg[0] + item.dmg[1]) / 2,
+        equippedHere?.dmg ? (equippedHere.dmg[0] + equippedHere.dmg[1]) / 2 : 0
+      );
+      if (d) this.text(ctx, d.txt, x + 104, ly, { size: 10, color: d.col });
       ly += 12;
     }
     if (item.armorBase) {
       this.text(ctx, `${item.armorBase} Rüstung`, x + 8, ly, { size: 10, color: [220, 216, 200] });
+      const d = delta(item.armorBase, equippedHere?.armorBase || 0);
+      if (d) this.text(ctx, d.txt, x + 104, ly, { size: 10, color: d.col });
       ly += 12;
+    }
+    if (!isWorn && equippedHere) {
+      const better = itemScore(item, g.cls) - itemScore(equippedHere, g.cls);
+      this.text(ctx, better > 0 ? '▲ Verbesserung' : better < 0 ? '▼ Schlechter' : '= Gleichwertig', x + 8, ly, {
+        size: 9.5,
+        color: better > 0 ? hex('#6fd07a') : better < 0 ? hex('#a8a190') : [150, 146, 136],
+      });
     }
     let sx = x + w * 0.42;
     let sy = y + 28;

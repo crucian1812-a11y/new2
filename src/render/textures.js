@@ -137,8 +137,8 @@ const C = {
   needle: hex('#3b3a22'),
   mud: hex('#3d3024'),
   mudWet: hex('#241c14'),
-  peat: hex('#211a13'),
-  peatLight: hex('#3a2c1c'),
+  peat: hex('#2a2118'),
+  peatLight: hex('#4a3826'),
   sphagnum: hex('#5c6b32'),
   sphagnumRed: hex('#6e3a25'),
   bogWater: hex('#141d1c'),
@@ -343,8 +343,8 @@ export const MATERIALS = {
     bump: 2.4,
     spec: 0.22,
     specPow: 30,
-    ambient: 0.5,
-    aoStrength: 0.55,
+    ambient: 0.62,
+    aoStrength: 0.5,
     height: (u, v, F) => {
       const hummock = fbmTile(u * 1.6, v * 1.6, F, 4) * 0.5 + 0.5;
       const fibre = fbmTile(u * 18, v * 6, F * 18, 2) * 0.5 + 0.5;
@@ -382,11 +382,13 @@ export const MATERIALS = {
     spec: 0.12,
     aoStrength: 0.5,
     height: (u, v, F) => {
-      // Structured slabs: a jittered brick grid with worn bevels.
-      const rowH = 0.5;
+      // Structured slabs: a jittered grid with worn bevels. Cells are taller
+      // than they are wide in texture space, because the 2.5D squash
+      // compresses them vertically — on screen they come out square.
+      const rowH = 0.82;
       const row = Math.floor(v / rowH);
       const off = (row % 2) * 0.25 + h21(row, 7) * 0.2;
-      const cellW = 0.66;
+      const cellW = 0.52;
       const cu = (u + off) / cellW;
       const ci = Math.floor(cu);
       const fu = cu - ci;
@@ -403,10 +405,10 @@ export const MATERIALS = {
       return clamp01(edge * slabH + wear * 0.14 + chip * 0.08);
     },
     color: (h, u, v, F) => {
-      const rowH = 0.5;
+      const rowH = 0.82;
       const row = Math.floor(v / rowH);
       const off = (row % 2) * 0.25 + h21(row, 7) * 0.2;
-      const ci = Math.floor((u + off) / 0.66);
+      const ci = Math.floor((u + off) / 0.52);
       const tone = h21(ci * 1.7, row * 3.1);
       const warm = h21(ci * 5.3 + 2, row * 1.9);
       let c = mixc(C.stoneDark, C.stone, 0.3 + tone * 0.7);

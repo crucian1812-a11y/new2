@@ -1314,7 +1314,9 @@ export const SUFFIX_PLACES = [
 export const MAX_LEVEL = 40;
 
 export function xpForLevel(level) {
-  return Math.round(58 * Math.pow(level, 1.72) + 34 * level);
+  // Tuned so a straight run through the five acts lands around level 30, and
+  // the Eternal Hunt carries the last stretch to 40.
+  return Math.round(46 * Math.pow(level, 1.55) + 30 * level);
 }
 
 export function monsterLevelFor(actIndex, progress) {

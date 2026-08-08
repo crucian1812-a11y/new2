@@ -321,7 +321,9 @@ export class Game {
     const byAct = lerp(a[0], a[1], t);
     // The act sets the floor, the player's own level the ceiling. Without the
     // cap an under-levelled player meets monsters eight tiers above them.
-    return Math.round(clamp(Math.min(byAct, this.player.level + 3), a[0], a[1]));
+    // The player's own level is the ceiling and it wins even over the act's
+    // floor — falling behind must never mean facing enemies nine tiers up.
+    return Math.max(1, Math.round(Math.min(byAct, this.player.level + 3)));
   }
 
   spawnMonster(defId, x, y, opts = {}) {
@@ -357,7 +359,7 @@ export class Game {
       speed: def.speed * (elite ? 1.1 : 1) * (opts.speedMul ?? 1),
       radius: def.radius * (elite ? 1.22 : 1),
       size: def.size * (elite ? 1.24 : 1),
-      xp: Math.round(def.xp * (1 + 0.55 * t) * (elite ? 3.2 : 1)),
+      xp: Math.round(def.xp * (1 + 0.9 * t) * (elite ? 3.2 : 1)),
       attackCd: 0,
       windup: 0,
       windupMax: 0,
