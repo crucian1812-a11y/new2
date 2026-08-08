@@ -89,13 +89,24 @@ tools/                Playwright drivers for screenshots, benchmarks, autoplay
 
 ## Development tools
 
+Serve the folder, then:
+
 ```bash
-node tools/play.mjs  out --script fight     # screenshots of a scripted fight
+node tools/verify.mjs                       # lint + navigation + skills + audio + save
 node tools/autoplay.mjs out --acts 5        # a bot plays the campaign for real
+node tools/play.mjs  out --script fight     # screenshots of a scripted fight
 node tools/bench.mjs                        # frame rate at each quality tier
 node tools/ablate.mjs                       # which render stage costs what
-npx eslint .
 ```
+
+`verify.mjs` bundles the checks that must stay green:
+
+| check | what it proves |
+|---|---|
+| `nav-check` | every act's walkable space is one connected region, and the start, camps, shrines, chests and boss arena are all reachable |
+| `skills-check` | all twelve class skills and all thirteen boss abilities run in every act without throwing |
+| `audio-check` | the synthesised music and each sound effect produce measurable signal, and muting is silent |
+| `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
 
 `tools/preview-art.html` and `tools/preview-actors.html` render every material,
 prop and character rig on one page, which is the fastest way to iterate on art.
