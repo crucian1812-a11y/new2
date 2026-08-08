@@ -483,6 +483,23 @@ export class Game {
     const ang = opts.angle ?? Math.atan2(m.y - this.player.y, m.x - this.player.x);
     this.fx.blood(m.x, m.y, m.size * 0.5, Math.cos(ang), Math.sin(ang), opts.crit ? 18 : 9, opts.bloodColor || PAL.blood);
     if (opts.sparkColor) this.fx.sparks(m.x, m.y, m.size * 0.5, Math.cos(ang), Math.sin(ang), 8, opts.sparkColor);
+    // A hot flash exactly where the blow landed.
+    this.fx.spawn({
+      kind: 'ember',
+      x: m.x - Math.cos(ang) * m.radius * 0.6,
+      y: m.y - Math.sin(ang) * m.radius * 0.6,
+      z: m.size * 0.5,
+      vx: 0,
+      vy: 0,
+      vz: 0,
+      life: opts.crit ? 0.2 : 0.12,
+      maxLife: opts.crit ? 0.2 : 0.12,
+      size: opts.crit ? 13 : 8,
+      color: opts.crit ? [255, 226, 170] : [255, 244, 226],
+      grav: 0,
+      drag: 0,
+      glow: true,
+    });
 
     audio.play(opts.crit ? 'crit' : m.def.hitSound || 'hitFlesh');
     this.hitStop = Math.max(this.hitStop, opts.crit ? 0.075 : 0.038);
@@ -982,13 +999,13 @@ export class Game {
           any = true;
         }
       }
-      // Slash arc on the ground for readability
-      this.fx.ring(p.x + Math.cos(ang) * 34, p.y + Math.sin(ang) * 34, {
-        r0: 12,
-        r1: sk.range * 0.85,
-        life: 0.22,
+      // The crescent the blade cut through the air.
+      this.fx.slash(p.x, p.y, 44, ang, sk.range * 0.92, {
+        arc: sk.arc,
+        dir: p.attackChain ? 1 : -1,
         color: sk.color,
-        width: 4,
+        life: 0.26,
+        thickness: 0.34,
       });
       if (!any) audio.play('swing', { vol: 0.6 });
     } else if (sk.kind === 'projectile') {

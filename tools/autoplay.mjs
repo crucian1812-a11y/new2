@@ -65,12 +65,14 @@ await page.evaluate(
     };
 
     const ISO_Y = 0.62;
+    // Steering carries a persistent angular offset that kicks in when the bot
+    // stops making progress, which is enough to walk around scenery.
     const steer = (tx, ty, mag = 1) => {
       const dx = tx - g.player.x;
       const dy = (ty - g.player.y) * ISO_Y;
-      const l = Math.hypot(dx, dy) || 1;
-      bot.mx = dx / l;
-      bot.my = dy / l;
+      let a = Math.atan2(dy, dx) + (bot.offset || 0);
+      bot.mx = Math.cos(a);
+      bot.my = Math.sin(a);
       bot.mag = mag;
     };
 
@@ -159,26 +161,28 @@ await page.evaluate(
         }
       }
 
-      // Unstick: commit to a sidestep for a while, otherwise the steering
-      // immediately walks back into the same tree.
-      if (bot.evade > 0) {
-        bot.evade -= 1 / 60;
-        bot.mx = Math.cos(bot.evadeA);
-        bot.my = Math.sin(bot.evadeA);
-        bot.mag = 1;
-      }
+      // Progress check: no forward motion means lean harder to one side and
+      // keep leaning until the way clears.
       const moved = Math.hypot(p.x - bot.lastX, p.y - bot.lastY);
       bot.lastX = p.x;
       bot.lastY = p.y;
-      if (moved < 0.5 && bot.mag > 0.1) {
+      if (moved < 0.6 && bot.mag > 0.1) {
         bot.stuckT += 1 / 60;
-        if (bot.stuckT > 0.7) {
+        if (bot.stuckT > 0.35) {
+          if (!bot.offset) bot.side = Math.random() < 0.5 ? 1 : -1;
+          bot.offset = Math.max(-2.4, Math.min(2.4, (bot.offset || 0) + bot.side * 0.9 * (1 / 60) * 6));
+        }
+        if (bot.stuckT > 4) {
           bot.stuckT = 0;
-          bot.evade = 0.9;
-          bot.evadeA = Math.atan2(bot.my, bot.mx) + (Math.random() < 0.5 ? 1.3 : -1.3);
+          bot.offset = 0;
+          bot.side = -(bot.side || 1);
           bot.target = null;
         }
-      } else bot.stuckT = 0;
+      } else {
+        bot.stuckT = 0;
+        bot.offset = (bot.offset || 0) * 0.97;
+        if (Math.abs(bot.offset) < 0.02) bot.offset = 0;
+      }
     };
     requestAnimationFrame(tick);
   },

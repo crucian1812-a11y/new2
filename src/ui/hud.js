@@ -7,6 +7,7 @@ import { CLASSES, SKILLS, SLOTS, xpForLevel, MAX_LEVEL } from '../game/content.j
 import { formatStat, damageRange } from '../game/loot.js';
 import { drawItemGlyph } from '../game/game.js';
 import { audio } from '../core/audio.js';
+import { renderActor } from '../render/actors.js';
 
 const FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
 const SERIF = 'Georgia, "Times New Roman", serif';
@@ -156,6 +157,7 @@ export class HUD {
       this.drawSkillBar(ctx);
       this.drawBossBar(ctx);
       this.drawWaypoint(ctx);
+      this.drawFirstHints(ctx, dt);
       this.drawMessages(ctx);
       if (this.panel === 'bag') this.drawBag(ctx);
       else if (this.panel === 'menu') this.drawPauseMenu(ctx);
@@ -165,6 +167,52 @@ export class HUD {
 
     ctx.restore();
     this.input.setButtons(this.buttons);
+  }
+
+  /**
+   * The two things a new player needs, shown once at the start of a run and
+   * dismissed the moment they demonstrate they already know.
+   */
+  drawFirstHints(ctx, dt) {
+    const g = this.game;
+    if (g.actIndex !== 0 || g.player.totalKills > 2) return;
+    if (this.hintsDone) return;
+    this.hintT = (this.hintT || 0) + dt;
+    if (this.hintT > 14) {
+      this.hintsDone = true;
+      return;
+    }
+    const moved = this.input.move.mag > 0.2;
+    if (moved) this.hintMoved = true;
+    const fade = this.hintT < 1 ? this.hintT : this.hintT > 12 ? (14 - this.hintT) / 2 : 1;
+
+    if (!this.hintMoved) {
+      const x = this.W * 0.22;
+      const y = this.H * 0.72;
+      const pulse = 0.6 + 0.4 * Math.sin(this.pulse * 2.6);
+      ctx.save();
+      ctx.globalAlpha = fade * pulse * 0.8;
+      ctx.strokeStyle = 'rgba(226,220,200,0.9)';
+      ctx.lineWidth = 2 * this.k;
+      ctx.setLineDash([6 * this.k, 6 * this.k]);
+      ctx.beginPath();
+      ctx.arc(x * this.k, y * this.k, 46 * this.k, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+      this.text(ctx, 'Ziehen zum Gehen', x, y + 66, {
+        size: 11,
+        align: 'center',
+        color: [222, 214, 194],
+        alpha: fade,
+      });
+    }
+    const lay = this.skillLayout();
+    this.text(ctx, 'Angreifen', lay.primary.x, lay.primary.y - lay.primary.r - 8, {
+      size: 10,
+      align: 'center',
+      color: [222, 214, 194],
+      alpha: fade * 0.9,
+    });
   }
 
   /** Blood at the edges of vision below a third health — the oldest tell there is. */
@@ -238,27 +286,32 @@ export class HUD {
     ctx.fill();
     ctx.save();
     ctx.clip();
-    // A tiny bust of the hero drawn with the class colours.
-    const look = p.look;
-    const cx = (x + R) * k;
-    const cy = (y + R * 1.35) * k;
-    ctx.fillStyle = css(look.colors.torso);
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + 12 * k, 17 * k, 15 * k, 0, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = css(look.helm === 'none' ? look.colors.skin : look.colors.metal);
-    ctx.beginPath();
-    ctx.arc(cx, cy - 6 * k, 10 * k, 0, TAU);
-    ctx.fill();
-    if (look.helm === 'greathelm') {
-      ctx.fillStyle = 'rgba(10,10,14,0.85)';
-      ctx.fillRect(cx - 8 * k, cy - 8 * k, 16 * k, 2.6 * k);
-    } else if (look.helm === 'hood') {
-      ctx.fillStyle = css(look.hood || look.colors.torsoDark);
-      ctx.beginPath();
-      ctx.arc(cx, cy - 8 * k, 11 * k, Math.PI, TAU);
-      ctx.fill();
-    }
+    // The medallion shows the actual rig, turned to face the player, so the
+    // portrait always matches the gear that is equipped.
+    renderActor(
+      ctx,
+      p.look,
+      {
+        t: this.pulse,
+        anim: p.alive ? 'idle' : 'die',
+        animT: p.alive ? 0 : 1,
+        facing: Math.PI / 2,
+        speed: 0,
+        phase: 0,
+        flash: 0,
+        alpha: 1,
+      },
+      (x + R) * k,
+      (y + R * 2.5) * k,
+      R * 0.031 * k,
+      null
+    );
+    // Vignette inside the medallion so the figure sits in it.
+    const vg = ctx.createRadialGradient((x + R) * k, (y + R) * k, R * 0.35 * k, (x + R) * k, (y + R) * k, R * k);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(6,7,10,0.8)');
+    ctx.fillStyle = vg;
+    ctx.fillRect((x - 2) * k, (y - 2) * k, (R * 2 + 4) * k, (R * 2 + 4) * k);
     ctx.restore();
     ctx.strokeStyle = 'rgba(176,152,102,0.8)';
     ctx.lineWidth = 2 * k;

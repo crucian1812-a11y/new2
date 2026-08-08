@@ -7,6 +7,9 @@ import { warpFbm } from '../render/noise.js';
 import { clamp01, dist, TAU, lerp } from '../core/math.js';
 import { getProp, PROP_VARIANTS } from '../render/props.js';
 
+/** Clear space guaranteed between solid props — a little wider than the player. */
+const PASSAGE = 62;
+
 export class Zone {
   constructor(act, actIndex, seed) {
     this.act = act;
@@ -106,12 +109,12 @@ export class Zone {
       const spr = getProp(pick.name, variant);
       const scale = 1;
 
-      // Keep props from stacking: solids get their full radius, everything
-      // else just a minimum breathing distance.
+      // Two solid props must leave a player-sized gap between them, or the
+      // scenery quietly builds walls the player cannot walk through.
       let clash = false;
       const myR = spr.radius * scale;
       for (const q of placed) {
-        const need = spr.solid && q.solid ? (myR + q.r) * 0.9 : 46;
+        const need = spr.solid && q.solid ? myR + q.r + PASSAGE : 46;
         if (Math.abs(q.y - y) > need) continue;
         if (dist(x, y, q.x, q.y) < need) {
           clash = true;
@@ -216,10 +219,11 @@ export class Zone {
       }
     }
 
-    // Boss arena: ring it with landmarks so it reads as a place.
+    // Boss arena: ring it with landmarks so it reads as a place. Gaps between
+    // them are wide enough to walk through from any direction.
     const ringName = this.act.landmarks[this.act.landmarks.length - 1];
-    for (let i = 0; i < 9; i++) {
-      const a = (i / 9) * TAU + 0.2;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + 0.2;
       const x = this.bossArena.x + Math.cos(a) * this.bossArena.r * 0.92;
       const y = this.bossArena.y + Math.sin(a) * this.bossArena.r * 0.92 * 0.9;
       if (!this.inBounds(x, y)) continue;

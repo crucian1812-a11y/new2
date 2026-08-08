@@ -885,7 +885,7 @@ function drawRuinWall(rng, opts = {}) {
       ctx.fill();
       ctx.restore();
     }
-  }, { radius: W * 0.45, solid: true });
+  }, { radius: W * 0.28, solid: true });
 }
 
 function drawBrazier(rng) {
@@ -1209,7 +1209,7 @@ function drawWreck(rng) {
       ctx.fill();
     }
     applyRim(ctx, w, h, PAL.moon, 0.34, 3, 3.5);
-  }, { radius: 150, solid: true });
+  }, { radius: 92, solid: true });
 }
 
 function drawIdol(rng, opts = {}) {

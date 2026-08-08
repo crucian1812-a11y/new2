@@ -15,6 +15,7 @@ export class FX {
     this.parts = [];
     this.texts = [];
     this.rings = [];
+    this.slashes = [];
     this.beams = [];
     this.weather = [];
     this.weatherKind = null;
@@ -25,6 +26,7 @@ export class FX {
     this.parts.length = 0;
     this.texts.length = 0;
     this.rings.length = 0;
+    this.slashes.length = 0;
     this.beams.length = 0;
   }
 
@@ -188,6 +190,27 @@ export class FX {
     });
   }
 
+  /**
+   * A crescent of light swept through the air. This is what a sword blow
+   * actually looks like on screen — the arc, not the number.
+   */
+  slash(x, y, z, angle, radius, opts = {}) {
+    this.slashes.push({
+      x,
+      y,
+      z,
+      angle,
+      radius,
+      arc: opts.arc ?? 1.5,
+      dir: opts.dir ?? 1,
+      life: opts.life ?? 0.24,
+      age: 0,
+      color: opts.color || PAL.steelLight,
+      thickness: opts.thickness ?? 0.38,
+    });
+    if (this.slashes.length > 24) this.slashes.shift();
+  }
+
   beam(x0, y0, x1, y1, opts = {}) {
     this.beams.push({
       x0,
@@ -312,6 +335,11 @@ export class FX {
       r.age += dt;
       if (r.age > r.life) this.rings.splice(i, 1);
     }
+    for (let i = this.slashes.length - 1; i >= 0; i--) {
+      const sl = this.slashes[i];
+      sl.age += dt;
+      if (sl.age > sl.life) this.slashes.splice(i, 1);
+    }
     for (let i = this.beams.length - 1; i >= 0; i--) {
       const b = this.beams[i];
       b.age += dt;
@@ -420,6 +448,37 @@ export class FX {
       if (p.glow && size > 1.4) R.emisCircle(p.x, p.y, p.size * 1.7, p.color, t * 0.5, p.z);
     }
     ctx.restore();
+
+    // Sword arcs, drawn as a crescent that sweeps and thins as it fades.
+    for (const sl of this.slashes) {
+      const k = clamp01(sl.age / sl.life);
+      const alpha = Math.sin((1 - k) * Math.PI * 0.85);
+      const sx = R.sx(sl.x);
+      const sy = R.sy(sl.y, sl.z);
+      const rOut = sl.radius * zoom * (0.86 + k * 0.3);
+      const rIn = rOut * (1 - sl.thickness * (1 - k * 0.55));
+      // The visible portion sweeps from the start of the arc to the end.
+      const swept = sl.arc * Math.min(1, 0.35 + k * 1.2);
+      const a0 = sl.angle - (sl.dir * sl.arc) / 2;
+      const a1 = a0 + sl.dir * swept;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.translate(sx, sy);
+      ctx.scale(1, ISO_Y);
+      ctx.beginPath();
+      ctx.arc(0, 0, rOut, a0, a1, sl.dir < 0);
+      ctx.arc(0, 0, rIn, a1, a0, sl.dir > 0);
+      ctx.closePath();
+      const g = ctx.createRadialGradient(0, 0, rIn * 0.9, 0, 0, rOut);
+      g.addColorStop(0, css(sl.color, 0));
+      g.addColorStop(0.55, css(sl.color, 0.55 * alpha));
+      g.addColorStop(0.88, css([255, 255, 255], 0.8 * alpha));
+      g.addColorStop(1, css(sl.color, 0));
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.restore();
+      R.emisCircle(sl.x, sl.y, sl.radius * 0.55, sl.color, alpha * 0.3, sl.z);
+    }
 
     // Beams (lightning, arrows in flight, chain links)
     for (const b of this.beams) {
