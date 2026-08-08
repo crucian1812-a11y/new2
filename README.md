@@ -107,6 +107,7 @@ node tools/ablate.mjs                       # which render stage costs what
 | `skills-check` | all twelve class skills and all thirteen boss abilities run in every act without throwing |
 | `audio-check` | the synthesised music and each sound effect produce measurable signal, and muting is silent |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
+| `endgame-check` | Perkūnas leads to the victory screen, and the Eternal Hunt restarts act I at a higher difficulty and keeps escalating |
 
 `tools/preview-art.html` and `tools/preview-actors.html` render every material,
 prop and character rig on one page, which is the fastest way to iterate on art.

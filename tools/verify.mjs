@@ -11,6 +11,7 @@ const checks = [
   ['skills & bosses', 'node', ['tools/skills-check.mjs', '--port', port]],
   ['audio', 'node', ['tools/audio-check.mjs', '--port', port]],
   ['save/reload', 'node', ['tools/save-check.mjs', '--port', port]],
+  ['endings', 'node', ['tools/endgame-check.mjs', '--port', port]],
 ];
 
 const run = (cmd, args) =>
