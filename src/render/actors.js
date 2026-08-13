@@ -52,8 +52,11 @@ export function poseHumanoid(st, build = {}) {
   const {
     hipH = 47,
     chestH = 71,
-    neckH = 82,
-    headH = 92,
+    // Short neck, big head. Diablo II's figures were stocky on purpose — a
+    // long neck at this size reads as a head balanced on a post, and the
+    // silhouette loses the heavy, armoured weight the game is after.
+    neckH = 79,
+    headH = 88,
     shoulderW = 13.5,
     hipW = 9,
     thigh = 24,
@@ -417,7 +420,7 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   // one, a figure at this pixel size dissolves into whatever it stands on.
   const contour = [8, 7, 9];
 
-  const bone = (a, b, r0, r1, base, dark, light, depth) => {
+  const bone = (a, b, r0, r1, base, dark, light, depth, bands = 0) => {
     const A = P[a];
     const B = P[b];
     if (!A || !B) return;
@@ -438,12 +441,71 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     ctx.fillStyle = cylinderFill(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s, b0, bd, bl, bs);
     ctx.fill();
 
+    // Banding. A limb in armour is not one smooth tube — it is a stack of
+    // lames, and the dark seam between each with a lit lip above it is what
+    // separates a knight's arm from a sausage. Only armoured parts ask for
+    // it; bare skin and cloth stay smooth.
+    if (bands > 0) {
+      ctx.save();
+      capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s);
+      ctx.clip();
+      const dx = B[0] - A[0];
+      const dy = B[1] - A[1];
+      const len = Math.hypot(dx, dy) || 1e-4;
+      const ux = dx / len;
+      const uy = dy / len;
+      const nx = -uy * r0 * s * 1.6;
+      const ny = ux * r0 * s * 1.6;
+      for (let i = 1; i <= bands; i++) {
+        const t = i / (bands + 1);
+        const cx = A[0] + dx * t;
+        const cy = A[1] + dy * t;
+        ctx.strokeStyle = 'rgba(7,6,8,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - nx, cy - ny);
+        ctx.lineTo(cx + nx, cy + ny);
+        ctx.stroke();
+        ctx.strokeStyle = css(tint(light), 0.4);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - nx - ux * 1.6, cy - ny - uy * 1.6);
+        ctx.lineTo(cx + nx - ux * 1.6, cy + ny - uy * 1.6);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     // The moon catching the top-left edge, on top of the key light.
     if (rimA > 0.01) {
       capsule(ctx, A[0] - 1.2, A[1] - 1.8, B[0] - 1.2, B[1] - 1.8, r0 * s * 0.42, r1 * s * 0.42);
       ctx.fillStyle = css(tint(rimC), rimA * 0.5);
       ctx.fill();
     }
+  };
+
+  /**
+   * A cop: the hard disc capping an elbow or a knee. Real armour puts a
+   * separate, more domed plate over every joint, and at a distance that disc
+   * is what tells you the limb bends there instead of just tapering.
+   */
+  const cop = (joint, r, depth) => {
+    const J = P[joint];
+    if (!J) return;
+    const rr = r * s;
+    ctx.beginPath();
+    ctx.ellipse(J[0], J[1], rr, rr * 0.92, 0, 0, TAU);
+    ctx.fillStyle = css(contour, 0.9);
+    ctx.fill();
+    const d = clamp01(0.5 + clamp(depth * 0.8, -0.5, 0.5));
+    const g = ctx.createLinearGradient(J[0] - rr, J[1] - rr, J[0] + rr, J[1] + rr);
+    g.addColorStop(0, css(tint(mixc(M.metalLight || M.armsLight, [255, 250, 240], 0.25 * d))));
+    g.addColorStop(0.45, css(tint(M.metal || M.arms)));
+    g.addColorStop(1, css(tint(mixc(M.metalDark || M.armsDark, contour, 0.5))));
+    ctx.beginPath();
+    ctx.ellipse(J[0], J[1], rr * 0.82, rr * 0.76, 0, 0, TAU);
+    ctx.fillStyle = g;
+    ctx.fill();
   };
 
   const M = def.colors;
@@ -462,8 +524,10 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   for (const side of legOrder) {
     push(D['hip' + side] - 0.4, () => {
       const lw = def.limbScale ?? 1;
-      bone('hip' + side, 'knee' + side, 7.2 * lw, 5.4 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side]);
-      bone('knee' + side, 'foot' + side, 5.4 * lw, 3.8 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side]);
+      const legPlate = def.pauldrons ? 2 : 0;
+      bone('hip' + side, 'knee' + side, 7.2 * lw, 5.4 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
+      if (legPlate) cop('knee' + side, 4.8 * lw, D['hip' + side]);
+      bone('knee' + side, 'foot' + side, 5.4 * lw, 3.8 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
       // Boot
       const F = P['foot' + side];
       ctx.save();
@@ -482,34 +546,85 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
 
   const drawArm = (side) => {
     const lw = def.limbScale ?? 1;
-    bone('shoulder' + side, 'elbow' + side, 6.2 * lw, 4.8 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side]);
-    bone('elbow' + side, 'hand' + side, 4.8 * lw, 3.6 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side]);
-    // Pauldron
+    const plated = def.pauldrons ? 2 : 0;
+    bone('shoulder' + side, 'elbow' + side, 6.2 * lw, 4.8 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
+    if (plated) cop('elbow' + side, 4.4 * lw, D['shoulder' + side]);
+    bone('elbow' + side, 'hand' + side, 4.8 * lw, 3.6 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
+
+    // Spaulder. Two overlapping lames with straight edges and a hard ridge
+    // along the top, rather than the pale sphere this used to be — a sphere
+    // has no direction, and armour is the most directional thing a figure
+    // wears.
     if (def.pauldrons) {
       const S = P['shoulder' + side];
-      ctx.beginPath();
-      ctx.ellipse(S[0], S[1] - 1.5 * s, 8.4 * s * lw, 6.4 * s * lw, 0, 0, TAU);
-      ctx.fillStyle = css(tint(shadeFor(D['shoulder' + side] + 0.3, M.metal, M.metalDark, M.metalLight)));
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(S[0] - 1.8 * s, S[1] - 3.4 * s, 5.2 * s * lw, 3.2 * s * lw, 0, 0, TAU);
-      ctx.fillStyle = css(tint(M.metalLight), 0.45);
-      ctx.fill();
-      if (def.runes) {
-        // Light caught in the groove around the rim of the shoulder plate.
+      const w = 8.6 * s * lw;
+      const h = 6.2 * s * lw;
+      const d = clamp01(0.5 + clamp((D['shoulder' + side] + 0.3) * 0.8, -0.5, 0.5));
+      for (let lame = 1; lame >= 0; lame--) {
+        const k = 1 - lame * 0.18;
+        const oy = lame * h * 0.52;
         ctx.beginPath();
-        ctx.ellipse(S[0], S[1] - 1.5 * s, 8.4 * s * lw, 6.4 * s * lw, 0, 0.5, Math.PI - 0.5);
+        ctx.moveTo(S[0] - w * k, S[1] - h * 0.15 + oy);
+        ctx.lineTo(S[0] - w * k * 0.72, S[1] - h * 0.78 + oy);
+        ctx.lineTo(S[0] + w * k * 0.62, S[1] - h * 0.66 + oy);
+        ctx.lineTo(S[0] + w * k, S[1] + h * 0.1 + oy);
+        ctx.lineTo(S[0] + w * k * 0.66, S[1] + h * 0.62 + oy);
+        ctx.lineTo(S[0] - w * k * 0.78, S[1] + h * 0.5 + oy);
+        ctx.closePath();
+        ctx.strokeStyle = css(contour, 0.9);
+        ctx.lineWidth = 1.6;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
+        const g = ctx.createLinearGradient(S[0] - w, S[1] - h, S[0] + w * 0.7, S[1] + h);
+        g.addColorStop(0, css(tint(mixc(M.metalLight, [255, 250, 240], 0.3 * d))));
+        g.addColorStop(0.34, css(tint(M.metal)));
+        g.addColorStop(1, css(tint(mixc(M.metalDark, contour, 0.55))));
+        ctx.fillStyle = g;
+        ctx.fill();
+        // The ridge along the top edge — a single bright line does more for
+        // "this is steel" than any amount of soft shading underneath it.
+        ctx.beginPath();
+        ctx.moveTo(S[0] - w * k * 0.94, S[1] - h * 0.2 + oy);
+        ctx.lineTo(S[0] - w * k * 0.7, S[1] - h * 0.74 + oy);
+        ctx.lineTo(S[0] + w * k * 0.58, S[1] - h * 0.62 + oy);
+        ctx.strokeStyle = css(tint(mixc(M.metalLight, [255, 255, 250], 0.5)), 0.75);
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+      }
+      if (def.runes) {
+        ctx.beginPath();
+        ctx.ellipse(S[0], S[1] - 1.5 * s, w, h, 0, 0.5, Math.PI - 0.5);
         ctx.strokeStyle = css(def.runes.color, 0.8);
         ctx.lineWidth = 1.3 * s;
         ctx.stroke();
       }
     }
-    // Hand
+
+    // Hand. A gauntlet is a squared-off plate with knuckles, not a ball.
     const Hd = P['hand' + side];
-    ctx.beginPath();
-    ctx.arc(Hd[0], Hd[1], 4.1 * s * lw, 0, TAU);
-    ctx.fillStyle = css(tint(shadeFor(D['shoulder' + side], M.hands || M.arms, M.armsDark, M.armsLight)));
-    ctx.fill();
+    const hr = 4.1 * s * lw;
+    if (def.pauldrons) {
+      ctx.beginPath();
+      ctx.moveTo(Hd[0] - hr, Hd[1] - hr * 0.8);
+      ctx.lineTo(Hd[0] + hr, Hd[1] - hr * 0.9);
+      ctx.lineTo(Hd[0] + hr * 0.9, Hd[1] + hr);
+      ctx.lineTo(Hd[0] - hr * 0.95, Hd[1] + hr * 0.9);
+      ctx.closePath();
+      ctx.strokeStyle = css(contour, 0.9);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      const g = ctx.createLinearGradient(Hd[0] - hr, Hd[1] - hr, Hd[0] + hr, Hd[1] + hr);
+      g.addColorStop(0, css(tint(M.metalLight || M.armsLight)));
+      g.addColorStop(0.5, css(tint(M.metal || M.arms)));
+      g.addColorStop(1, css(tint(mixc(M.metalDark || M.armsDark, contour, 0.5))));
+      ctx.fillStyle = g;
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(Hd[0], Hd[1], hr, 0, TAU);
+      ctx.fillStyle = css(tint(shadeFor(D['shoulder' + side], M.hands || M.arms, M.armsDark, M.armsLight)));
+      ctx.fill();
+    }
   };
 
   push(D['shoulder' + armFar] - 0.3, () => drawArm(armFar));
@@ -637,14 +752,16 @@ function drawNeck(ctx, P, def, s, tint) {
   ctx.fillStyle = 'rgba(8,7,9,0.42)';
   ctx.fill();
 
-  // Gorget: a plate collar sitting on the shoulders.
+  // Gorget: a plate collar sitting on the shoulders, pulled up towards the
+  // jaw so the throat is covered rather than left as a bare column.
   if (def.helm && def.helm !== 'none') {
+    const gy = midY + (H[1] - midY) * 0.42;
     ctx.beginPath();
-    ctx.ellipse(midX, midY, 7.4 * s, 3 * s, 0, 0, TAU);
+    ctx.ellipse(midX, gy, 7.4 * s, 3.4 * s, 0, 0, TAU);
     ctx.fillStyle = css(tint(M.metalDark || M.armsDark));
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(midX - 1 * s, midY - 0.9 * s, 6.4 * s, 2.3 * s, 0, 0, TAU);
+    ctx.ellipse(midX - 1 * s, gy - 1 * s, 6.4 * s, 2.6 * s, 0, 0, TAU);
     ctx.fillStyle = css(tint(M.metal || M.arms));
     ctx.fill();
   }

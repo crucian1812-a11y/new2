@@ -715,6 +715,24 @@ export class Renderer {
 
   drawVignetteAndGrade() {
     const ctx = this.ctx;
+
+    // Contrast, by compositing the frame over itself in overlay. Blending a
+    // picture with itself this way pushes everything below mid-grey darker
+    // and everything above it lighter — an S-curve for the cost of one blit.
+    //
+    // This is what the picture was missing against Diablo II. Every value in
+    // the frame sat in the middle: no true black in the corners away from the
+    // light, no hot highlight on the metal near it. D2's frames used the
+    // whole range, and the range is what makes a torch feel like the only
+    // thing holding the dark off.
+    if (this.quality >= 1) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.globalAlpha = 0.42;
+      ctx.drawImage(this.world, 0, 0);
+      ctx.restore();
+    }
+
     this.buildGradeSheet();
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
