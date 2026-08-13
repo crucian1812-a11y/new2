@@ -61,9 +61,10 @@ export class HUD {
   get H() {
     return this.r.cssH;
   }
-  /** CSS pixels -> backing store pixels. */
+  /** CSS pixels -> screen backing-store pixels. The HUD draws on the sharp
+   *  screen surface, not the chunky world buffer, so this is just the DPR. */
   get k() {
-    return this.r.pxScale;
+    return this.r.dpr;
   }
 
   btn(id, x, y, r, opts = {}) {
@@ -140,7 +141,7 @@ export class HUD {
   // =========================================================================
 
   draw(dt) {
-    const ctx = this.r.ctx;
+    const ctx = this.r.screenCtx;
     this.pulse += dt;
     this.buttons.length = 0;
     ctx.save();
@@ -223,8 +224,8 @@ export class HUD {
     if (frac > 0.34) return;
     const t = clamp01((0.34 - frac) / 0.34);
     const pulse = 0.55 + 0.45 * Math.sin(this.pulse * (3.4 + t * 3.6));
-    const w = this.r.w;
-    const h = this.r.h;
+    const w = this.r.sw;
+    const h = this.r.sh;
     ctx.save();
     ctx.globalAlpha = t * pulse * 0.72;
     const grad = ctx.createRadialGradient(w * 0.5, h * 0.5, Math.min(w, h) * 0.24, w * 0.5, h * 0.5, w * 0.72);
@@ -868,7 +869,7 @@ export class HUD {
 
     ctx.save();
     ctx.fillStyle = 'rgba(4,5,8,0.78)';
-    ctx.fillRect(0, 0, this.r.w, this.r.h);
+    ctx.fillRect(0, 0, this.r.sw, this.r.sh);
     ctx.restore();
 
     const pad = 8;
@@ -1136,15 +1137,15 @@ export class HUD {
    */
   menuBackdrop(ctx) {
     const k = this.k;
-    const key = this.r.w + 'x' + this.r.h;
+    const key = this.r.sw + 'x' + this.r.sh;
     if (this._menuKey !== key) {
       this._menuKey = key;
       const c = document.createElement('canvas');
-      c.width = this.r.w;
-      c.height = this.r.h;
+      c.width = this.r.sw;
+      c.height = this.r.sh;
       const g = c.getContext('2d');
-      const W = this.r.w;
-      const H = this.r.h;
+      const W = this.r.sw;
+      const H = this.r.sh;
 
       const sky = g.createLinearGradient(0, 0, 0, H);
       sky.addColorStop(0, '#0a0d16');
@@ -1236,8 +1237,8 @@ export class HUD {
     for (let i = 0; i < 150; i++) {
       const s = (i * 37.13) % 1;
       const depth = 0.35 + s * 0.65;
-      const x = (((i * 97.7) % 1) * this.r.w + t * 26 * depth + Math.sin(t * 0.7 + i) * 22 * depth) % (this.r.w + 40);
-      const y = (((i * 53.3) % 1) * this.r.h + t * (34 + s * 60) * depth) % (this.r.h + 40);
+      const x = (((i * 97.7) % 1) * this.r.sw + t * 26 * depth + Math.sin(t * 0.7 + i) * 22 * depth) % (this.r.sw + 40);
+      const y = (((i * 53.3) % 1) * this.r.sh + t * (34 + s * 60) * depth) % (this.r.sh + 40);
       ctx.globalAlpha = (0.18 + s * 0.42) * depth;
       ctx.fillStyle = '#e8f0fb';
       ctx.beginPath();
@@ -1360,7 +1361,7 @@ export class HUD {
     const H = this.H;
     ctx.save();
     ctx.fillStyle = 'rgba(4,5,8,0.8)';
-    ctx.fillRect(0, 0, this.r.w, this.r.h);
+    ctx.fillRect(0, 0, this.r.sw, this.r.sh);
     ctx.restore();
     const w = Math.min(260, W * 0.5);
     const h = 190;
@@ -1388,9 +1389,9 @@ export class HUD {
     const H = this.H;
     ctx.save();
     ctx.fillStyle = 'rgba(30,4,4,0.55)';
-    ctx.fillRect(0, 0, this.r.w, this.r.h);
+    ctx.fillRect(0, 0, this.r.sw, this.r.sh);
     ctx.fillStyle = 'rgba(2,2,4,0.5)';
-    ctx.fillRect(0, 0, this.r.w, this.r.h);
+    ctx.fillRect(0, 0, this.r.sw, this.r.sh);
     ctx.restore();
     this.text(ctx, 'GEFALLEN', W / 2, H * 0.36, {
       size: Math.min(44, W * 0.075),
@@ -1425,7 +1426,7 @@ export class HUD {
     g.addColorStop(0, 'rgba(60,48,24,0.7)');
     g.addColorStop(1, 'rgba(3,3,6,0.9)');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, this.r.w, this.r.h);
+    ctx.fillRect(0, 0, this.r.sw, this.r.sh);
     ctx.restore();
     this.text(ctx, 'DER HAIN SCHWEIGT', W / 2, H * 0.3, {
       size: Math.min(38, W * 0.062),

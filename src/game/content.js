@@ -26,18 +26,23 @@ export const LOOKS = {
     weaponLen: 44,
     capeLen: 48,
     headR: 7.8,
-    capeColor: hex('#c9c4b5'),
-    capeColorLight: hex('#eae7dd'),
-    capeColorDark: hex('#5f5e57'),
-    shieldColor: hex('#ddd8ca'),
-    shieldLight: hex('#f2eee3'),
-    shieldDark: hex('#75736a'),
+    // The Order's white, pitched dark on purpose. A torch is multiplied over
+    // these before you see them, and a linen that starts near-white ends up a
+    // blown-out cream slab with no cross visible on it. Starting at a dirty
+    // grey leaves the light somewhere to go, and keeps the black cross
+    // readable — which is the whole silhouette.
+    capeColor: hex('#8e8a7d'),
+    capeColorLight: hex('#c3bfb1'),
+    capeColorDark: hex('#3c3b36'),
+    shieldColor: hex('#9d998c'),
+    shieldLight: hex('#cbc7ba'),
+    shieldDark: hex('#43423c'),
     shieldEmblem: PAL.orderBlack,
-    rim: hex('#a8c8ff'),
+    rim: hex('#cfd6dc'),
     colors: {
-      torso: hex('#d5d0c1'),
-      torsoLight: hex('#f1eee3'),
-      torsoDark: hex('#7d7b71'),
+      torso: hex('#979283'),
+      torsoLight: hex('#cbc7b8'),
+      torsoDark: hex('#43423b'),
       arms: hex('#78808d'),
       armsLight: hex('#c0c8d4'),
       armsDark: hex('#333943'),

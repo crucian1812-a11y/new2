@@ -120,13 +120,15 @@ function onResize() {
   renderer.resize();
   const portrait = window.innerHeight > window.innerWidth * 1.05;
   if (rotateHint) rotateHint.classList.toggle('show', portrait && window.innerWidth < 620);
-  // A tighter view on small screens keeps the character readable.
+  // Diablo II framed the hero large — he was a good tenth of the screen
+  // height, close enough that his armour read. A wider view makes a phone
+  // screen a map rather than a fight.
   const base = Math.min(window.innerWidth, window.innerHeight * 1.9);
-  renderer.cam.zoom = clampZoom(base / 900);
+  renderer.cam.zoom = clampZoom(base / 680);
 }
 
 function clampZoom(z) {
-  return Math.max(0.62, Math.min(1.25, z));
+  return Math.max(0.85, Math.min(1.7, z));
 }
 
 let last = performance.now();
@@ -154,6 +156,7 @@ function loop(now) {
 
   if (game.state === 'menu') {
     renderer.beginFrame(dt);
+    renderer.presentWorld();
   } else {
     game.draw(dt);
   }

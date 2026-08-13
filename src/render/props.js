@@ -1530,37 +1530,81 @@ function drawStandingStone(rng) {
   }, { radius: w * 0.26, solid: true, emissive: true });
 }
 
+/**
+ * A slab of shore ice. Built as a faceted plate with real thickness rather
+ * than a soft blob: an isometric camera can see the side of anything lying on
+ * the ground, and the dark band of that side wall is what tells you the ice
+ * is an object sitting on the mud instead of a pale stain in it. Straight
+ * edges and a hard contour do the rest — ice fractures, it does not melt into
+ * its surroundings.
+ */
 function drawIceFloe(rng) {
   const S = rng.range(80, 150);
   const w = Math.ceil(S * 1.6);
   const h = Math.ceil(S * 0.9);
+  const thick = S * 0.1;
   return sprite(w, h, w / 2, h - 10, (ctx) => {
     const cx = w / 2;
     const cy = h - S * 0.34;
-    ctx.save();
-    organicPath(ctx, cx, cy, S * 0.7, S * 0.3, rng, 9, 0.22);
-    const g = ctx.createLinearGradient(0, cy - S * 0.3, 0, cy + S * 0.3);
-    g.addColorStop(0, css(hex('#dbe9f4')));
-    g.addColorStop(0.55, css(hex('#9fb9cc')));
-    g.addColorStop(1, css(hex('#54718a')));
+
+    // Angular outline — a handful of straight facets, not a smooth curve.
+    const n = rng.int(7, 10);
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rng.range(-0.16, 0.16);
+      const rr = 1 - rng.range(0, 0.3);
+      pts.push([cx + Math.cos(a) * S * 0.7 * rr, cy + Math.sin(a) * S * 0.3 * rr]);
+    }
+    const plate = (dy) => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1] + dy);
+      for (let i = 1; i < n; i++) ctx.lineTo(pts[i][0], pts[i][1] + dy);
+      ctx.closePath();
+    };
+
+    // Side wall first, so the top plate sits on top of it.
+    plate(thick);
+    ctx.fillStyle = css(hex('#2f4152'));
+    ctx.fill();
+
+    plate(0);
+    ctx.fillStyle = css(hex('#0a0d11'), 0.9);
+    ctx.lineJoin = 'miter';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    const g = ctx.createLinearGradient(cx - S * 0.5, cy - S * 0.3, cx + S * 0.4, cy + S * 0.3);
+    g.addColorStop(0, css(hex('#c7d4dc')));
+    g.addColorStop(0.5, css(hex('#8fa3b0')));
+    g.addColorStop(1, css(hex('#5b6f7e')));
     ctx.fillStyle = g;
     ctx.fill();
-    ctx.restore();
-    for (let i = 0; i < 5; i++) {
-      ctx.strokeStyle = 'rgba(60,90,110,0.4)';
-      ctx.lineWidth = rng.range(0.8, 2);
-      ctx.beginPath();
-      let x = cx + rng.range(-S * 0.5, S * 0.5);
-      let y = cy + rng.range(-S * 0.2, S * 0.2);
-      ctx.moveTo(x, y);
+
+    // Fractures, each a dark split with a lit lip along its upper side.
+    ctx.save();
+    plate(0);
+    ctx.clip();
+    for (let i = 0; i < 7; i++) {
+      let x = cx + rng.range(-S * 0.6, S * 0.6);
+      let y = cy + rng.range(-S * 0.26, S * 0.26);
+      const path = [[x, y]];
       for (let k = 0; k < 3; k++) {
-        x += rng.range(-S * 0.2, S * 0.2);
+        x += rng.range(-S * 0.22, S * 0.22);
         y += rng.range(-S * 0.1, S * 0.1);
-        ctx.lineTo(x, y);
+        path.push([x, y]);
       }
-      ctx.stroke();
+      const stroke = (off, style, lw) => {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(path[0][0], path[0][1] + off);
+        for (let k = 1; k < path.length; k++) ctx.lineTo(path[k][0], path[k][1] + off);
+        ctx.stroke();
+      };
+      stroke(0, 'rgba(24,36,46,0.62)', rng.range(1, 2.2));
+      stroke(-1.4, 'rgba(214,230,240,0.4)', 1);
     }
-    applyRim(ctx, w, h, PAL.frost, 0.5, 2, 2.5);
+    ctx.restore();
+    applyRim(ctx, w, h, PAL.frost, 0.45, 2, 2.5);
   }, { radius: S * 0.4, solid: false });
 }
 

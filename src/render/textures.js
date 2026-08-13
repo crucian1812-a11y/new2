@@ -626,9 +626,11 @@ export function bakeShadowSprite(size = 128) {
   const canvas = makeCanvas(size, size);
   const ctx = ctxOf(canvas);
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, 'rgba(0,0,0,0.72)');
-  g.addColorStop(0.45, 'rgba(0,0,0,0.42)');
-  g.addColorStop(0.78, 'rgba(0,0,0,0.12)');
+  // Tight and dark. A wide soft smudge reads as a figure hovering over a
+  // stain; a small dense one nails the feet to the ground.
+  g.addColorStop(0, 'rgba(0,0,0,0.9)');
+  g.addColorStop(0.38, 'rgba(0,0,0,0.66)');
+  g.addColorStop(0.7, 'rgba(0,0,0,0.16)');
   g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);

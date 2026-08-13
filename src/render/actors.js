@@ -329,6 +329,46 @@ function shadeFor(depth, base, dark, light) {
   return mixc(dark, mixc(base, light, clamp01((t - 0.58) * 1.8)), clamp01(t * 1.5));
 }
 
+// The key light. Diablo II's sprites were pre-rendered under one fixed lamp
+// up and to the left, and every frame of every unit agreed about it — which
+// is most of why a screen full of unrelated monsters still looked like one
+// photograph. Nothing here is allowed to disagree with this vector.
+const KEY_X = -0.62;
+const KEY_Y = -0.78;
+
+/**
+ * Paints a limb as a lit cylinder instead of a flat pill.
+ *
+ * A gradient is run across the limb's short axis — the direction the surface
+ * normal actually turns — from a near-black terminator on the shadow side,
+ * through the body colour, to a narrow hot band where the key light grazes
+ * it. The band is deliberately narrow and bright: broad soft shading reads as
+ * clay, while a tight specular reads as metal or oiled leather, and at this
+ * resolution that contrast is the only thing carrying the form.
+ */
+function cylinderFill(ctx, x0, y0, x1, y1, r0, r1, base, dark, light, spec) {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const len = Math.hypot(dx, dy) || 1e-4;
+  // Short axis of the limb, pointed into the key light.
+  let nx = -dy / len;
+  let ny = dx / len;
+  if (nx * KEY_X + ny * KEY_Y < 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const mx = (x0 + x1) * 0.5;
+  const my = (y0 + y1) * 0.5;
+  const r = Math.max(r0, r1);
+  const g = ctx.createLinearGradient(mx - nx * r, my - ny * r, mx + nx * r, my + ny * r);
+  g.addColorStop(0, css(dark));
+  g.addColorStop(0.42, css(base));
+  g.addColorStop(0.76, css(light));
+  g.addColorStop(0.9, css(spec));
+  g.addColorStop(1, css(mixc(light, dark, 0.45)));
+  return g;
+}
+
 /**
  * Draws one articulated actor.
  *  ctx      target 2D context (screen space, already at device pixels)
@@ -372,19 +412,38 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   // Three tones per limb: moon rim on the upper-left edge, the body colour,
   // and a soft highlight inset from that edge. Flat capsules look like toys;
   // these read as cylinders.
+  // A dark contour under every limb. Diablo II's units sat on busy ground and
+  // stayed legible because the palette gave them a near-black edge; without
+  // one, a figure at this pixel size dissolves into whatever it stands on.
+  const contour = [8, 7, 9];
+
   const bone = (a, b, r0, r1, base, dark, light, depth) => {
     const A = P[a];
     const B = P[b];
     if (!A || !B) return;
-    capsule(ctx, A[0] - 1.4, A[1] - 2.2, B[0] - 1.4, B[1] - 2.2, r0 * s, r1 * s);
-    ctx.fillStyle = css(tint(rimC), rimA);
+    // Silhouette, slightly fatter than the limb, so the edge survives.
+    capsule(ctx, A[0], A[1], B[0], B[1], r0 * s + 1, r1 * s + 1);
+    ctx.fillStyle = css(contour, 0.85);
     ctx.fill();
+
+    const d = clamp01(0.5 + clamp(depth * 0.8, -0.5, 0.5));
+    // Far limbs lose the highlight and sink towards the contour; near limbs
+    // get the full ramp. This is what keeps a swinging arm readable against
+    // the torso it crosses.
+    const b0 = tint(mixc(dark, base, 0.35 + d * 0.65));
+    const bd = tint(mixc(contour, dark, 0.55 + d * 0.3));
+    const bl = tint(mixc(base, light, 0.45 + d * 0.5));
+    const bs = tint(mixc(light, [255, 250, 236], 0.3 * d));
     capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s);
-    ctx.fillStyle = css(tint(shadeFor(depth, base, dark, light)));
+    ctx.fillStyle = cylinderFill(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s, b0, bd, bl, bs);
     ctx.fill();
-    capsule(ctx, A[0] - 1.1, A[1] - 1.7, B[0] - 1.1, B[1] - 1.7, r0 * s * 0.5, r1 * s * 0.5);
-    ctx.fillStyle = css(tint(light), 0.2);
-    ctx.fill();
+
+    // The moon catching the top-left edge, on top of the key light.
+    if (rimA > 0.01) {
+      capsule(ctx, A[0] - 1.2, A[1] - 1.8, B[0] - 1.2, B[1] - 1.8, r0 * s * 0.42, r1 * s * 0.42);
+      ctx.fillStyle = css(tint(rimC), rimA * 0.5);
+      ctx.fill();
+    }
   };
 
   const M = def.colors;
@@ -569,7 +628,15 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
     ctx.closePath();
   };
 
-  // Rim ghost
+  // Contour, then the rim ghost on the moonward edge.
+  ctx.save();
+  ctx.lineJoin = 'round';
+  path();
+  ctx.strokeStyle = 'rgba(8,7,9,0.9)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.restore();
+
   ctx.save();
   ctx.translate(-1.4, -2.4);
   path();
@@ -577,11 +644,19 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
   ctx.fill();
   ctx.restore();
 
+  // The chest is lit from the same lamp as everything else: hot on the upper
+  // left shoulder, falling to near-black by the far hip.
   path();
-  const g = ctx.createLinearGradient(shL[0], shL[1] - 6 * s, hipR[0], hipR[1]);
-  g.addColorStop(0, css(tint(M.torsoLight)));
-  g.addColorStop(0.45, css(tint(M.torso)));
-  g.addColorStop(1, css(tint(M.torsoDark)));
+  const g = ctx.createLinearGradient(
+    shL[0] + KEY_X * 14 * s,
+    shL[1] - 6 * s + KEY_Y * 10 * s,
+    hipR[0] - KEY_X * 12 * s,
+    hipR[1] - KEY_Y * 8 * s
+  );
+  g.addColorStop(0, css(tint(mixc(M.torsoLight, [255, 248, 232], 0.28))));
+  g.addColorStop(0.3, css(tint(M.torsoLight)));
+  g.addColorStop(0.6, css(tint(M.torso)));
+  g.addColorStop(1, css(tint(mixc(M.torsoDark, [10, 9, 11], 0.42))));
   ctx.fillStyle = g;
   ctx.fill();
 

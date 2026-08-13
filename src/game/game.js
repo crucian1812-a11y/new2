@@ -2304,8 +2304,8 @@ export class Game {
     }
     // The hero carries his own light — this is what makes the dark readable.
     const heroLight = this.classId === 'hexer' ? PAL.amber : this.classId === 'jaegerin' ? hex('#ffcf9a') : PAL.torch;
-    R.addLight(p.x, p.y - 20, 520, heroLight, 1.0 + Math.sin(R.time * 7) * 0.04);
-    R.addLight(p.x, p.y - 20, 980, this.r.ambience.rim, 0.24);
+    R.addLight(p.x, p.y - 20, 620, heroLight, 0.95 + Math.sin(R.time * 7) * 0.04);
+    R.addLight(p.x, p.y - 20, 1100, this.r.ambience.rim, 0.2);
 
     this.queueProps();
     this.queueEntities();
@@ -2319,6 +2319,7 @@ export class Game {
     this.fx.drawWeather(dt);
     R.drawVignetteAndGrade();
     this.fx.drawText();
+    R.presentWorld();
   }
 
   queueProps() {

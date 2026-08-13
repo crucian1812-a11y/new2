@@ -94,70 +94,83 @@ export const PAL = {
 // Per-act ambience: this is what makes each zone feel like a different place.
 // ---------------------------------------------------------------------------
 
+// The rules this table follows, which are the ones that make a scene read as
+// Diablo II rather than as a dark modern game:
+//
+//   * Ambient is dim and desaturated. What you see away from a fire should be
+//     a muddy near-monochrome, not a blue-lit night. Saturated colour is
+//     reserved for the light sources, so a torch reads as the only warm thing
+//     in the frame.
+//   * Fog stays almost off. D2 had no volumetric haze — its depth came from
+//     falling to black at the edges of the light, and a grey veil over the
+//     whole picture is what makes a scene look washed instead of gloomy.
+//   * The grade pulls towards earth: ochre, umber, dried blood. Even the ice
+//     act is a warm-grey, because a cold-blue grade instantly reads as
+//     moonlit fantasy rather than as this game's grime.
 export const AMBIENCE = {
   coast: {
-    // Frisches Haff at dusk — cold amber light over grey ice
-    ambient: [54, 64, 82],
-    ambientStrength: 0.66,
-    sky: hex('#2b3446'),
-    fog: hex('#5f708c'),
-    fogAmount: 0.2,
-    grade: hex('#7f9ccb'),
-    gradeAmount: 0.16,
+    // Frisches Haff at dusk — grey ice under a sky the colour of wet sand
+    ambient: [58, 56, 54],
+    ambientStrength: 0.5,
+    sky: hex('#14131a'),
+    fog: hex('#4a4740'),
+    fogAmount: 0.07,
+    grade: hex('#8a7a5c'),
+    gradeAmount: 0.2,
     sunDir: [-0.5, -0.7],
-    rim: hex('#a8c8ff'),
+    rim: hex('#b9c3cc'),
     weather: 'snow',
-    weatherAmount: 0.5,
+    weatherAmount: 0.45,
   },
   forest: {
-    ambient: [38, 50, 44],
-    ambientStrength: 0.54,
-    sky: hex('#141d1a'),
-    fog: hex('#3d5346'),
-    fogAmount: 0.28,
-    grade: hex('#5f8f6a'),
-    gradeAmount: 0.14,
+    ambient: [48, 50, 38],
+    ambientStrength: 0.46,
+    sky: hex('#0e1210'),
+    fog: hex('#39402e'),
+    fogAmount: 0.1,
+    grade: hex('#6e7442'),
+    gradeAmount: 0.2,
     sunDir: [-0.4, -0.8],
-    rim: hex('#9fd0a8'),
+    rim: hex('#b6b98e'),
     weather: 'leaves',
     weatherAmount: 0.35,
   },
   bog: {
-    ambient: [34, 44, 56],
-    ambientStrength: 0.48,
-    sky: hex('#10161f'),
-    fog: hex('#3b5560'),
-    fogAmount: 0.4,
-    grade: hex('#4fd6b0'),
-    gradeAmount: 0.12,
+    ambient: [42, 46, 40],
+    ambientStrength: 0.42,
+    sky: hex('#0b0f0d'),
+    fog: hex('#37423a'),
+    fogAmount: 0.16,
+    grade: hex('#5f7048'),
+    gradeAmount: 0.2,
     sunDir: [-0.3, -0.9],
-    rim: hex('#7ff0c0'),
+    rim: hex('#9fc4a4'),
     weather: 'mist',
-    weatherAmount: 0.8,
+    weatherAmount: 0.55,
   },
   castle: {
-    ambient: [42, 42, 54],
-    ambientStrength: 0.48,
-    sky: hex('#0d0f14'),
-    fog: hex('#4a4a58'),
-    fogAmount: 0.24,
-    grade: hex('#b08050'),
-    gradeAmount: 0.13,
+    ambient: [56, 48, 42],
+    ambientStrength: 0.44,
+    sky: hex('#100c0a'),
+    fog: hex('#463a30'),
+    fogAmount: 0.09,
+    grade: hex('#9c6a38'),
+    gradeAmount: 0.22,
     sunDir: [-0.6, -0.6],
     rim: hex('#ffcf9a'),
     weather: 'ash',
     weatherAmount: 0.5,
   },
   grove: {
-    ambient: [46, 40, 60],
-    ambientStrength: 0.5,
-    sky: hex('#1a1226'),
-    fog: hex('#5a4a72'),
-    fogAmount: 0.28,
-    grade: hex('#a679ff'),
-    gradeAmount: 0.15,
+    ambient: [54, 44, 46],
+    ambientStrength: 0.44,
+    sky: hex('#120c12'),
+    fog: hex('#463448'),
+    fogAmount: 0.11,
+    grade: hex('#8a4f5e'),
+    gradeAmount: 0.22,
     sunDir: [-0.4, -0.8],
-    rim: hex('#d8b6ff'),
+    rim: hex('#caa0c0'),
     weather: 'storm',
     weatherAmount: 0.7,
   },

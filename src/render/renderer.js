@@ -27,15 +27,33 @@ import {
 } from './textures.js';
 import { warpFbm, fbm } from './noise.js';
 
-export const ISO_Y = 0.62;
+// A true 2:1 dimetric squash — one step down in y for every two across, the
+// same projection Diablo II's tiles were built on. The old 0.62 was a
+// compromise that read as "camera slightly tilted from overhead"; 0.5 is the
+// angle the eye recognises as isometric.
+export const ISO_Y = 0.5;
+
+// The world is drawn into a buffer about this wide and then blown up with
+// nearest-neighbour sampling, so the picture lands on chunky, stable pixels
+// instead of a smooth gradient soup. Diablo II ran at 640x480; this is the
+// same idea sized for a widescreen phone.
+const WORLD_PIXEL_WIDTH = 720;
+
 const CHUNK = 384; // world units per terrain chunk
 const CHUNK_CACHE = 28;
 
 export class Renderer {
   constructor(canvas) {
+    // Two surfaces. `screen` is the real canvas at device resolution and is
+    // where the HUD draws; `world` is the small buffer everything in the game
+    // world is painted into, then upscaled onto the screen with smoothing off.
     this.canvas = canvas;
-    this.ctx = ctxOf(canvas, false);
-    this.ctx.imageSmoothingQuality = 'low';
+    this.screen = canvas;
+    this.screenCtx = ctxOf(canvas, false);
+    this.world = makeCanvas(1, 1);
+    this.ctx = ctxOf(this.world, false);
+    this.sw = 1;
+    this.sh = 1;
 
     this.cam = { x: 0, y: 0, zoom: 1, shakeX: 0, shakeY: 0 };
     this.shake = 0;
@@ -106,15 +124,33 @@ export class Renderer {
     this.cssW = cssW;
     this.cssH = cssH;
     this.dpr = dpr;
-    const w = Math.max(320, Math.round(cssW * dpr * this.renderScale));
-    const h = Math.max(200, Math.round(cssH * dpr * this.renderScale));
+
+    // The screen surface stays sharp — the HUD is drawn on it directly.
+    const sw = Math.max(320, Math.round(cssW * dpr));
+    const sh = Math.max(200, Math.round(cssH * dpr));
+    if (sw !== this.sw || sh !== this.sh) {
+      this.sw = sw;
+      this.sh = sh;
+      this.screen.width = sw;
+      this.screen.height = sh;
+      this.screen.style.width = cssW + 'px';
+      this.screen.style.height = cssH + 'px';
+      this.screenCtx.imageSmoothingEnabled = false;
+    }
+
+    // The world buffer is sized so one of its pixels is a whole number of
+    // screen pixels wherever that is possible — a fractional ratio is what
+    // makes upscaled pixel art shimmer as the camera moves.
+    const want = WORLD_PIXEL_WIDTH * this.renderScale;
+    const step = Math.max(1, Math.round(sw / want));
+    this.worldPixel = step;
+    const w = Math.max(320, Math.round(sw / step));
+    const h = Math.max(200, Math.round(sh / step));
     if (w === this.w && h === this.h) return;
     this.w = w;
     this.h = h;
-    this.canvas.width = w;
-    this.canvas.height = h;
-    this.canvas.style.width = cssW + 'px';
-    this.canvas.style.height = cssH + 'px';
+    this.world.width = w;
+    this.world.height = h;
     this.ctx.imageSmoothingQuality = 'low';
 
     const lw = Math.max(2, Math.round(w * 0.5));
@@ -162,10 +198,10 @@ export class Renderer {
   // -- camera --------------------------------------------------------------
 
   get viewW() {
-    return this.w / (this.cam.zoom * this.dpr * this.renderScale);
+    return this.w / (this.cam.zoom * this.pxScale);
   }
   get viewH() {
-    return this.h / (this.cam.zoom * this.dpr * this.renderScale);
+    return this.h / (this.cam.zoom * this.pxScale);
   }
 
   /** World → screen (in backing-store pixels). */
@@ -179,8 +215,9 @@ export class Renderer {
       this.h * 0.5
     );
   }
+  /** World units → world-buffer pixels. */
   get pxScale() {
-    return this.dpr * this.renderScale;
+    return this.dpr / (this.worldPixel || 1);
   }
 
   /** Screen (CSS px) → world. */
@@ -289,17 +326,63 @@ export class Renderer {
     ctx.restore();
 
     // Scattered ground litter baked straight in — cheap density, no draw cost.
+    // Diablo II's floors were never smooth: every tile carried pebbles, grit
+    // and hairline cracks, and that high-frequency mess is most of why the
+    // ground read as ground rather than as a painted backdrop. Each stone is
+    // drawn as a lit pair — a dark base with a paler cap offset towards the
+    // key light — so even a three-pixel pebble has a top and a side.
     ctx.save();
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 420; i++) {
       const x = rng.float() * CHUNK;
       const y = rng.float() * CHUNK;
-      const r = rng.range(1.2, 4.2);
-      ctx.globalAlpha = rng.range(0.15, 0.5);
-      ctx.fillStyle = rng.bool() ? 'rgba(18,16,14,1)' : 'rgba(160,158,146,1)';
+      const r = rng.range(0.8, 3.4);
+      const rot = rng.float() * TAU;
+      const squash = rng.range(0.45, 0.9);
+      ctx.globalAlpha = rng.range(0.2, 0.55);
+      ctx.fillStyle = 'rgba(16,14,12,1)';
       ctx.beginPath();
-      ctx.ellipse(x, y, r, r * rng.range(0.4, 0.9), rng.float() * TAU, 0, TAU);
+      ctx.ellipse(x, y, r, r * squash, rot, 0, TAU);
+      ctx.fill();
+      ctx.globalAlpha = rng.range(0.18, 0.5);
+      ctx.fillStyle = 'rgba(178,172,156,1)';
+      ctx.beginPath();
+      ctx.ellipse(x - r * 0.3, y - r * 0.42, r * 0.66, r * squash * 0.6, rot, 0, TAU);
       ctx.fill();
     }
+
+    // Hairline cracks and dead stalks.
+    ctx.globalAlpha = 1;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 46; i++) {
+      let x = rng.float() * CHUNK;
+      let y = rng.float() * CHUNK;
+      let a = rng.float() * TAU;
+      ctx.strokeStyle = `rgba(14,12,11,${rng.range(0.18, 0.44).toFixed(3)})`;
+      ctx.lineWidth = rng.range(0.6, 1.5);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      const segs = rng.int(2, 6);
+      for (let k = 0; k < segs; k++) {
+        a += rng.range(-0.7, 0.7);
+        x += Math.cos(a) * rng.range(3, 11);
+        y += Math.sin(a) * rng.range(3, 11) * 0.6;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // A fixed grain baked into the chunk rather than laid over the screen.
+    // Baking it means the speckle belongs to the ground and stays put as the
+    // camera moves; a screen-space grain slides across the world and reads as
+    // dirt on the lens instead of texture underfoot.
+    ctx.save();
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.globalAlpha = 0.34;
+    const gp = ctx.createPattern(this.grain, 'repeat');
+    ctx.translate(-(((ox % 128) + 128) % 128), -(((oy % 128) + 128) % 128));
+    ctx.fillStyle = gp;
+    ctx.fillRect(0, 0, CHUNK + 128, CHUNK + 128);
     ctx.restore();
 
     return canvas;
@@ -318,12 +401,18 @@ export class Renderer {
     for (let y = -step; y < CHUNK + step; y += step) {
       for (let x = -step; x < CHUNK + step; x += step) {
         const n = warpFbm((ox + x) * scale + (layer.offset || 0), (oy + y) * scale, 1.5, 4);
-        const a = clamp01((n - thr) / soft);
+        // A steep curve on the mask. Diablo II's terrain transitions were
+        // tile edges, not airbrushed fades — where sand meets rock there is a
+        // line. Squaring the coverage keeps a broad solid interior and pulls
+        // the falloff into a narrow band at the rim.
+        const cov = clamp01((n - thr) / soft);
+        const a = cov * cov * (3 - 2 * cov);
         if (a <= 0.02) continue;
         any = true;
         const r = step * 1.7;
         const g = s.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(255,255,255,${(a * 0.95).toFixed(3)})`);
+        g.addColorStop(0, `rgba(255,255,255,${(a * 0.98).toFixed(3)})`);
+        g.addColorStop(0.55, `rgba(255,255,255,${(a * 0.8).toFixed(3)})`);
         g.addColorStop(1, 'rgba(255,255,255,0)');
         s.fillStyle = g;
         s.fillRect(x - r, y - r, r * 2, r * 2);
@@ -356,7 +445,9 @@ export class Renderer {
     const cy1 = Math.floor((this.cam.y + viewHalfH) / CHUNK);
 
     ctx.save();
-    ctx.imageSmoothingEnabled = true;
+    // No resampling on the ground: a smoothed chunk turns the grit back into
+    // the mud it was baked to replace.
+    ctx.imageSmoothingEnabled = false;
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const c = this.getChunk(cx, cy);
@@ -490,9 +581,11 @@ export class Renderer {
     ctx.globalCompositeOperation = 'multiply';
     ctx.drawImage(this.lightCanvas, 0, 0, this.w, this.h);
     if (this.quality >= 1) {
-      // Warm overbright: torches feel hot instead of merely revealing.
+      // A little overbright so a torch feels hot rather than merely revealing.
+      // Kept low: pushed further it blows the character out to a white blob,
+      // and losing the armour's shading is a bad trade for a warmer glow.
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = 0.2;
+      ctx.globalAlpha = 0.07;
       ctx.drawImage(this.lightCanvas, 0, 0, this.w, this.h);
     }
     ctx.restore();
@@ -613,8 +706,8 @@ export class Renderer {
       Math.max(this.w, this.h) * 0.76
     );
     rg.addColorStop(0, 'rgba(0,0,0,0)');
-    rg.addColorStop(0.62, 'rgba(4,5,8,0.24)');
-    rg.addColorStop(1, 'rgba(2,3,5,0.74)');
+    rg.addColorStop(0.62, 'rgba(6,4,3,0.16)');
+    rg.addColorStop(1, 'rgba(4,3,2,0.52)');
     g.fillStyle = rg;
     g.fillRect(0, 0, this.w, this.h);
     this.gradeSheet = c;
@@ -785,6 +878,20 @@ export class Renderer {
   }
 
   // -- frame ---------------------------------------------------------------
+
+  /**
+   * Blows the world buffer up onto the screen with sampling switched off, so
+   * every world pixel lands as a hard little square. Called once the world is
+   * finished and before the HUD, which draws straight onto the screen.
+   */
+  presentWorld() {
+    const ctx = this.screenCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(this.world, 0, 0, this.w, this.h, 0, 0, this.sw, this.sh);
+  }
 
   beginFrame(dt) {
     this.time += dt;
