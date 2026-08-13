@@ -37,7 +37,11 @@ export const ISO_Y = 0.5;
 // nearest-neighbour sampling, so the picture lands on chunky, stable pixels
 // instead of a smooth gradient soup. Diablo II ran at 640x480; this is the
 // same idea sized for a widescreen phone.
-const WORLD_PIXEL_WIDTH = 720;
+// 720 was too coarse once the figures had armour worth looking at: a knight
+// stood about forty-five pixels tall, which is fewer than the plates he is
+// wearing. This keeps a visible pixel grid — the grid is the point — while
+// giving a character enough pixels to be a body rather than a suggestion.
+const WORLD_PIXEL_WIDTH = 1200;
 
 const CHUNK = 384; // world units per terrain chunk
 const CHUNK_CACHE = 28;

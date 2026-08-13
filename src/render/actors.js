@@ -364,12 +364,57 @@ function cylinderFill(ctx, x0, y0, x1, y1, r0, r1, base, dark, light, spec) {
   const my = (y0 + y1) * 0.5;
   const r = Math.max(r0, r1);
   const g = ctx.createLinearGradient(mx - nx * r, my - ny * r, mx + nx * r, my + ny * r);
-  g.addColorStop(0, css(dark));
-  g.addColorStop(0.42, css(base));
+
+  // The ramp that makes a shape read as a solid object rather than a painted
+  // one. A plain light-to-dark gradient looks like paper because real
+  // surfaces do not get steadily darker — they reach a *core shadow* just
+  // inside the shadow edge and then come back up, because light bouncing off
+  // whatever the object is standing on hits the far edge. That bounce is the
+  // whole trick: without it a limb is a shaded disc, with it the eye reads a
+  // cylinder it could put a hand around.
+  g.addColorStop(0.0, css(mixc(dark, base, 0.28))); // reflected light
+  g.addColorStop(0.13, css(dark)); // core shadow, the darkest band
+  g.addColorStop(0.3, css(mixc(dark, base, 0.72)));
+  g.addColorStop(0.52, css(base));
   g.addColorStop(0.76, css(light));
-  g.addColorStop(0.9, css(spec));
-  g.addColorStop(1, css(mixc(light, dark, 0.45)));
+  g.addColorStop(0.88, css(spec)); // the hot line where the light grazes
+  g.addColorStop(1.0, css(mixc(light, base, 0.5))); // turning away again
   return g;
+}
+
+/**
+ * Shades a sphere the way a sphere actually behaves: the highlight sits off
+ * the centre towards the light, the terminator is a curve rather than a
+ * straight edge, and the shadow side lifts again at the rim. Used for heads,
+ * joints and helm crowns — anything the eye expects to be round.
+ */
+function sphereFill(ctx, cx, cy, r, base, dark, light, spec) {
+  const lx = cx + KEY_X * r * 0.52;
+  const ly = cy + KEY_Y * r * 0.52;
+  const g = ctx.createRadialGradient(lx, ly, r * 0.04, cx - KEY_X * r * 0.3, cy - KEY_Y * r * 0.3, r * 1.32);
+  g.addColorStop(0, css(spec));
+  g.addColorStop(0.16, css(light));
+  g.addColorStop(0.42, css(base));
+  g.addColorStop(0.72, css(mixc(base, dark, 0.8)));
+  g.addColorStop(0.88, css(dark));
+  g.addColorStop(1, css(mixc(dark, base, 0.34))); // rim bounce
+  return g;
+}
+
+/**
+ * Occlusion where two parts meet. Everywhere one form enters another there is
+ * a tight pool of darkness, and it is the single cheapest thing that stops a
+ * figure looking like separate pieces laid on top of each other.
+ */
+function contactAO(ctx, x, y, r, strength = 0.5) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(6,5,7,${strength})`);
+  g.addColorStop(0.55, `rgba(6,5,7,${(strength * 0.45).toFixed(3)})`);
+  g.addColorStop(1, 'rgba(6,5,7,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, TAU);
+  ctx.fill();
 }
 
 /**
@@ -493,18 +538,20 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     const J = P[joint];
     if (!J) return;
     const rr = r * s;
+    // The joint sits in a pocket of its own shadow before the plate goes on.
+    contactAO(ctx, J[0], J[1], rr * 1.5, 0.4);
     ctx.beginPath();
     ctx.ellipse(J[0], J[1], rr, rr * 0.92, 0, 0, TAU);
     ctx.fillStyle = css(contour, 0.9);
     ctx.fill();
     const d = clamp01(0.5 + clamp(depth * 0.8, -0.5, 0.5));
-    const g = ctx.createLinearGradient(J[0] - rr, J[1] - rr, J[0] + rr, J[1] + rr);
-    g.addColorStop(0, css(tint(mixc(M.metalLight || M.armsLight, [255, 250, 240], 0.25 * d))));
-    g.addColorStop(0.45, css(tint(M.metal || M.arms)));
-    g.addColorStop(1, css(tint(mixc(M.metalDark || M.armsDark, contour, 0.5))));
+    const mBase = tint(M.metal || M.arms);
+    const mLight = tint(mixc(M.metalLight || M.armsLight, [255, 250, 240], 0.2 * d));
+    const mDark = tint(mixc(M.metalDark || M.armsDark, contour, 0.55));
+    const mSpec = tint(mixc(M.metalLight || M.armsLight, [255, 255, 250], 0.55));
     ctx.beginPath();
     ctx.ellipse(J[0], J[1], rr * 0.82, rr * 0.76, 0, 0, TAU);
-    ctx.fillStyle = g;
+    ctx.fillStyle = sphereFill(ctx, J[0], J[1], rr * 0.82, mBase, mDark, mLight, mSpec);
     ctx.fill();
   };
 
@@ -525,6 +572,11 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     push(D['hip' + side] - 0.4, () => {
       const lw = def.limbScale ?? 1;
       const legPlate = def.pauldrons ? 2 : 0;
+      const HP = P['hip' + side];
+      // The body casts down onto the top of the thigh — a real form shadow,
+      // not just a darker paint, which is what tells you the torso is in
+      // front of the leg and above it.
+      if (HP) contactAO(ctx, HP[0], HP[1] - 1 * s, 10 * s * lw, 0.5);
       bone('hip' + side, 'knee' + side, 7.2 * lw, 5.4 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
       if (legPlate) cop('knee' + side, 4.8 * lw, D['hip' + side]);
       bone('knee' + side, 'foot' + side, 5.4 * lw, 3.8 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
@@ -547,6 +599,10 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   const drawArm = (side) => {
     const lw = def.limbScale ?? 1;
     const plated = def.pauldrons ? 2 : 0;
+    // Where the arm enters the body. Without this the limb reads as laid on
+    // top of the chest rather than socketed into it.
+    const SH = P['shoulder' + side];
+    if (SH) contactAO(ctx, SH[0], SH[1] + 2 * s, 9 * s * lw, 0.42);
     bone('shoulder' + side, 'elbow' + side, 6.2 * lw, 4.8 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
     if (plated) cop('elbow' + side, 4.4 * lw, D['shoulder' + side]);
     bone('elbow' + side, 'hand' + side, 4.8 * lw, 3.6 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
@@ -819,12 +875,18 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
     hipR[0] - KEY_X * 12 * s,
     hipR[1] - KEY_Y * 8 * s
   );
-  g.addColorStop(0, css(tint(mixc(M.torsoLight, [255, 248, 232], 0.28))));
-  g.addColorStop(0.3, css(tint(M.torsoLight)));
-  g.addColorStop(0.6, css(tint(M.torso)));
-  g.addColorStop(1, css(tint(mixc(M.torsoDark, [10, 9, 11], 0.42))));
+  // The chest is the largest surface on the figure, so it is where a flat
+  // ramp is most obvious. Same recipe as the limbs: hot edge, body, core
+  // shadow just inside the far side, then a lift at the very edge where
+  // light bounces back off the ground.
+  g.addColorStop(0, css(tint(mixc(M.torsoLight, [255, 248, 232], 0.34))));
+  g.addColorStop(0.22, css(tint(M.torsoLight)));
+  g.addColorStop(0.52, css(tint(M.torso)));
+  g.addColorStop(0.82, css(tint(mixc(M.torsoDark, [10, 9, 11], 0.5))));
+  g.addColorStop(1, css(tint(mixc(M.torsoDark, M.torso, 0.34))));
   ctx.fillStyle = g;
   ctx.fill();
+
 
   ctx.save();
   ctx.clip();
@@ -927,7 +989,7 @@ function drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA) {
   ctx.lineTo(H[0] + 2.8 * s, H[1] + 1 * s);
   ctx.lineTo(H[0] - 2.8 * s, H[1] + 1 * s);
   ctx.closePath();
-  ctx.fillStyle = css(tint(M.skinDark || M.armsDark));
+  ctx.fillStyle = css(tint(M.skinDark || M.armsDark));  // silhouette under the face
   ctx.fill();
 
   // Rim ghost
@@ -936,15 +998,24 @@ function drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA) {
   ctx.fillStyle = css(tint(rimC), rimA);
   ctx.fill();
 
-  // Skull
+  // Skull, shaded as an actual sphere — highlight off-centre towards the
+  // lamp, a core shadow inside the shadow edge, and the rim lifting again
+  // where light bounces back onto it.
   ctx.beginPath();
   ctx.ellipse(H[0], H[1], r, r * 1.08, 0, 0, TAU);
-  const g = ctx.createRadialGradient(H[0] - r * 0.4, H[1] - r * 0.5, r * 0.1, H[0], H[1], r * 1.3);
-  g.addColorStop(0, css(tint(M.skinLight || M.armsLight)));
-  g.addColorStop(0.55, css(tint(M.skin || M.arms)));
-  g.addColorStop(1, css(tint(M.skinDark || M.armsDark)));
-  ctx.fillStyle = g;
+  ctx.fillStyle = sphereFill(
+    ctx,
+    H[0],
+    H[1],
+    r,
+    tint(M.skin || M.arms),
+    tint(M.skinDark || M.armsDark),
+    tint(M.skinLight || M.armsLight),
+    tint(mixc(M.skinLight || M.armsLight, [255, 245, 230], 0.5))
+  );
   ctx.fill();
+  // The jaw sits in the shadow of the skull above it.
+  contactAO(ctx, H[0], H[1] + r * 0.95, r * 0.8, 0.35);
 
   // The face is only drawn when the character is turned toward the camera.
   const front = clamp01(sinF * 1.4 + 0.25);
