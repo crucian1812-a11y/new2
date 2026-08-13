@@ -27,7 +27,7 @@ import {
   angleTowards,
   inCone,
 } from '../core/math.js';
-import { renderActor, drawActorShadow } from '../render/actors.js';
+import { renderActor, drawActorShadow, setKeyLight } from '../render/actors.js';
 import { getProp, getScaledProp } from '../render/props.js';
 import { PAL, hex, css, mixc } from '../render/palette.js';
 import { bakeBloodDecal, bakeScorchDecal } from '../render/textures.js';
@@ -2384,8 +2384,11 @@ export class Game {
       pr.fade = pr.fade === undefined ? want : damp(pr.fade, want, 12, 1 / 60);
 
       R.push(pr.y, (ctx, r) => {
-        // No per-frame shadow blit: the bake already carries contact darkening.
         const swayPx = pr.sway ? Math.round(Math.sin(r.time * 0.9 + pr.phase) * pr.sway * 1.6) : 0;
+        // Shadow first, then the prop over it. Grass and reeds are skipped —
+        // a clump of stalks casts a mess of thin slivers that reads as dirt
+        // on the ground rather than as shade, and there are hundreds of them.
+        if (pr.fade > 0.5 && spr.h > 26) r.drawSpriteShadow(spr, pr.x, pr.y, 0.3 * pr.fade);
         r.drawScaled(spr, pr.x, pr.y, swayPx, pr.fade);
         if (spr.emissive) r.drawScaledEmissive(spr, pr.x, pr.y, swayPx);
       });
@@ -2450,6 +2453,7 @@ export class Game {
       alpha: p.invuln > 0 && p.alive ? 0.7 + 0.3 * Math.sin(R.time * 40) : 1,
     };
     drawActorShadow(ctx, p.look, st, R.sx(p.x), R.sy(p.y), s, R.ambience.sunDir);
+    setKeyLight(...R.keyLightDir(p.x, p.y));
     renderActor(ctx, p.look, st, R.sx(p.x), R.sy(p.y), s, (x, y, r, c, a) =>
       this.emis(R, x, y, r, c, a)
     );
@@ -2503,6 +2507,7 @@ export class Game {
       alpha: (m.def.ghostly ? 0.88 : 1) * fade,
     };
     drawActorShadow(ctx, m.look, st, R.sx(m.x), R.sy(m.y), s, R.ambience.sunDir);
+    setKeyLight(...R.keyLightDir(m.x, m.y));
     renderActor(ctx, m.look, st, R.sx(m.x), R.sy(m.y), s, (x, y, r, c, a) =>
       this.emis(R, x, y, r, c, a * fade)
     );

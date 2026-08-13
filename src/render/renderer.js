@@ -803,6 +803,84 @@ export class Renderer {
     return true;
   }
 
+  /**
+   * The black silhouette of a sprite, baked once and kept.
+   *
+   * Every prop in the world was standing on nothing: a pine, a boulder and a
+   * slab of ice all met the ground with no shadow at all, which is what made
+   * them read as stickers on the mud rather than objects resting in it. The
+   * figures got their shadows last pass; this is the same idea for everything
+   * that does not move, and because props never change it is one bake per
+   * sprite for the whole session.
+   */
+  shadowOf(spr) {
+    if (spr.__shadow !== undefined) return spr.__shadow;
+    const src = spr.canvas;
+    if (!src || !src.width || !src.height) {
+      spr.__shadow = null;
+      return null;
+    }
+    const c = makeCanvas(src.width, src.height);
+    const cc = ctxOf(c);
+    cc.drawImage(src, 0, 0);
+    // Keep the alpha, throw away the colour.
+    cc.globalCompositeOperation = 'source-in';
+    cc.fillStyle = '#000';
+    cc.fillRect(0, 0, c.width, c.height);
+    spr.__shadow = c;
+    return c;
+  }
+
+  /**
+   * Lays a prop's silhouette on the ground, sheared away from the key light
+   * and squashed onto the floor plane — the same transform the actors use, so
+   * a tree and a knight agree about where the sun is.
+   */
+  drawSpriteShadow(spr, x, y, alpha = 0.34) {
+    const sh = this.shadowOf(spr);
+    if (!sh) return;
+    const sun = this.ambience.sunDir || [-0.5, -0.75];
+    const len = Math.hypot(sun[0], sun[1]) || 1;
+    const shear = (-sun[0] / len) * 0.8;
+    const ctx = this.ctx;
+    const bx = this.sx(x);
+    const by = this.sy(y);
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(bx, by);
+    // Shear turns height into ground distance; the squash flattens it.
+    ctx.transform(1, 0, shear, 0.42, 0, 0);
+    ctx.drawImage(sh, -spr.ox, -spr.oy);
+    ctx.restore();
+  }
+
+  /**
+   * Screen-space direction from a world point towards the brightest light
+   * near it, blended with the zone's own sun so a figure standing in the
+   * open is still lit from somewhere. This is what a per-actor highlight
+   * follows.
+   */
+  keyLightDir(wx, wy) {
+    const sun = this.ambience.sunDir || [-0.5, -0.75];
+    let bx = sun[0] * 0.55;
+    let by = sun[1] * 0.55;
+    const ox = this.sx(wx);
+    const oy = this.sy(wy);
+    for (const L of this.lights) {
+      const dx = this.sx(L.x) - ox;
+      const dy = this.sy(L.y) - oy;
+      const d = Math.hypot(dx, dy);
+      if (d < 1) continue;
+      const r = L.r * this.cam.zoom * this.pxScale;
+      if (d > r) continue;
+      // Nearer and stronger lights win, and the falloff matches the lightmap.
+      const w = L.i * (1 - d / r) * (1 - d / r);
+      bx += (dx / d) * w;
+      by += (dy / d) * w;
+    }
+    return [bx, by];
+  }
+
   /** Screen-space bounds of a pre-scaled sprite placed at a world point. */
   spriteBounds(spr, x, y) {
     const dx = this.sx(x) - spr.ox;

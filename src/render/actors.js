@@ -336,8 +336,28 @@ function shadeFor(depth, base, dark, light) {
 // up and to the left, and every frame of every unit agreed about it — which
 // is most of why a screen full of unrelated monsters still looked like one
 // photograph. Nothing here is allowed to disagree with this vector.
-const KEY_X = -0.62;
-const KEY_Y = -0.78;
+let KEY_X = -0.62;
+let KEY_Y = -0.78;
+
+/**
+ * Points the key light at whatever is actually burning nearby.
+ *
+ * Diablo II baked its lighting into the sprites, so a character's highlight
+ * never moved — the trade it made for pre-rendered detail. We draw the rig
+ * live, so we can do the thing it could not: when you walk past a fire the
+ * hot edge crosses the armour and settles on the side facing the flame.
+ * Callers set this per actor, in screen space, before drawing.
+ */
+export function setKeyLight(dx, dy) {
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-4) {
+    KEY_X = -0.62;
+    KEY_Y = -0.78;
+    return;
+  }
+  KEY_X = dx / len;
+  KEY_Y = dy / len;
+}
 
 /**
  * Paints a limb as a lit cylinder instead of a flat pill.
