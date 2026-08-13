@@ -282,7 +282,7 @@ export class Game {
     if (n) {
       p.gold += gold;
       audio.play('coin');
-      this.pushMessage(`${n} Stücke verkauft`, `+${gold} Gold`, 1.8);
+      this.pushMessage(`Продано вещей: ${n}`, `+${gold} золота`, 1.8);
     }
     return n;
   }
@@ -323,7 +323,7 @@ export class Game {
       for (let i = this.fx.texts.length - 1; i >= 0; i--) {
         if (this.fx.texts[i].levelUp) this.fx.texts.splice(i, 1);
       }
-      this.fx.text(p.x, p.y, 96, 'STUFE ' + p.level, {
+      this.fx.text(p.x, p.y, 96, 'УРОВЕНЬ ' + p.level, {
         color: PAL.holy,
         size: 22,
         bold: true,
@@ -331,14 +331,14 @@ export class Game {
         vz: 40,
         levelUp: true,
       });
-      this.pushMessage('Stufe ' + p.level, this.unlockedSkillName(p.level) || 'Deine Kraft wächst', 2.6);
+      this.pushMessage('Уровень ' + p.level, this.unlockedSkillName(p.level) || 'Твоя сила растёт', 2.6);
       this.r.addShake(8);
     }
   }
 
   unlockedSkillName(level) {
     for (const id of this.cls.skills) {
-      if (SKILLS[id].unlock === level) return 'Neue Fähigkeit: ' + SKILLS[id].name;
+      if (SKILLS[id].unlock === level) return 'Новое умение: ' + SKILLS[id].name;
     }
     return null;
   }
@@ -638,8 +638,8 @@ export class Game {
   onBossDefeated(m) {
     const last = this.actIndex >= ACTS.length - 1;
     this.pushMessage(
-      last && !this.endless ? 'Perkūnas ist gefallen' : m.name + ' ist gefallen',
-      last && !this.endless ? 'Der Hain schweigt.' : 'Ein Weg öffnet sich.',
+      last && !this.endless ? 'Перкунас пал' : m.name + ' повержен',
+      last && !this.endless ? 'Роща молчит.' : 'Открывается путь.',
       4
     );
     this.portal = {
@@ -737,7 +737,7 @@ export class Game {
       this.state = 'dead';
       audio.play('death');
       this.r.addShake(20);
-      this.logLine('Du bist gefallen.');
+      this.logLine('Ты пал.');
     }
   }
 
@@ -1340,14 +1340,14 @@ export class Game {
         for (const it of this.player.inventory) if (!worst || it.value < worst.value) worst = it;
         if (worst && worst.value < d.item.value) {
           this.sellItem(worst);
-          this.fx.text(this.player.x, this.player.y, 104, `Beutel voll — ${worst.name} verkauft`, {
+          this.fx.text(this.player.x, this.player.y, 104, `Сума полна — ${worst.name} продан`, {
             color: [200, 176, 120],
             size: 11,
             life: 1.8,
           });
         } else {
           this.player.gold += d.item.value;
-          this.fx.text(d.x, d.y, 40, `Beutel voll — ${d.item.value} Gold`, {
+          this.fx.text(d.x, d.y, 40, `Сума полна — ${d.item.value} золота`, {
             color: PAL.gold,
             size: 11,
             life: 1.5,
@@ -1366,7 +1366,7 @@ export class Game {
       });
       if (this.isUpgrade(d.item) && this.player.inventory.length < 40) {
         this.equip(d.item, true);
-        this.fx.text(this.player.x, this.player.y, 110, 'Verbesserung angelegt', {
+        this.fx.text(this.player.x, this.player.y, 110, 'Надето лучшее', {
           color: [180, 220, 255],
           size: 12,
           life: 1.6,
@@ -2095,8 +2095,8 @@ export class Game {
       } else if (!this._gateWarned || this.time - this._gateWarned > 6) {
         this._gateWarned = this.time;
         this.pushMessage(
-          'Der Weg ist versperrt',
-          `Noch ${this.killQuota - this.kills} Feinde müssen fallen`,
+          'Путь прегражден',
+          `Ещё ${this.killQuota - this.kills} врагов должны пасть`,
           2.4
         );
       }
@@ -2123,7 +2123,7 @@ export class Game {
     if (s.kind === 'heal') {
       p.hp = this.stats.maxLife;
       p.potions = p.maxPotions;
-      this.pushMessage('Quelle des Ordens', 'Vollständig geheilt', 2.2);
+      this.pushMessage('Источник Ордена', 'Исцелён полностью', 2.2);
     } else if (s.kind === 'might') {
       p.buffs.might = { t: dur };
       p.bonus.dmgPct = (p.bonus.dmgPct || 0) + 0.35;
@@ -2132,7 +2132,7 @@ export class Game {
         p.bonus.dmgPct -= 0.35;
         this.recompute();
       });
-      this.pushMessage('Schrein der Stärke', '+35 % Schaden', 2.2);
+      this.pushMessage('Алтарь силы', '+35 % урона', 2.2);
     } else if (s.kind === 'haste') {
       p.buffs.haste = { t: dur };
       p.bonus.attackSpeed = (p.bonus.attackSpeed || 0) + 0.4;
@@ -2143,10 +2143,10 @@ export class Game {
         p.bonus.moveSpeed -= 0.25;
         this.recompute();
       });
-      this.pushMessage('Schrein der Hast', '+40 % Tempo', 2.2);
+      this.pushMessage('Алтарь спешки', '+40 % темпа', 2.2);
     } else {
       p.buffs.ward = { t: dur, absorb: 0.4, reflect: 0.4 };
-      this.pushMessage('Schrein des Schutzes', 'Schaden wird absorbiert', 2.2);
+      this.pushMessage('Алтарь защиты', 'Урон поглощается', 2.2);
     }
   }
 
@@ -2180,7 +2180,7 @@ export class Game {
       this.endless = true;
       this.difficulty *= 1.55;
       this.loadAct(0);
-      this.pushMessage('Die Ewige Jagd', 'Schwierigkeit ×' + this.difficulty.toFixed(1), 4);
+      this.pushMessage('Вечная охота', 'Сложность ×' + this.difficulty.toFixed(1), 4);
     } else {
       this.loadAct(this.actIndex + 1);
       this.pushMessage(this.act.name, this.act.subtitle, 4.5);
@@ -2252,9 +2252,9 @@ export class Game {
 
     this.spawnTimer = 3;
     this.state = 'playing';
-    this.pushMessage('Wiederauferstanden', 'Der Weg geht weiter', 2.4);
+    this.pushMessage('Восставший', 'Путь продолжается', 2.4);
     audio.play('holy');
-    this.logLine('Wiederauferstanden bei der Wegmarke.');
+    this.logLine('Ты восстал у путевого камня.');
   }
 
   // =========================================================================
@@ -2816,7 +2816,7 @@ export class Game {
 
 // ---------------------------------------------------------------------------
 
-const ELITE_PREFIX = ['Blutiger', 'Uralter', 'Verfluchter', 'Gepanzerter', 'Rasender', 'Frostiger'];
+const ELITE_PREFIX = ['Кровавый', 'Древний', 'Проклятый', 'Закованный', 'Бешеный', 'Стылый'];
 function eliteName(rng, base) {
   // Kept short on purpose: long names collide above a pack of elites.
   return `${rng.pick(ELITE_PREFIX)} ${base}`;

@@ -28,14 +28,14 @@ class RNGLite {
 
 /** Slot captions short enough to sit under a 46px cell. */
 const SHORT_SLOT = {
-  weapon: 'Waffe',
-  offhand: 'Neben',
-  head: 'Kopf',
-  chest: 'Brust',
-  hands: 'Hände',
-  feet: 'Füße',
-  ring: 'Ring',
-  amulet: 'Amulett',
+  weapon: 'Оружие',
+  offhand: 'Втор. рука',
+  head: 'Голова',
+  chest: 'Грудь',
+  hands: 'Руки',
+  feet: 'Ноги',
+  ring: 'Кольцо',
+  amulet: 'Амулет',
 };
 
 export class HUD {
@@ -200,7 +200,7 @@ export class HUD {
       ctx.arc(x * this.k, y * this.k, 46 * this.k, 0, TAU);
       ctx.stroke();
       ctx.restore();
-      this.text(ctx, 'Ziehen zum Gehen', x, y + 66, {
+      this.text(ctx, 'Тяни, чтобы идти', x, y + 66, {
         size: 11,
         align: 'center',
         color: [222, 214, 194],
@@ -208,7 +208,7 @@ export class HUD {
       });
     }
     const lay = this.skillLayout();
-    this.text(ctx, 'Angreifen', lay.primary.x, lay.primary.y - lay.primary.r - 8, {
+    this.text(ctx, 'Атака', lay.primary.x, lay.primary.y - lay.primary.r - 8, {
       size: 10,
       align: 'center',
       color: [222, 214, 194],
@@ -356,13 +356,13 @@ export class HUD {
       const left = Math.max(0, g.killQuota - g.kills);
       this.text(
         ctx,
-        left > 0 ? `Feinde bis zum Wächter: ${left}` : 'Der Weg zum Wächter ist frei',
+        left > 0 ? `Врагов до Стража: ${left}` : 'Путь к Стражу открыт',
         x + 2,
         questY + 14,
         { size: 10, color: left > 0 ? hex('#9aa0aa') : hex('#e0c070') }
       );
     } else if (g.portal) {
-      this.text(ctx, 'Betritt das Tor', x + 2, questY + 14, { size: 10, color: hex('#8fe0c0') });
+      this.text(ctx, 'Войди во врата', x + 2, questY + 14, { size: 10, color: hex('#8fe0c0') });
     }
     // Gold
     this.text(ctx, `⬤ ${fmtNum(p.gold)}`, x + 2, questY + 28, { size: 10, color: PAL.gold });
@@ -664,7 +664,7 @@ export class HUD {
     ctx.restore();
 
     if (!st.unlocked) {
-      this.text(ctx, 'St. ' + st.level, x, y + r + 11, {
+      this.text(ctx, 'Ур. ' + st.level, x, y + r + 11, {
         size: 9,
         align: 'center',
         color: [140, 136, 128],
@@ -748,11 +748,11 @@ export class HUD {
     let col = hex('#e0c070');
     if (g.portal) {
       target = g.portal;
-      label = 'Tor';
+      label = 'Врата';
       col = hex('#8fe0c0');
     } else if (g.kills >= g.killQuota && !g.bossSpawned) {
       target = g.zone.bossArena;
-      label = 'Wächter';
+      label = 'Страж';
     }
     if (!target) return;
 
@@ -882,7 +882,7 @@ export class HUD {
 
     // --- left: equipment + stats -----------------------------------------
     this.text(ctx, g.cls.name, pad + 10, pad + 18, { size: 14, serif: true, color: hex('#e6d3a0') });
-    this.text(ctx, `Stufe ${p.level}`, pad + leftW - 10, pad + 18, {
+    this.text(ctx, `Уровень ${p.level}`, pad + leftW - 10, pad + 18, {
       size: 12,
       align: 'right',
       color: hex('#a8a190'),
@@ -908,14 +908,14 @@ export class HUD {
     const statsY = gy + 2 * (slotSize + 17) + 10;
     const dmg = damageRange(s);
     const lines = [
-      ['Schaden', `${dmg[0]}–${dmg[1]}`],
-      ['Leben', String(s.maxLife)],
-      ['Rüstung', String(Math.round(s.armorTotal))],
-      ['Krit.', `${(s.critChanceTotal * 100).toFixed(1)} %`],
-      ['Krit-Schaden', `${Math.round(s.critDmgTotal * 100)} %`],
-      ['Tempo', `${Math.round(s.attackSpeedMult * 100)} %`],
-      ['Kraft / Geschick', `${Math.round(s.might)} / ${Math.round(s.agility)}`],
-      ['Zähigkeit / Geist', `${Math.round(s.vigor)} / ${Math.round(s.spirit)}`],
+      ['Урон', `${dmg[0]}–${dmg[1]}`],
+      ['Жизнь', String(s.maxLife)],
+      ['Броня', String(Math.round(s.armorTotal))],
+      ['Крит.', `${(s.critChanceTotal * 100).toFixed(1)} %`],
+      ['Крит. урон', `${Math.round(s.critDmgTotal * 100)} %`],
+      ['Темп', `${Math.round(s.attackSpeedMult * 100)} %`],
+      ['Сила / Ловкость', `${Math.round(s.might)} / ${Math.round(s.agility)}`],
+      ['Стойкость / Дух', `${Math.round(s.vigor)} / ${Math.round(s.spirit)}`],
     ];
     let ly = statsY;
     ctx.save();
@@ -928,7 +928,7 @@ export class HUD {
     ctx.restore();
 
     // --- right: bag -------------------------------------------------------
-    this.text(ctx, 'Beutel', rightX + 10, pad + 18, { size: 13, serif: true, color: hex('#e6d3a0') });
+    this.text(ctx, 'Сума', rightX + 10, pad + 18, { size: 13, serif: true, color: hex('#e6d3a0') });
     this.text(ctx, `${p.inventory.length} / 40`, rightX + rightW - 176, pad + 18, {
       size: 10,
       align: 'right',
@@ -939,7 +939,7 @@ export class HUD {
       align: 'right',
       color: PAL.gold,
     });
-    this.textButton(ctx, 'sellJunk', rightX + rightW - 118, pad + 6, 82, 18, 'Graues verk.', { size: 9 });
+    this.textButton(ctx, 'sellJunk', rightX + rightW - 118, pad + 6, 82, 18, 'Продать серое', { size: 9 });
 
     const cardH = 68;
     const cell = Math.min(46, (rightW - 24) / 8 - 6);
@@ -975,8 +975,8 @@ export class HUD {
       this.text(
         ctx,
         p.inventory.length
-          ? 'Gegenstand antippen zum Anlegen oder Verkaufen.'
-          : 'Der Beutel ist leer. Erschlagenes lässt fallen.',
+          ? 'Коснись вещи, чтобы надеть или продать.'
+          : 'Сума пуста. Убитые роняют добычу.',
         rightX + 10,
         pad + panelH - 14,
         { size: 10, color: [128, 124, 116] }
@@ -1071,14 +1071,14 @@ export class HUD {
       ly += 12;
     }
     if (item.armorBase) {
-      this.text(ctx, `${item.armorBase} Rüstung`, x + 8, ly, { size: 10, color: [220, 216, 200] });
+      this.text(ctx, `${item.armorBase} брони`, x + 8, ly, { size: 10, color: [220, 216, 200] });
       const d = delta(item.armorBase, equippedHere?.armorBase || 0);
       if (d) this.text(ctx, d.txt, x + 104, ly, { size: 10, color: d.col });
       ly += 12;
     }
     if (!isWorn && equippedHere) {
       const better = itemScore(item, g.cls) - itemScore(equippedHere, g.cls);
-      this.text(ctx, better > 0 ? '▲ Verbesserung' : better < 0 ? '▼ Schlechter' : '= Gleichwertig', x + 8, ly, {
+      this.text(ctx, better > 0 ? '▲ Лучше' : better < 0 ? '▼ Хуже' : '= Равноценно', x + 8, ly, {
         size: 9.5,
         color: better > 0 ? hex('#6fd07a') : better < 0 ? hex('#a8a190') : [150, 146, 136],
       });
@@ -1100,9 +1100,9 @@ export class HUD {
     const bh = 20;
     const bx = x + w - bw - 8;
     if (equipped) {
-      this.textButton(ctx, 'unequip', bx, y + h - bh - 6, bw, bh, 'Ablegen');
+      this.textButton(ctx, 'unequip', bx, y + h - bh - 6, bw, bh, 'Снять');
     } else {
-      this.textButton(ctx, 'equipSel', bx, y + h - bh - 6, bw, bh, 'Anlegen');
+      this.textButton(ctx, 'equipSel', bx, y + h - bh - 6, bw, bh, 'Надеть');
       this.textButton(ctx, 'sellSel', bx - bw - 6, y + h - bh - 6, bw, bh, `Verk. ${item.value}`);
     }
   }
@@ -1259,7 +1259,7 @@ export class HUD {
     this.menuBackdrop(ctx);
 
     const titleY = Math.max(40, H * 0.145);
-    this.text(ctx, 'DER WEG DES RITTERS', W / 2, titleY, {
+    this.text(ctx, 'ПУТЬ РЫЦАРЯ', W / 2, titleY, {
       size: Math.min(34, W * 0.052),
       align: 'center',
       color: hex('#e8d3a0'),
@@ -1267,7 +1267,7 @@ export class HUD {
       weight: 700,
       strokeW: 6,
     });
-    this.text(ctx, 'Ostpreußen, im Jahr des Herrn 1409', W / 2, titleY + 20, {
+    this.text(ctx, 'Восточная Пруссия, лета Господня 1409', W / 2, titleY + 20, {
       size: Math.min(13, W * 0.022),
       align: 'center',
       color: hex('#8e8878'),
@@ -1349,12 +1349,12 @@ export class HUD {
     const bw = 132;
     const bh = 30;
     if (this.game.hasSave()) {
-      this.textButton(ctx, 'continue', W / 2 - bw - 6, by, bw, bh, 'Fortsetzen', { primary: true, size: 12 });
-      this.textButton(ctx, 'newGame', W / 2 + 6, by, bw, bh, 'Neu beginnen', { size: 12 });
+      this.textButton(ctx, 'continue', W / 2 - bw - 6, by, bw, bh, 'Продолжить', { primary: true, size: 12 });
+      this.textButton(ctx, 'newGame', W / 2 + 6, by, bw, bh, 'Начать заново', { size: 12 });
     } else {
-      this.textButton(ctx, 'newGame', W / 2 - bw / 2, by, bw, bh, 'Beginnen', { primary: true, size: 12 });
+      this.textButton(ctx, 'newGame', W / 2 - bw / 2, by, bw, bh, 'Начать', { primary: true, size: 12 });
     }
-    this.textButton(ctx, 'toggleSound', W - 96, 12, 84, 22, audio.muted ? 'Ton: aus' : 'Ton: an', {
+    this.textButton(ctx, 'toggleSound', W - 96, 12, 84, 22, audio.muted ? 'Звук: выкл' : 'Звук: вкл', {
       size: 10,
     });
   }
@@ -1371,16 +1371,16 @@ export class HUD {
     const x = (W - w) / 2;
     const y = (H - h) / 2;
     this.panelBg(ctx, x, y, w, h);
-    this.text(ctx, 'Pause', W / 2, y + 26, { size: 18, align: 'center', color: hex('#e6d3a0'), serif: true });
+    this.text(ctx, 'Пауза', W / 2, y + 26, { size: 18, align: 'center', color: hex('#e6d3a0'), serif: true });
     const bw = w - 40;
-    this.textButton(ctx, 'resume', x + 20, y + 42, bw, 26, 'Weiter', { primary: true, size: 11 });
-    this.textButton(ctx, 'toggleSound', x + 20, y + 74, bw, 26, audio.muted ? 'Ton: aus' : 'Ton: an', { size: 11 });
-    this.textButton(ctx, 'saveGame', x + 20, y + 106, bw, 26, 'Speichern', { size: 11 });
-    this.textButton(ctx, 'quitRun', x + 20, y + 138, bw, 26, 'Zurück zum Titel', { size: 11 });
+    this.textButton(ctx, 'resume', x + 20, y + 42, bw, 26, 'Дальше', { primary: true, size: 11 });
+    this.textButton(ctx, 'toggleSound', x + 20, y + 74, bw, 26, audio.muted ? 'Звук: выкл' : 'Звук: вкл', { size: 11 });
+    this.textButton(ctx, 'saveGame', x + 20, y + 106, bw, 26, 'Сохранить', { size: 11 });
+    this.textButton(ctx, 'quitRun', x + 20, y + 138, bw, 26, 'В начало', { size: 11 });
     const g = this.game;
     this.text(
       ctx,
-      `Getötet: ${g.player.totalKills}   ·   Akt ${g.actIndex + 1}/5`,
+      `Убито: ${g.player.totalKills}   ·   Акт ${g.actIndex + 1}/5`,
       W / 2,
       y + h - 8,
       { size: 9.5, align: 'center', color: [130, 126, 118] }
@@ -1396,7 +1396,7 @@ export class HUD {
     ctx.fillStyle = 'rgba(2,2,4,0.5)';
     ctx.fillRect(0, 0, this.r.sw, this.r.sh);
     ctx.restore();
-    this.text(ctx, 'GEFALLEN', W / 2, H * 0.36, {
+    this.text(ctx, 'ТЫ ПАЛ', W / 2, H * 0.36, {
       size: Math.min(44, W * 0.075),
       align: 'center',
       color: hex('#b8241c'),
@@ -1404,17 +1404,17 @@ export class HUD {
       weight: 700,
       strokeW: 7,
     });
-    this.text(ctx, 'Der Orden zählt einen Bruder weniger.', W / 2, H * 0.36 + 24, {
+    this.text(ctx, 'В Ордене одним братом меньше.', W / 2, H * 0.36 + 24, {
       size: 12,
       align: 'center',
       color: [160, 150, 140],
     });
     const bw = 150;
-    this.textButton(ctx, 'respawn', W / 2 - bw - 6, H * 0.62, bw, 32, 'Wiederauferstehen', { primary: true, size: 12 });
-    this.textButton(ctx, 'quitRun', W / 2 + 6, H * 0.62, bw, 32, 'Zum Titel', { size: 12 });
+    this.textButton(ctx, 'respawn', W / 2 - bw - 6, H * 0.62, bw, 32, 'Восстать', { primary: true, size: 12 });
+    this.textButton(ctx, 'quitRun', W / 2 + 6, H * 0.62, bw, 32, 'В начало', { size: 12 });
     this.text(
       ctx,
-      'Wiederauferstehen kostet die Hälfte deines Goldes.',
+      'Восстать стоит половины твоего золота.',
       W / 2,
       H * 0.62 + 48,
       { size: 10, align: 'center', color: [128, 124, 116] }
@@ -1431,7 +1431,7 @@ export class HUD {
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, this.r.sw, this.r.sh);
     ctx.restore();
-    this.text(ctx, 'DER HAIN SCHWEIGT', W / 2, H * 0.3, {
+    this.text(ctx, 'РОЩА МОЛЧИТ', W / 2, H * 0.3, {
       size: Math.min(38, W * 0.062),
       align: 'center',
       color: hex('#e9dcb4'),
@@ -1441,8 +1441,8 @@ export class HUD {
     });
     const p = this.game.player;
     const lines = [
-      'Perkūnas ist gefallen. Der Donner über der heiligen Eiche ist verstummt.',
-      `Stufe ${p.level}   ·   ${p.totalKills} Feinde   ·   ${fmtNum(p.gold)} Gold`,
+      'Перкунас пал. Гром над священным дубом умолк.',
+      `Уровень ${p.level}   ·   врагов: ${p.totalKills}   ·   золота: ${fmtNum(p.gold)}`,
     ];
     let y = H * 0.3 + 26;
     for (const l of lines) {
@@ -1450,8 +1450,8 @@ export class HUD {
       y += 18;
     }
     const bw = 170;
-    this.textButton(ctx, 'endless', W / 2 - bw - 6, H * 0.66, bw, 32, 'Die Ewige Jagd', { primary: true, size: 12 });
-    this.textButton(ctx, 'quitRun', W / 2 + 6, H * 0.66, bw, 32, 'Zum Titel', { size: 12 });
+    this.textButton(ctx, 'endless', W / 2 - bw - 6, H * 0.66, bw, 32, 'Вечная охота', { primary: true, size: 12 });
+    this.textButton(ctx, 'quitRun', W / 2 + 6, H * 0.66, bw, 32, 'В начало', { size: 12 });
   }
 
   // =========================================================================
@@ -1544,7 +1544,7 @@ export class HUD {
       }
       if (inp.wasPressed('saveGame')) {
         g.save();
-        g.pushMessage('Gespeichert', '', 1.4);
+        g.pushMessage('Сохранено', '', 1.4);
         audio.play('ui');
       }
       if (inp.wasPressed('quitRun')) {
@@ -1569,7 +1569,7 @@ export class HUD {
         g.difficulty *= 1.55;
         g.loadAct(0);
         g.state = 'playing';
-        g.pushMessage('Die Ewige Jagd', 'Schwierigkeit ×' + g.difficulty.toFixed(1), 4);
+        g.pushMessage('Вечная охота', 'Сложность ×' + g.difficulty.toFixed(1), 4);
       }
       if (inp.wasPressed('quitRun')) {
         g.state = 'menu';

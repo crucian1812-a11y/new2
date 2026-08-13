@@ -50,7 +50,7 @@ async function boot() {
   }
   const unique = [...new Set(mats)];
   for (let i = 0; i < unique.length; i++) {
-    setProgress((i / unique.length) * 0.62, 'Der Boden von Ostpreußen …');
+    setProgress((i / unique.length) * 0.62, 'Земля Восточной Пруссии …');
     await nextFrame();
     getMaterial(unique[i], 256);
   }
@@ -64,12 +64,12 @@ async function boot() {
   }
   const arr = [...propNames];
   for (let i = 0; i < arr.length; i++) {
-    setProgress(0.62 + (i / arr.length) * 0.34, 'Kiefern, Steine, Ruinen …');
+    setProgress(0.62 + (i / arr.length) * 0.34, 'Сосны, камни, руины …');
     await nextFrame();
     warmProps([arr[i]]);
   }
 
-  setProgress(1, 'Bereit');
+  setProgress(1, 'Готово');
   await nextFrame();
   loader.classList.add('hidden');
 
@@ -175,5 +175,5 @@ let lastMuted = false;
 
 boot().catch((e) => {
   console.error(e);
-  if (loaderText) loaderText.textContent = 'Fehler beim Laden: ' + e.message;
+  if (loaderText) loaderText.textContent = 'Ошибка загрузки: ' + e.message;
 });

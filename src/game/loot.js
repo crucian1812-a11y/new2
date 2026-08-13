@@ -15,22 +15,22 @@ import { clamp, lerp } from '../core/math.js';
 let uid = 1;
 
 const STAT_LABELS = {
-  might: 'Kraft',
-  agility: 'Geschick',
-  vigor: 'Zähigkeit',
-  spirit: 'Geist',
-  life: 'Leben',
-  armor: 'Rüstung',
-  dmgPct: 'Schaden',
-  critChance: 'Kritische Trefferchance',
-  critDmg: 'Kritischer Schaden',
-  attackSpeed: 'Angriffstempo',
-  moveSpeed: 'Lauftempo',
-  lifeOnHit: 'Leben pro Treffer',
-  resourceRegen: 'Ressourcen-Regeneration',
-  thorns: 'Dornen',
-  goldFind: 'Goldfund',
-  coldRes: 'Kältewiderstand',
+  might: 'Сила',
+  agility: 'Ловкость',
+  vigor: 'Стойкость',
+  spirit: 'Дух',
+  life: 'Жизнь',
+  armor: 'Броня',
+  dmgPct: 'Урон',
+  critChance: 'Шанс крит. удара',
+  critDmg: 'Крит. урон',
+  attackSpeed: 'Скорость атаки',
+  moveSpeed: 'Скорость бега',
+  lifeOnHit: 'Жизнь за удар',
+  resourceRegen: 'Восстановление силы',
+  thorns: 'Шипы',
+  goldFind: 'Находка золота',
+  coldRes: 'Стойкость к холоду',
 };
 
 export function statLabel(k) {
@@ -131,7 +131,7 @@ export function makeItem(opts = {}) {
   } else if (rarity === 'magic') {
     const key = Object.keys(stats)[0];
     const aff = AFFIXES.find((a) => a.stat === key);
-    item.name = `${base.name} ${aff ? aff.name : 'der Nacht'}`;
+    item.name = `${base.name} ${aff ? aff.name : 'Ночи'}`;
   } else {
     item.name = `${rng.pick(PREFIXES)} ${base.name} ${rng.pick(SUFFIX_PLACES)}`;
   }

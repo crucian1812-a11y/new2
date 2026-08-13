@@ -1280,27 +1280,89 @@ function drawIdol(rng, opts = {}) {
   }, { radius: 14, solid: true, emissive: opts.lit });
 }
 
+/**
+ * One blade of vegetation: a tapered leaf, not a line.
+ *
+ * Drawn as a closed shape that is wide at the root and comes to a point,
+ * with a dark edge down its shaded side and a bright spine down its lit one.
+ * A constant-width stroke has no silhouette and no direction, which is why a
+ * field of them turned into a brown smear — with two hundred of them on
+ * screen the only thing that separates one blade from the next is that each
+ * has its own light and dark side.
+ */
+function blade(ctx, x, baseY, len, bend, width, dark, light, alpha) {
+  const tipX = x + bend;
+  const tipY = baseY - len;
+  const midX = x + bend * 0.4;
+  const midY = baseY - len * 0.6;
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.moveTo(x - width, baseY);
+  ctx.quadraticCurveTo(midX - width * 0.5, midY, tipX, tipY);
+  ctx.quadraticCurveTo(midX + width * 0.5, midY, x + width, baseY);
+  ctx.closePath();
+  ctx.fillStyle = css(dark);
+  ctx.fill();
+  // The lit half, inset towards the light.
+  ctx.beginPath();
+  ctx.moveTo(x - width * 0.15, baseY);
+  ctx.quadraticCurveTo(midX - width * 0.45, midY, tipX, tipY);
+  ctx.quadraticCurveTo(midX - width * 0.05, midY, x + width * 0.45, baseY);
+  ctx.closePath();
+  ctx.fillStyle = css(light);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
 function drawReeds(rng) {
   const w = 130;
   const h = 150;
   return sprite(w, h, w / 2, h - 6, (ctx) => {
     const cx = w / 2;
     const baseY = h - 8;
-    for (let i = 0; i < 26; i++) {
-      const x = cx + rng.range(-52, 52);
-      const len = rng.range(50, 132);
-      const bend = rng.range(-24, 24);
-      ctx.strokeStyle = css(mixc(hex('#3e4028'), hex('#8a875a'), rng.float()), rng.range(0.5, 0.95));
-      ctx.lineWidth = rng.range(1.1, 2.4);
-      ctx.beginPath();
-      ctx.moveTo(x, baseY);
-      ctx.quadraticCurveTo(x + bend * 0.4, baseY - len * 0.6, x + bend, baseY - len);
-      ctx.stroke();
-      if (rng.bool(0.3)) {
-        ctx.fillStyle = css(hex('#4a3a22'), 0.85);
-        ctx.beginPath();
-        ctx.ellipse(x + bend, baseY - len - 5, 2.6, 8, bend * 0.01, 0, TAU);
-        ctx.fill();
+
+    // Root mass: a dark wedge the stalks rise out of, so the clump is planted
+    // in the mud instead of standing on it.
+    ctx.fillStyle = 'rgba(18,16,11,0.65)';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY, 46, 9, 0, 0, TAU);
+    ctx.fill();
+
+    // Back rank first, in shadow; front rank after, catching the light. Two
+    // ranks is what gives a clump depth at this size.
+    for (let rank = 0; rank < 2; rank++) {
+      const back = rank === 0;
+      const n = back ? 16 : 14;
+      for (let i = 0; i < n; i++) {
+        const x = cx + rng.range(-52, 52) * (back ? 1 : 0.82);
+        const len = rng.range(50, 132) * (back ? 0.94 : 1);
+        const bend = rng.range(-24, 24);
+        const t = rng.float();
+        const dark = back ? hex('#22261a') : hex('#33371f');
+        const light = back
+          ? mixc(hex('#3b4026'), hex('#6b6a42'), t)
+          : mixc(hex('#5c5a36'), hex('#a89f66'), t);
+        blade(ctx, x, baseY - (back ? 2 : 0), len, bend, rng.range(1.4, 3), dark, light, back ? 0.85 : 1);
+
+        // Cattail heads: a velvety brown club with a lit edge and a whisker.
+        if (!back && rng.bool(0.34)) {
+          const hx = x + bend;
+          const hy = baseY - len - 4;
+          ctx.fillStyle = css(hex('#2a1f12'));
+          ctx.beginPath();
+          ctx.ellipse(hx, hy, 3.4, 9.5, bend * 0.01, 0, TAU);
+          ctx.fill();
+          ctx.fillStyle = css(hex('#6b4f2c'));
+          ctx.beginPath();
+          ctx.ellipse(hx - 1, hy - 1, 2.1, 7.6, bend * 0.01, 0, TAU);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(150,132,92,0.5)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(hx, hy - 9);
+          ctx.lineTo(hx + bend * 0.06, hy - 16);
+          ctx.stroke();
+        }
       }
     }
   }, { radius: 0, solid: false, sway: 2.2 });
@@ -1312,16 +1374,23 @@ function drawGrassTuft(rng) {
   return sprite(w, h, w / 2, h - 3, (ctx) => {
     const cx = w / 2;
     const baseY = h - 4;
-    for (let i = 0; i < 14; i++) {
-      const x = cx + rng.range(-20, 20);
-      const len = rng.range(10, 34);
-      const bend = rng.range(-12, 12);
-      ctx.strokeStyle = css(mixc(hex('#2c3a1e'), hex('#6c7a36'), rng.float()), rng.range(0.5, 0.9));
-      ctx.lineWidth = rng.range(0.9, 1.9);
-      ctx.beginPath();
-      ctx.moveTo(x, baseY);
-      ctx.quadraticCurveTo(x + bend * 0.3, baseY - len * 0.6, x + bend, baseY - len);
-      ctx.stroke();
+    ctx.fillStyle = 'rgba(16,18,10,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(cx, baseY, 19, 4.5, 0, 0, TAU);
+    ctx.fill();
+    for (let rank = 0; rank < 2; rank++) {
+      const back = rank === 0;
+      for (let i = 0; i < (back ? 9 : 8); i++) {
+        const x = cx + rng.range(-20, 20) * (back ? 1 : 0.8);
+        const len = rng.range(10, 34) * (back ? 0.9 : 1);
+        const bend = rng.range(-12, 12);
+        const t = rng.float();
+        const dark = back ? hex('#1b2413') : hex('#26311a');
+        const light = back
+          ? mixc(hex('#2c3a1e'), hex('#4c5828'), t)
+          : mixc(hex('#43521f'), hex('#8a9445'), t);
+        blade(ctx, x, baseY - (back ? 1 : 0), len, bend, rng.range(0.9, 1.9), dark, light, back ? 0.85 : 1);
+      }
     }
   }, { radius: 0, solid: false, sway: 2.6 });
 }
