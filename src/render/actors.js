@@ -1855,6 +1855,95 @@ export function drawWraith(ctx, def, st, px, py, s, emis) {
 }
 
 /** Chooses the right body plan. */
+/**
+ * The figure's shadow on the ground.
+ *
+ * Until now every actor sat on a soft ellipse, which says "something is here"
+ * but nothing about what. Diablo II laid down the unit's own silhouette,
+ * flattened onto the floor and sheared away from the light, and that is what
+ * made its characters look like they were standing in the scene rather than
+ * pasted onto it — the shadow changes shape as the figure moves, so the eye
+ * gets a second, free read of the pose.
+ *
+ * Drawn from the same joints as the body, but every part is one flat dark
+ * fill: no gradients, no contours, no detail. A shadow has no interior, and
+ * skipping all of that is what keeps a second pass over the rig cheap.
+ */
+export function drawActorShadow(ctx, def, st, px, py, s, sunDir) {
+  if (def.plan === 'wraith') return; // it doesn't touch the ground
+  const facing = st.facing || 0;
+  const cosF = Math.cos(facing);
+  const sinF = Math.sin(facing);
+  const build = def.build || {};
+  const p = def.pose ? def.pose(st, build) : poseHumanoid(st, build);
+
+  // Shear away from the key light, and squash onto the floor plane.
+  const lx = sunDir ? sunDir[0] : -0.5;
+  const ly = sunDir ? sunDir[1] : -0.75;
+  const len = Math.hypot(lx, ly) || 1;
+  const shear = (-lx / len) * 0.85;
+  const squash = 0.42;
+
+  const P = {};
+  for (const k in p) {
+    const v = p[k];
+    if (!Array.isArray(v)) continue;
+    const r = rot(v, cosF, sinF);
+    // Height above the ground becomes length along the floor, which is what
+    // makes a raised arm throw a longer shadow than a planted foot.
+    const h = r[2];
+    P[k] = [px + r[0] * s + h * shear * s, py + (r[1] * ISO_Y - h * squash) * s];
+  }
+
+  ctx.save();
+  ctx.globalAlpha = (st.alpha ?? 1) * 0.42;
+  ctx.fillStyle = '#000';
+  const limb = (a, b, r0, r1) => {
+    const A = P[a];
+    const B = P[b];
+    if (!A || !B) return;
+    capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s);
+    ctx.fill();
+  };
+  const lw = def.limbScale ?? 1;
+  if (def.plan === 'quadruped') {
+    for (const side of ['L', 'R']) {
+      limb('hipF' + side, 'footF' + side, 4 * lw, 3 * lw);
+      limb('hipB' + side, 'footB' + side, 4 * lw, 3 * lw);
+    }
+    limb('chest', 'hip', 9 * lw, 8 * lw);
+    limb('neck', 'head', 6 * lw, 6 * lw);
+  } else {
+    for (const side of ['L', 'R']) {
+      limb('hip' + side, 'knee' + side, 6.4 * lw, 5 * lw);
+      limb('knee' + side, 'foot' + side, 5 * lw, 3.6 * lw);
+      limb('shoulder' + side, 'elbow' + side, 5.6 * lw, 4.4 * lw);
+      limb('elbow' + side, 'hand' + side, 4.4 * lw, 3.4 * lw);
+    }
+    // Torso as one slab between the shoulders and the hips.
+    const shL = P.shoulderL;
+    const shR = P.shoulderR;
+    const hipL = P.hipL;
+    const hipR = P.hipR;
+    if (shL && shR && hipL && hipR) {
+      ctx.beginPath();
+      ctx.moveTo(shL[0], shL[1] - 2 * s);
+      ctx.lineTo(shR[0], shR[1] - 2 * s);
+      ctx.lineTo(hipR[0], hipR[1] + 2 * s);
+      ctx.lineTo(hipL[0], hipL[1] + 2 * s);
+      ctx.closePath();
+      ctx.fill();
+    }
+    const H = P.head;
+    if (H) {
+      ctx.beginPath();
+      ctx.ellipse(H[0], H[1], (def.headR ?? 7.6) * s, (def.headR ?? 7.6) * s * 0.9, 0, 0, TAU);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 export function renderActor(ctx, def, st, px, py, s, emis) {
   switch (def.plan) {
     case 'quadruped':

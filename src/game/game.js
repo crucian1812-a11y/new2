@@ -27,7 +27,7 @@ import {
   angleTowards,
   inCone,
 } from '../core/math.js';
-import { renderActor } from '../render/actors.js';
+import { renderActor, drawActorShadow } from '../render/actors.js';
 import { getProp, getScaledProp } from '../render/props.js';
 import { PAL, hex, css, mixc } from '../render/palette.js';
 import { bakeBloodDecal, bakeScorchDecal } from '../render/textures.js';
@@ -2435,7 +2435,10 @@ export class Game {
   drawPlayer(ctx, R) {
     const p = this.player;
     const s = (p.size / 100) * R.cam.zoom * R.pxScale;
-    R.drawShadow(p.x, p.y, 26, 0.75);
+    // Contact pool under the feet, then the figure's own silhouette sheared
+    // away from the key light. The pool alone reads as a stain; the pool plus
+    // the silhouette reads as a body standing on ground.
+    R.drawShadow(p.x, p.y, 20, 0.6);
     const st = {
       t: R.time,
       anim: p.anim,
@@ -2446,6 +2449,7 @@ export class Game {
       flash: p.flash,
       alpha: p.invuln > 0 && p.alive ? 0.7 + 0.3 * Math.sin(R.time * 40) : 1,
     };
+    drawActorShadow(ctx, p.look, st, R.sx(p.x), R.sy(p.y), s, R.ambience.sunDir);
     renderActor(ctx, p.look, st, R.sx(p.x), R.sy(p.y), s, (x, y, r, c, a) =>
       this.emis(R, x, y, r, c, a)
     );
@@ -2486,7 +2490,7 @@ export class Game {
     const s = (m.size / 100) * zoom;
     const fade = isCorpse ? clamp01(1 - (m.deathT - 5) / 2) : 1;
     if (fade <= 0) return;
-    R.drawShadow(m.x, m.y, m.radius * 1.1, 0.6 * fade);
+    R.drawShadow(m.x, m.y, m.radius * 0.85, 0.5 * fade);
 
     const st = {
       t: R.time,
@@ -2498,6 +2502,7 @@ export class Game {
       flash: m.flash,
       alpha: (m.def.ghostly ? 0.88 : 1) * fade,
     };
+    drawActorShadow(ctx, m.look, st, R.sx(m.x), R.sy(m.y), s, R.ambience.sunDir);
     renderActor(ctx, m.look, st, R.sx(m.x), R.sy(m.y), s, (x, y, r, c, a) =>
       this.emis(R, x, y, r, c, a * fade)
     );
