@@ -676,31 +676,17 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
       }
     }
 
-    // Hand. A gauntlet is a squared-off plate with knuckles, not a ball.
+    // Hand.
+    //
+    // A hand was a circle, or later a four-sided plate, and at the size the
+    // figures are drawn now that is the first thing the eye catches as wrong:
+    // it is the one part of a body that is unmistakably made of separate
+    // pieces, and reading it as a mitten flattens the whole arm. So it is
+    // built the way a hand is built — a palm block, four fingers laid across
+    // it in segments, a thumb set apart at an angle, and knuckles where they
+    // hinge. Every piece takes its own light from the same lamp as the rest.
     const Hd = P['hand' + side];
-    const hr = 4.1 * s * lw;
-    if (def.pauldrons) {
-      ctx.beginPath();
-      ctx.moveTo(Hd[0] - hr, Hd[1] - hr * 0.8);
-      ctx.lineTo(Hd[0] + hr, Hd[1] - hr * 0.9);
-      ctx.lineTo(Hd[0] + hr * 0.9, Hd[1] + hr);
-      ctx.lineTo(Hd[0] - hr * 0.95, Hd[1] + hr * 0.9);
-      ctx.closePath();
-      ctx.strokeStyle = css(contour, 0.9);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      const g = ctx.createLinearGradient(Hd[0] - hr, Hd[1] - hr, Hd[0] + hr, Hd[1] + hr);
-      g.addColorStop(0, css(tint(M.metalLight || M.armsLight)));
-      g.addColorStop(0.5, css(tint(M.metal || M.arms)));
-      g.addColorStop(1, css(tint(mixc(M.metalDark || M.armsDark, contour, 0.5))));
-      ctx.fillStyle = g;
-      ctx.fill();
-    } else {
-      ctx.beginPath();
-      ctx.arc(Hd[0], Hd[1], hr, 0, TAU);
-      ctx.fillStyle = css(tint(shadeFor(D['shoulder' + side], M.hands || M.arms, M.armsDark, M.armsLight)));
-      ctx.fill();
-    }
+    drawHand(ctx, Hd, P['elbow' + side], def, s, lw, tint, D['shoulder' + side]);
   };
 
   push(D['shoulder' + armFar] - 0.3, () => drawArm(armFar));
@@ -791,6 +777,119 @@ function drawRunes(ctx, P, def, s, emis) {
     const c = at(0.5, 0.42);
     emis(c[0], c[1], 16 * s, R.color, R.glow ?? 0.5);
   }
+}
+
+/**
+ * One hand, articulated.
+ *
+ * Oriented along the forearm so the fingers point away from the elbow — a
+ * hand drawn axis-aligned reads as a paddle stuck on the end of the arm no
+ * matter how much detail it carries. Armoured hands get plate lames with
+ * hard seams; bare hands get soft segments and a visible thumb pad. The
+ * whole thing is drawn in the limb's own local frame and then rotated, which
+ * keeps the finger seams parallel to the fingers instead of to the screen.
+ */
+function drawHand(ctx, Hd, Elb, def, s, lw, tint, depth) {
+  if (!Hd) return;
+  const M = def.colors;
+  const armoured = !!def.pauldrons;
+  const u = 3.1 * s * lw; // one hand unit: roughly a finger's width
+  const contour = [8, 7, 9];
+
+  // Point the hand away from the elbow.
+  let ang = Math.PI / 2;
+  if (Elb) ang = Math.atan2(Hd[1] - Elb[1], Hd[0] - Elb[0]);
+
+  const d = clamp01(0.5 + clamp(depth * 0.8, -0.5, 0.5));
+  const base = tint(armoured ? M.metal || M.arms : M.hands || M.skin || M.arms);
+  const dark = tint(mixc(armoured ? M.metalDark || M.armsDark : M.skinDark || M.armsDark, contour, 0.45));
+  const light = tint(
+    mixc(armoured ? M.metalLight || M.armsLight : M.skinLight || M.armsLight, [255, 250, 240], 0.18 * d)
+  );
+
+  ctx.save();
+  ctx.translate(Hd[0], Hd[1]);
+  ctx.rotate(ang);
+  ctx.lineJoin = 'round';
+
+  // Everything below is in hand-local space: +x runs out to the fingertips,
+  // +y across the knuckles.
+  const plate = (x0, y0, w, h, r, fill) => {
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x0, y0, w, h, r);
+    else ctx.rect(x0, y0, w, h);
+    ctx.strokeStyle = css(contour, 0.9);
+    ctx.lineWidth = Math.max(0.8, u * 0.22);
+    ctx.stroke();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  };
+
+  const ramp = (x0, y0, x1, y1) => {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, css(light));
+    g.addColorStop(0.45, css(base));
+    g.addColorStop(1, css(dark));
+    return g;
+  };
+
+  // Wrist cuff, behind everything.
+  plate(-u * 1.5, -u * 0.95, u * 0.9, u * 1.9, u * 0.25, ramp(-u * 1.5, -u, -u * 0.6, u));
+
+  // Palm.
+  plate(-u * 0.8, -u * 0.85, u * 1.7, u * 1.7, u * 0.3, ramp(-u * 0.8, -u * 0.85, u * 0.9, u * 0.85));
+
+  // Thumb, set below the palm and angled off it. Without the thumb a hand is
+  // a glove; with it the pose reads as a grip.
+  ctx.save();
+  ctx.translate(-u * 0.4, u * 0.75);
+  ctx.rotate(0.75);
+  plate(0, -u * 0.34, u * 1.25, u * 0.68, u * 0.3, ramp(0, -u * 0.34, u, u * 0.34));
+  ctx.restore();
+
+  // Four fingers across the knuckles, each in two segments, each shorter and
+  // set slightly further back than the one before — the fan that makes a
+  // hand read as a hand.
+  for (let f = 0; f < 4; f++) {
+    const y = -u * 0.72 + f * u * 0.48;
+    const shrink = f === 3 ? 0.78 : 1 - Math.abs(f - 1) * 0.06;
+    const x0 = u * 0.85 - (f === 3 ? u * 0.16 : 0);
+    const segA = u * 0.62 * shrink;
+    const segB = u * 0.5 * shrink;
+    plate(x0, y - u * 0.2, segA, u * 0.4, u * 0.18, ramp(x0, y - u * 0.2, x0 + segA, y + u * 0.2));
+    plate(
+      x0 + segA + u * 0.06,
+      y - u * 0.18,
+      segB,
+      u * 0.36,
+      u * 0.16,
+      ramp(x0 + segA, y - u * 0.18, x0 + segA + segB, y + u * 0.18)
+    );
+    // Knuckle: a small dome where the finger hinges on the palm.
+    if (armoured) {
+      ctx.beginPath();
+      ctx.arc(x0 - u * 0.04, y, u * 0.2, 0, TAU);
+      ctx.fillStyle = css(mixc(light, [255, 255, 250], 0.3));
+      ctx.fill();
+    }
+  }
+
+  // A seam across the back of the palm, and the shadow the fingers drop onto
+  // it. Two lines, and the hand stops being flat.
+  ctx.strokeStyle = 'rgba(8,7,9,0.5)';
+  ctx.lineWidth = Math.max(0.7, u * 0.16);
+  ctx.beginPath();
+  ctx.moveTo(u * 0.78, -u * 0.8);
+  ctx.lineTo(u * 0.78, u * 0.8);
+  ctx.stroke();
+  ctx.strokeStyle = css(light, 0.35);
+  ctx.lineWidth = Math.max(0.5, u * 0.1);
+  ctx.beginPath();
+  ctx.moveTo(-u * 0.6, -u * 0.62);
+  ctx.lineTo(u * 0.7, -u * 0.62);
+  ctx.stroke();
+
+  ctx.restore();
 }
 
 /**
@@ -1092,39 +1191,107 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M) {
   const metL = tint(M.metalLight);
 
   if (helm === 'greathelm') {
-    ctx.beginPath();
-    ctx.moveTo(H[0] - r * 1.12, H[1] - r * 0.95);
-    ctx.lineTo(H[0] + r * 1.12, H[1] - r * 0.95);
-    ctx.lineTo(H[0] + r * 1.04, H[1] + r * 1.1);
-    ctx.quadraticCurveTo(H[0], H[1] + r * 1.5, H[0] - r * 1.04, H[1] + r * 1.1);
-    ctx.closePath();
-    const g = ctx.createLinearGradient(H[0] - r, 0, H[0] + r, 0);
-    g.addColorStop(0, css(metL));
-    g.addColorStop(0.35, css(met));
-    g.addColorStop(1, css(metD));
-    ctx.fillStyle = g;
-    ctx.fill();
-    // Eye slit and breathing holes
+    // A great helm is a riveted drum with a domed crown, a face plate that
+    // sits proud of it, and a flare at the bottom where it rests on the
+    // shoulders. Drawn as a single silhouette it is a bucket; the parts are
+    // what make it armour.
     const front = clamp01(sinF * 1.5 + 0.2);
+    const cx = H[0] - cosF * r * 0.2;
+
+    // Skull of the helm.
+    ctx.beginPath();
+    ctx.moveTo(H[0] - r * 1.12, H[1] - r * 0.72);
+    ctx.quadraticCurveTo(H[0] - r * 1.05, H[1] - r * 1.18, H[0], H[1] - r * 1.24);
+    ctx.quadraticCurveTo(H[0] + r * 1.05, H[1] - r * 1.18, H[0] + r * 1.12, H[1] - r * 0.72);
+    ctx.lineTo(H[0] + r * 1.06, H[1] + r * 1.02);
+    ctx.quadraticCurveTo(H[0], H[1] + r * 1.46, H[0] - r * 1.06, H[1] + r * 1.02);
+    ctx.closePath();
+    ctx.strokeStyle = 'rgba(8,7,9,0.9)';
+    ctx.lineWidth = Math.max(1, 1.3 * s);
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    ctx.fillStyle = sphereFill(ctx, H[0], H[1] - r * 0.1, r * 1.35, met, metD, metL, mixc(metL, [255, 255, 250], 0.45));
+    ctx.fill();
+
+    // The crown is a separate, brighter plate riveted over the top.
+    ctx.beginPath();
+    ctx.moveTo(H[0] - r * 1.06, H[1] - r * 0.66);
+    ctx.quadraticCurveTo(H[0], H[1] - r * 1.3, H[0] + r * 1.06, H[1] - r * 0.66);
+    ctx.quadraticCurveTo(H[0], H[1] - r * 0.44, H[0] - r * 1.06, H[1] - r * 0.66);
+    ctx.closePath();
+    ctx.fillStyle = css(mixc(metL, met, 0.35));
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(8,7,9,0.55)';
+    ctx.lineWidth = Math.max(0.8, 0.9 * s);
+    ctx.stroke();
+
     if (front > 0.03) {
       ctx.save();
       ctx.globalAlpha = front;
-      ctx.fillStyle = 'rgba(8,9,12,0.9)';
-      ctx.fillRect(H[0] - r * 0.9 - cosF * r * 0.2, H[1] - r * 0.25, r * 1.8, r * 0.3);
-      for (let i = -2; i <= 2; i++) {
-        ctx.beginPath();
-        ctx.arc(H[0] + i * r * 0.3 - cosF * r * 0.2, H[1] + r * 0.55, r * 0.09, 0, TAU);
-        ctx.fill();
+
+      // Eye slits: a recess, so a dark band with a lit lip along its top
+      // edge where the plate above it turns away.
+      const slitY = H[1] - r * 0.22;
+      const slitH = r * 0.3;
+      for (const sx of [-1, 1]) {
+        ctx.fillStyle = 'rgba(6,6,9,0.95)';
+        ctx.fillRect(cx + sx * r * 0.12, slitY, sx * r * 0.78, slitH);
+      }
+      ctx.fillStyle = css(metL, 0.5);
+      ctx.fillRect(cx - r * 0.9, slitY - r * 0.09, r * 1.8, r * 0.09);
+      ctx.fillStyle = 'rgba(8,7,9,0.45)';
+      ctx.fillRect(cx - r * 0.9, slitY + slitH, r * 1.8, r * 0.07);
+
+      // Breath holes, in the two staggered rows a real helm carries.
+      ctx.fillStyle = 'rgba(8,8,11,0.8)';
+      for (let row = 0; row < 2; row++) {
+        for (let i = -2; i <= 2; i++) {
+          if (row === 1 && Math.abs(i) === 2) continue;
+          ctx.beginPath();
+          ctx.arc(cx + (i + row * 0.5) * r * 0.28, H[1] + r * (0.5 + row * 0.26), r * 0.075, 0, TAU);
+          ctx.fill();
+        }
       }
       ctx.restore();
     }
-    // Cross reinforcement
-    ctx.strokeStyle = css(metD, 0.7);
-    ctx.lineWidth = 1.6 * s;
-    ctx.beginPath();
-    ctx.moveTo(H[0] - cosF * r * 0.2, H[1] - r * 0.95);
-    ctx.lineTo(H[0] - cosF * r * 0.2, H[1] + r * 1.2);
-    ctx.stroke();
+
+    // Reinforcing bands: one down the face, one across the brow, each a dark
+    // strap with a lit edge on the side facing the lamp.
+    const band = (x0, y0, x1, y1, w) => {
+      ctx.strokeStyle = css(mixc(metD, [10, 10, 14], 0.3), 0.85);
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+      ctx.strokeStyle = css(metL, 0.42);
+      ctx.lineWidth = Math.max(0.6, w * 0.3);
+      ctx.beginPath();
+      ctx.moveTo(x0 - w * 0.34, y0);
+      ctx.lineTo(x1 - w * 0.34, y1);
+      ctx.stroke();
+    };
+    band(cx, H[1] - r * 1.2, cx, H[1] + r * 1.24, 2.1 * s);
+    band(cx - r * 1.02, H[1] - r * 0.52, cx + r * 1.02, H[1] - r * 0.52, 1.7 * s);
+
+    // Rivets around the rim and at the band crossing.
+    const rivet = (rx, ry, rr) => {
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr, 0, TAU);
+      ctx.fillStyle = css(metD);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rx - rr * 0.3, ry - rr * 0.3, rr * 0.5, 0, TAU);
+      ctx.fillStyle = css(mixc(metL, [255, 255, 250], 0.4));
+      ctx.fill();
+    };
+    const rr = Math.max(0.9, r * 0.11);
+    rivet(cx, H[1] - r * 0.52, rr);
+    rivet(cx - r * 0.86, H[1] + r * 0.98, rr * 0.85);
+    rivet(cx + r * 0.86, H[1] + r * 0.98, rr * 0.85);
+    rivet(cx - r * 0.9, H[1] - r * 0.86, rr * 0.8);
+    rivet(cx + r * 0.9, H[1] - r * 0.86, rr * 0.8);
+
   } else if (helm === 'kettle') {
     ctx.beginPath();
     ctx.ellipse(H[0], H[1] - r * 0.42, r * 1.05, r * 0.9, 0, Math.PI, TAU);
