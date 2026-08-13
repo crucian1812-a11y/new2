@@ -5,7 +5,7 @@ import { clamp01, TAU, fmtNum } from '../core/math.js';
 import { css, mixc, hex, PAL } from '../render/palette.js';
 import { CLASSES, SKILLS, SLOTS, xpForLevel, MAX_LEVEL } from '../game/content.js';
 import { formatStat, damageRange, itemScore } from '../game/loot.js';
-import { drawItemGlyph } from '../game/game.js';
+import { drawItemIcon } from '../render/icons.js';
 import { audio } from '../core/audio.js';
 import { renderActor } from '../render/actors.js';
 
@@ -1019,7 +1019,10 @@ export class HUD {
       ctx.fillStyle = g;
       ctx.fillRect(x * k, y * k, size * k, size * k);
       ctx.restore();
-      drawItemGlyph(ctx, item, (x + size / 2) * k, (y + size / 2) * k, size * k * 0.52, this.game.rarityColor(item.rarity));
+      // The item sits large in its cell — Diablo II's icons nearly filled the
+      // grid square, which is what let you read a bag at a glance instead of
+      // squinting at a row of small symbols on big backgrounds.
+      drawItemIcon(ctx, item, (x + size / 2) * k, (y + size / 2) * k, size * k * 0.92);
       if (upgrade) {
         ctx.fillStyle = '#5ad27a';
         ctx.beginPath();

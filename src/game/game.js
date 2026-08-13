@@ -29,11 +29,12 @@ import {
 } from '../core/math.js';
 import { renderActor } from '../render/actors.js';
 import { getProp, getScaledProp } from '../render/props.js';
-import { PAL, hex, css } from '../render/palette.js';
+import { PAL, hex, css, mixc } from '../render/palette.js';
 import { bakeBloodDecal, bakeScorchDecal } from '../render/textures.js';
 import { ISO_Y } from '../render/renderer.js';
 import { audio } from '../core/audio.js';
 import { save, load, clearSave } from '../core/save.js';
+import { drawItemIcon } from '../render/icons.js';
 
 const BAG_SIZE = 40;
 const POTION_HEAL = 0.36;
@@ -202,6 +203,41 @@ export class Game {
     }
     const off = this.player.equipment.offhand;
     if (off) look.offhand = off.base === 'tome' ? 'orb' : 'shield';
+
+    // Armour you can see. The rig already knows how to draw a great helm, a
+    // kettle hat, a hood, plate, mail and a robe — the item bases are named
+    // after exactly those, so equipping a piece swaps the drawing rather than
+    // only moving a number in the stat panel. Finding a helmet should change
+    // what your character looks like; that is half of why loot is worth
+    // picking up.
+    const eq = this.player.equipment;
+    if (eq.head) look.helm = eq.head.base;
+    if (eq.chest) look.torso = eq.chest.base === 'robe' ? 'robe' : eq.chest.base;
+
+    // The best piece you are wearing tints the metal, so a rare set of plate
+    // reads warmer than a common one at a glance, on the character and not
+    // just in the bag.
+    const RANK = { common: 0, magic: 1, rare: 2, set: 3, unique: 4 };
+    const TINTS = {
+      magic: hex('#8fa4e8'),
+      rare: hex('#e8d089'),
+      set: hex('#7fd08f'),
+      unique: hex('#d2a068'),
+    };
+    let best = null;
+    for (const slot of ['chest', 'head', 'hands', 'feet']) {
+      const it = eq[slot];
+      if (it && (!best || RANK[it.rarity] > RANK[best.rarity])) best = it;
+    }
+    const tint = best && TINTS[best.rarity];
+    if (tint) {
+      const c = { ...look.colors };
+      for (const k of ['metal', 'metalLight', 'metalDark', 'arms', 'armsLight', 'armsDark']) {
+        if (c[k]) c[k] = mixc(c[k], tint, k.endsWith('Dark') ? 0.18 : 0.32);
+      }
+      look.colors = c;
+    }
+
     this.player.look = look;
   }
 
@@ -2692,7 +2728,7 @@ export class Game {
     ctx.fill();
     ctx.restore();
 
-    drawItemGlyph(ctx, d.item, x, y + bob - 8 * zoom, 15 * zoom, col);
+    drawItemIcon(ctx, d.item, x, y + bob - 8 * zoom, 30 * zoom);
     R.emisCircle(d.x, d.y, 26, col, 0.45, d.z + 10);
   }
 

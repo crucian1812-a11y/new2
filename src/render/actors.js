@@ -517,6 +517,7 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   // Torso + head
   push(0, () => {
     drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis);
+    drawNeck(ctx, P, def, s, tint);
     drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA);
   });
 
@@ -598,6 +599,54 @@ function drawRunes(ctx, P, def, s, emis) {
   if (emis) {
     const c = at(0.5, 0.42);
     emis(c[0], c[1], 16 * s, R.color, R.glow ?? 0.5);
+  }
+}
+
+/**
+ * The neck, and the gorget over it.
+ *
+ * The rig has always had a `neck` joint but nothing ever drew it, so the head
+ * sat in mid-air with a gap of daylight between it and the shoulders. In a
+ * crowded fight that gap is invisible; standing still it is the first thing
+ * you see. A short tapered column from between the shoulders to the base of
+ * the skull closes it, and a collar band across the top of the chest gives
+ * the head somewhere to sit rather than somewhere to hover.
+ */
+function drawNeck(ctx, P, def, s, tint) {
+  const N = P.neck;
+  const H = P.head;
+  const shL = P.shoulderL;
+  const shR = P.shoulderR;
+  if (!N || !H || !shL || !shR) return;
+  const M = def.colors;
+  const midX = (shL[0] + shR[0]) * 0.5;
+  const midY = (shL[1] + shR[1]) * 0.5;
+  const wTop = 3.4 * s;
+  const wBot = 5.2 * s;
+  const skin = M.skinDark || M.armsDark || M.armsDark;
+
+  ctx.beginPath();
+  ctx.moveTo(H[0] - wTop, H[1]);
+  ctx.lineTo(H[0] + wTop, H[1]);
+  ctx.lineTo(midX + wBot, midY + 1 * s);
+  ctx.lineTo(midX - wBot, midY + 1 * s);
+  ctx.closePath();
+  ctx.fillStyle = css(tint(skin));
+  ctx.fill();
+  // The throat is always in shadow — it is the deepest occlusion on a figure.
+  ctx.fillStyle = 'rgba(8,7,9,0.42)';
+  ctx.fill();
+
+  // Gorget: a plate collar sitting on the shoulders.
+  if (def.helm && def.helm !== 'none') {
+    ctx.beginPath();
+    ctx.ellipse(midX, midY, 7.4 * s, 3 * s, 0, 0, TAU);
+    ctx.fillStyle = css(tint(M.metalDark || M.armsDark));
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(midX - 1 * s, midY - 0.9 * s, 6.4 * s, 2.3 * s, 0, 0, TAU);
+    ctx.fillStyle = css(tint(M.metal || M.arms));
+    ctx.fill();
   }
 }
 
