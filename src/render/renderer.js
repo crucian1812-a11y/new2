@@ -26,6 +26,7 @@ import {
   bakeCaustics,
 } from './textures.js';
 import { warpFbm, fbm } from './noise.js';
+import { GLStage } from './gl.js';
 
 // A true 2:1 dimetric squash — one step down in y for every two across, the
 // same projection Diablo II's tiles were built on. The old 0.62 was a
@@ -54,6 +55,23 @@ export class Renderer {
     this.canvas = canvas;
     this.screen = canvas;
     this.screenCtx = ctxOf(canvas, false);
+
+    // The GPU finishing stage needs a surface of its own — a canvas can hold
+    // a 2D context or a WebGL one, never both — so it gets a sibling behind
+    // this one, and #game keeps the HUD and the input handling. If the stage
+    // fails to start, nothing below ever asks for it again.
+    // ?nogl on the URL forces the Canvas2D path, so the two can be compared
+    // on a real device without a rebuild.
+    const noGL = typeof window !== 'undefined' && /[?&]nogl\b/.test(window.location.search);
+    let glCanvas = null;
+    if (!noGL && canvas.parentNode && typeof document !== 'undefined') {
+      glCanvas = document.createElement('canvas');
+      glCanvas.id = 'glview';
+      canvas.parentNode.insertBefore(glCanvas, canvas);
+    }
+    this.gl = glCanvas ? new GLStage(glCanvas) : null;
+    this.glCanvas = glCanvas;
+    if (this.gl && !this.gl.ok && glCanvas) glCanvas.remove();
     this.world = makeCanvas(1, 1);
     this.ctx = ctxOf(this.world, false);
     this.sw = 1;
@@ -989,6 +1007,35 @@ export class Renderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+
+    if (this.gl && this.gl.ok) {
+      // Hand the frame to the GPU, and leave this surface clear so the HUD
+      // draws over it. The light list is converted to world-buffer pixels
+      // here because that is the space the shader samples in.
+      const ls = [];
+      for (const L of this.lights) {
+        const r = L.r * this.cam.zoom * this.pxScale;
+        const x = this.sx(L.x);
+        const y = this.sy(L.y);
+        if (x + r < 0 || y + r < 0 || x - r > this.w || y - r > this.h) continue;
+        ls.push({ x, y, r, color: L.color, i: L.i });
+      }
+      // Brightest first, since the shader only takes a dozen.
+      ls.sort((a, b) => b.i - a.i);
+      const done = this.gl.present(this.world, this.sw, this.sh, ls, {
+        relief: 1.8,
+        levels: 26,
+        time: this.time,
+      });
+      if (done) {
+        ctx.clearRect(0, 0, this.sw, this.sh);
+        return;
+      }
+      // The stage gave up mid-frame; fall through to the Canvas2D path and
+      // put the surface back so the picture never disappears.
+      if (this.glCanvas) this.glCanvas.remove();
+    }
+
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.world, 0, 0, this.w, this.h, 0, 0, this.sw, this.sh);
   }

@@ -21,13 +21,26 @@ body {
   touch-action: none;
 }
 
-#game {
+#game,
+#glview {
   position: fixed;
   inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   touch-action: none;
+}
+
+/* The world is painted here when the GPU stage is available; #game keeps the
+   HUD and stays transparent over it. Pointer events belong to #game alone. */
+#glview {
+  z-index: 0;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+#game {
+  z-index: 1;
   cursor: crosshair;
 }
 
