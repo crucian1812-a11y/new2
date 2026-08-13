@@ -63,15 +63,16 @@ export class Renderer {
     // ?nogl on the URL forces the Canvas2D path, so the two can be compared
     // on a real device without a rebuild.
     const noGL = typeof window !== 'undefined' && /[?&]nogl\b/.test(window.location.search);
-    let glCanvas = null;
-    if (!noGL && canvas.parentNode && typeof document !== 'undefined') {
-      glCanvas = document.createElement('canvas');
-      glCanvas.id = 'glview';
-      canvas.parentNode.insertBefore(glCanvas, canvas);
-    }
-    this.gl = glCanvas ? new GLStage(glCanvas) : null;
-    this.glCanvas = glCanvas;
-    if (this.gl && !this.gl.ok && glCanvas) glCanvas.remove();
+    // The GL surface is never added to the page. An earlier version put it
+    // behind #game as a sibling and the world came out black on real
+    // hardware even though the framebuffer read back correct — the browser
+    // was not compositing the WebGL canvas into the page. Keeping it purely
+    // in memory and blitting the result onto the same 2D canvas the HUD uses
+    // sidesteps that entirely: nothing has to be composited but #game, and
+    // drawing a WebGL canvas into a 2D context is well defined.
+    this.glCanvas = noGL ? null : makeCanvas(1, 1);
+    this.gl = this.glCanvas ? new GLStage(this.glCanvas) : null;
+    if (this.gl && !this.gl.ok) this.glCanvas = null;
     this.world = makeCanvas(1, 1);
     this.ctx = ctxOf(this.world, false);
     this.sw = 1;
@@ -1028,12 +1029,12 @@ export class Renderer {
         time: this.time,
       });
       if (done) {
-        ctx.clearRect(0, 0, this.sw, this.sh);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(this.glCanvas, 0, 0, this.sw, this.sh);
         return;
       }
-      // The stage gave up mid-frame; fall through to the Canvas2D path and
-      // put the surface back so the picture never disappears.
-      if (this.glCanvas) this.glCanvas.remove();
+      // The stage gave up mid-frame; fall through to the Canvas2D path so
+      // the picture never disappears.
     }
 
     ctx.imageSmoothingEnabled = false;
