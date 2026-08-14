@@ -81,7 +81,16 @@ The look comes from six ideas, all in `src/render/`:
 4. **Articulated actors** (`actors.js`). Characters are rigs posed in 3D and
    projected through the same 2.5D transform as the world. That is why they can
    face any direction, occlude their own limbs correctly, and swing a weapon
-   that travels through a real arc.
+   that travels through a real arc. Every one of them is built out from the
+   same skeleton and then given the things that make it itself: a torso whose
+   outline goes wide at the shoulders, pinches at the waist and rises into a
+   yoke over each joint; faces blocked in as values — brow, sockets, a nose
+   that catches light on one side — so they still read as faces when the head
+   is ten pixels across; boots with a sole that meets the ground; a pelt with a
+   ragged hem on the ones who wear fur, folds and lacing on the ones in robes,
+   ribs on the ones in nothing. The huntress carries arrows over her shoulder,
+   the crablings a shell with their limbs coming out from under it and eyes up
+   on stalks, and the wolves a ruff, a mane and haunches.
 5. **A lit, graded frame** (`renderer.js`). Chunked terrain, a half-resolution
    dynamic light map multiplied over the scene and re-added for warm
    overbright, an emissive-only bloom buffer, parallax fog sheets, weather, and

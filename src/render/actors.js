@@ -57,8 +57,13 @@ export function poseHumanoid(st, build = {}) {
     // silhouette loses the heavy, armoured weight the game is after.
     neckH = 79,
     headH = 88,
-    shoulderW = 13.5,
-    hipW = 9,
+    // Wide in the shoulder, narrow in the hip. The figures are meant to be
+    // stocky, but the arms used to be nearly half the width of the chest they
+    // hung beside, and a body whose limbs outweigh its trunk reads as a
+    // mannequin however well it is shaded. Widening the shoulders and taking
+    // the limbs in (below) is what turns the same rig into a person.
+    shoulderW = 15,
+    hipW = 9.4,
     thigh = 24,
     shin = 23,
     upperArm = 19,
@@ -581,6 +586,8 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   const parts = [];
   const push = (depth, fn) => parts.push({ d: depth, fn });
 
+  if (def.quiver) push(-2.4, () => drawQuiver(ctx, P, def, s, cosF, sinF, tint));
+
   // Cloak behind the body
   if (def.cape) {
     push(-2, () => drawCape(ctx, P, D, def, st, s, cosF, sinF, px, py, tint));
@@ -597,18 +604,10 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
       // not just a darker paint, which is what tells you the torso is in
       // front of the leg and above it.
       if (HP) contactAO(ctx, HP[0], HP[1] - 1 * s, 10 * s * lw, 0.5);
-      bone('hip' + side, 'knee' + side, 7.2 * lw, 5.4 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
-      if (legPlate) cop('knee' + side, 4.8 * lw, D['hip' + side]);
-      bone('knee' + side, 'foot' + side, 5.4 * lw, 3.8 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
-      // Boot
-      const F = P['foot' + side];
-      ctx.save();
-      ctx.translate(F[0], F[1]);
-      ctx.fillStyle = css(tint(shadeFor(D['hip' + side], M.boots, M.legsDark, M.legsLight)));
-      ctx.beginPath();
-      ctx.ellipse(cosF * 2.4 * s, 0, 6.4 * s * lw, 4 * s * lw, 0, 0, TAU);
-      ctx.fill();
-      ctx.restore();
+      bone('hip' + side, 'knee' + side, 6.6 * lw, 5 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
+      if (legPlate) cop('knee' + side, 4.5 * lw, D['hip' + side]);
+      bone('knee' + side, 'foot' + side, 5 * lw, 3.5 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
+      drawBoot(ctx, P['foot' + side], def, s, lw, cosF, tint, D['hip' + side], contour);
     });
   }
 
@@ -623,9 +622,9 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     // top of the chest rather than socketed into it.
     const SH = P['shoulder' + side];
     if (SH) contactAO(ctx, SH[0], SH[1] + 2 * s, 9 * s * lw, 0.42);
-    bone('shoulder' + side, 'elbow' + side, 6.2 * lw, 4.8 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
-    if (plated) cop('elbow' + side, 4.4 * lw, D['shoulder' + side]);
-    bone('elbow' + side, 'hand' + side, 4.8 * lw, 3.6 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
+    bone('shoulder' + side, 'elbow' + side, 5 * lw, 4 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
+    if (plated) cop('elbow' + side, 3.8 * lw, D['shoulder' + side]);
+    bone('elbow' + side, 'hand' + side, 4 * lw, 3 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
 
     // Spaulder. Two overlapping lames with straight edges and a hard ridge
     // along the top, rather than the pale sphere this used to be — a sphere
@@ -693,7 +692,7 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
 
   // Torso + head
   push(0, () => {
-    drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis);
+    drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis, cosF, sinF);
     drawNeck(ctx, P, def, s, tint);
     drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA);
   });
@@ -706,6 +705,12 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     }
     drawArm(armNear);
   });
+
+  if (def.carapace) {
+    // Above both arms in the sort: a crustacean's shell is the outside of it,
+    // and everything else — head, limbs, claw — comes out from underneath.
+    push(1.2, () => drawCarapace(ctx, P, def, s, tint));
+  }
 
   const wHand = def.weaponHand || 'R';
   push(D['shoulder' + wHand] + 0.6, () => {
@@ -777,6 +782,70 @@ function drawRunes(ctx, P, def, s, emis) {
     const c = at(0.5, 0.42);
     emis(c[0], c[1], 16 * s, R.color, R.glow ?? 0.5);
   }
+}
+
+/**
+ * A boot.
+ *
+ * The leg used to end in a flat ellipse laid on the ground, which is a shadow,
+ * not a foot — and it is the last thing in the figure the eye travels to
+ * before it reaches the mud, so it decides whether the character is standing
+ * on the ground or floating over it. A boot has three parts worth drawing at
+ * this size: a sole that meets the earth in a hard dark line, an upper that
+ * turns over the toes, and a cuff where the leg goes in. The toe points where
+ * the figure faces, so a turning character's feet turn with it.
+ */
+function drawBoot(ctx, F, def, s, lw, cosF, tint, depth, contour) {
+  if (!F) return;
+  const M = def.colors;
+  const base = tint(shadeFor(depth, M.boots, M.legsDark, M.legsLight));
+  const lit = tint(mixc(M.boots, M.legsLight, 0.5));
+  const len = 7.4 * s * lw;
+  const toe = cosF * len * 0.55;
+
+  ctx.save();
+  ctx.translate(F[0], F[1]);
+
+  // Sole: flat on the ground, longer than the boot above it, near-black. This
+  // is the line that puts the figure on the floor.
+  ctx.beginPath();
+  ctx.ellipse(toe * 0.9, 1.1 * s, len * 0.95, 3.1 * s * lw, 0, 0, TAU);
+  ctx.fillStyle = css(contour, 0.9);
+  ctx.fill();
+
+  // Upper: the mass of the boot, rolling from the ankle down over the toes.
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.52, -0.6 * s);
+  ctx.quadraticCurveTo(-len * 0.6, -4.4 * s * lw, -len * 0.1, -5 * s * lw);
+  ctx.quadraticCurveTo(len * 0.34 + toe * 0.3, -4.6 * s * lw, len * 0.62 + toe, -1.4 * s * lw);
+  ctx.quadraticCurveTo(len * 0.86 + toe, 0.6 * s, len * 0.5 + toe, 1.2 * s);
+  ctx.lineTo(-len * 0.46, 1.2 * s);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(-len * 0.5, -5 * s, len * 0.6, 1.5 * s);
+  g.addColorStop(0, css(lit));
+  g.addColorStop(0.45, css(base));
+  g.addColorStop(1, css(tint(mixc(M.boots, contour, 0.6))));
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // Cuff: a band of leather turned over at the top, and the seam under it.
+  ctx.beginPath();
+  ctx.ellipse(-len * 0.05, -4.6 * s * lw, len * 0.44, 1.7 * s * lw, 0, 0, TAU);
+  ctx.fillStyle = css(tint(mixc(M.boots, M.legsLight, 0.34)));
+  ctx.fill();
+  ctx.strokeStyle = css(contour, 0.55);
+  ctx.lineWidth = Math.max(0.7, 0.8 * s);
+  ctx.stroke();
+
+  // A lit lip along the top of the toe box, which is what makes it leather
+  // rather than a wedge of colour.
+  ctx.strokeStyle = css(lit, 0.5);
+  ctx.lineWidth = Math.max(0.7, 0.9 * s);
+  ctx.beginPath();
+  ctx.moveTo(-len * 0.12, -4.6 * s * lw);
+  ctx.quadraticCurveTo(len * 0.34 + toe * 0.3, -4.2 * s * lw, len * 0.58 + toe, -1.5 * s * lw);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /**
@@ -911,9 +980,14 @@ function drawNeck(ctx, P, def, s, tint) {
   const M = def.colors;
   const midX = (shL[0] + shR[0]) * 0.5;
   const midY = (shL[1] + shR[1]) * 0.5;
-  const wTop = 3.4 * s;
-  const wBot = 5.2 * s;
-  const skin = M.skinDark || M.armsDark || M.armsDark;
+  // A neck, not a chimney. This was as wide as the jaw and painted at little
+  // over half brightness, which put a dark column down the middle of every
+  // chest in the game — on a figure wearing a pale pelt it read as a hole
+  // straight through him. It is narrower now, and the shadow is kept for the
+  // hollow under the chin where it belongs.
+  const wTop = 2.5 * s;
+  const wBot = 3.6 * s;
+  const skin = M.skin || M.arms;
 
   ctx.beginPath();
   ctx.moveTo(H[0] - wTop, H[1]);
@@ -921,10 +995,13 @@ function drawNeck(ctx, P, def, s, tint) {
   ctx.lineTo(midX + wBot, midY + 1 * s);
   ctx.lineTo(midX - wBot, midY + 1 * s);
   ctx.closePath();
-  ctx.fillStyle = css(tint(skin));
+  ctx.fillStyle = css(tint(mixc(skin, M.skinDark || M.armsDark, 0.55)));
   ctx.fill();
-  // The throat is always in shadow — it is the deepest occlusion on a figure.
-  ctx.fillStyle = 'rgba(8,7,9,0.42)';
+  // The throat sits in the shadow of the jaw, deepest right under it.
+  const tg = ctx.createLinearGradient(0, H[1] - 1 * s, 0, midY + 2 * s);
+  tg.addColorStop(0, 'rgba(8,7,9,0.62)');
+  tg.addColorStop(1, 'rgba(8,7,9,0.12)');
+  ctx.fillStyle = tg;
   ctx.fill();
 
   // Gorget: a plate collar sitting on the shoulders, pulled up towards the
@@ -942,7 +1019,7 @@ function drawNeck(ctx, P, def, s, tint) {
   }
 }
 
-function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
+function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis, cosF, sinF) {
   const M = def.colors;
   const hipL = P.hipL;
   const hipR = P.hipR;
@@ -950,22 +1027,44 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
   const shR = P.shoulderR;
   const widen = def.torsoWide ?? 1;
 
+  // The torso's own frame: u runs across the chest from -1 at the left
+  // shoulder to +1 at the right, v from the collar at 0 to the belt at 1.
+  // Everything below — the silhouette, the muscle under the cloth, the folds,
+  // the fur — is laid out in these coordinates, so it all leans and twists
+  // with the pose instead of being pinned to the screen.
+  const at = (u, v) => {
+    const lx = lerp(shL[0], hipL[0], v);
+    const ly = lerp(shL[1], hipL[1], v);
+    const rx = lerp(shR[0], hipR[0], v);
+    const ry = lerp(shR[1], hipR[1], v);
+    const k = (u + 1) * 0.5;
+    return [lerp(lx, rx, k), lerp(ly, ry, k)];
+  };
+
+  // The outline. It used to be a trapezoid with its sides bowed outwards — a
+  // barrel, which is the one shape a torso is not. A body goes wide at the
+  // shoulders, pinches at the waist and flares again at the hips, and that
+  // double curve is most of what the eye uses to read a figure as a figure at
+  // forty pixels tall. The collar dips between the shoulders rather than
+  // running straight across, which is where the neck goes in.
+  const W = 1.16 * widen;
   const path = () => {
     ctx.beginPath();
-    ctx.moveTo(lerp(shL[0], shR[0], -0.16 * widen), shL[1] - 1 * s);
-    ctx.quadraticCurveTo(
-      lerp(shL[0], hipL[0], 0.5) - 2 * s * widen,
-      lerp(shL[1], hipL[1], 0.5),
-      hipL[0] - 1 * s,
-      hipL[1] + 2 * s
-    );
-    ctx.lineTo(hipR[0] + 1 * s, hipR[1] + 2 * s);
-    ctx.quadraticCurveTo(
-      lerp(shR[0], hipR[0], 0.5) + 2 * s * widen,
-      lerp(shR[1], hipR[1], 0.5),
-      lerp(shR[0], shL[0], -0.16 * widen),
-      shR[1] - 1 * s
-    );
+    // Up over the shoulder first. The arm is a capsule centred on the joint,
+    // so it stands half its own width proud of the shoulder line — and a
+    // torso that stopped at that line left a notch of daylight between the
+    // body and the arm on every figure in the game. The trunk now rises into
+    // a yoke over each joint, the way a trapezius does, and the arm sockets
+    // into it instead of being propped beside it.
+    ctx.moveTo(...at(-W * 0.94, -0.16));
+    ctx.quadraticCurveTo(...at(-W * 1.08, 0.08), ...at(-W * 1.02, 0.34));
+    ctx.quadraticCurveTo(...at(-W * 0.9, 0.52), ...at(-W * 0.76, 0.66));
+    ctx.quadraticCurveTo(...at(-W * 0.74, 0.88), ...at(-W * 0.9, 1.04));
+    ctx.lineTo(...at(W * 0.9, 1.04));
+    ctx.quadraticCurveTo(...at(W * 0.74, 0.88), ...at(W * 0.76, 0.66));
+    ctx.quadraticCurveTo(...at(W * 0.9, 0.52), ...at(W * 1.02, 0.34));
+    ctx.quadraticCurveTo(...at(W * 1.08, 0.08), ...at(W * 0.94, -0.16));
+    ctx.quadraticCurveTo(...at(0, 0.2), ...at(-W * 0.94, -0.16));
     ctx.closePath();
   };
 
@@ -1001,14 +1100,62 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
   g.addColorStop(0, css(tint(mixc(M.torsoLight, [255, 248, 232], 0.34))));
   g.addColorStop(0.22, css(tint(M.torsoLight)));
   g.addColorStop(0.52, css(tint(M.torso)));
-  g.addColorStop(0.82, css(tint(mixc(M.torsoDark, [10, 9, 11], 0.5))));
-  g.addColorStop(1, css(tint(mixc(M.torsoDark, M.torso, 0.34))));
+  // The far side goes deep but not black: past this the whole lower half of
+  // every torso turned into a hole with a lit collar floating over it.
+  g.addColorStop(0.82, css(tint(mixc(M.torsoDark, [10, 9, 11], 0.25))));
+  g.addColorStop(1, css(tint(mixc(M.torsoDark, M.torso, 0.42))));
   ctx.fillStyle = g;
   ctx.fill();
 
 
   ctx.save();
   ctx.clip();
+
+  // A body under the clothes.
+  //
+  // Whatever the garment is, the shape it hangs on is not a plank: the chest
+  // is two masses either side of a hollow, it narrows into the waist, and the
+  // collarbones cast down from the shoulders. Painting that in first, before
+  // any cloth or steel, is what stops every torso in the game reading as a bib
+  // hung between two shoulders — and because it is drawn in the torso's own
+  // frame it leans and twists with the pose.
+  //
+  const halfW = Math.abs(shR[0] - shL[0]) * 0.5 || 6 * s;
+  // How much of the front of the body is turned towards the camera. Nipples,
+  // necklines and laces belong to the front; on a figure walking away they
+  // must not show through its back.
+  const front = clamp01(sinF * 1.3 + 0.3);
+
+  const softBlob = (u, v, rx, ry, color, alpha, rot = 0) => {
+    const [x, y] = at(u, v);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry));
+    g.addColorStop(0, css(tint(color), alpha));
+    g.addColorStop(1, css(tint(color), 0));
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // Pectoral masses, lit on top and shadowed underneath, with the hollow of
+  // the sternum between them.
+  const chestLight = tint(mixc(M.torsoLight, [255, 248, 232], 0.2));
+  softBlob(-0.42, 0.2, halfW * 0.62, halfW * 0.5, chestLight, 0.3 * (0.35 + front * 0.65));
+  softBlob(0.42, 0.2, halfW * 0.62, halfW * 0.5, chestLight, 0.22 * (0.35 + front * 0.65));
+  softBlob(-0.42, 0.42, halfW * 0.6, halfW * 0.34, M.torsoDark, 0.4 * front);
+  softBlob(0.42, 0.42, halfW * 0.6, halfW * 0.34, M.torsoDark, 0.4 * front);
+  softBlob(0, 0.3, halfW * 0.28, halfW * 0.58, M.torsoDark, 0.26);
+
+  // The shoulders cast down onto the chest, and the waist sits in shadow under
+  // the ribs — the two occlusions that give a torso its depth.
+  softBlob(-0.86, 0.02, halfW * 0.5, halfW * 0.4, [8, 7, 9], 0.4);
+  softBlob(0.86, 0.02, halfW * 0.5, halfW * 0.4, [8, 7, 9], 0.4);
+  softBlob(0, 0.98, halfW * 1.2, halfW * 0.34, [8, 7, 9], 0.2);
+
   // Surface treatment
   if (def.torso === 'plate') {
     ctx.strokeStyle = css(M.metalDark, 0.55);
@@ -1052,33 +1199,188 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
       }
     }
   } else if (def.torso === 'fur') {
-    ctx.strokeStyle = css(M.torsoDark, 0.7);
-    ctx.lineWidth = 1.2;
-    for (let i = 0; i < 26; i++) {
-      const t = i / 26;
-      const x = lerp(shL[0], shR[0], (i * 0.37) % 1);
-      const y = lerp(shL[1], hipL[1], t);
+    // A pelt thrown over the shoulders, not a hairy shirt. What says fur at
+    // this size is the edge: a heavy mass across the top of the chest ending
+    // in a ragged fringe, with the light catching the crest of it. The strands
+    // underneath are the last five percent, and they only work because the
+    // silhouette above them already reads.
+    const fur = tint(mixc(M.torso, M.torsoDark, 0.35));
+    const furL = tint(mixc(M.torsoLight, [255, 246, 226], 0.15));
+    ctx.beginPath();
+    ctx.moveTo(...at(-1.28, 0.02));
+    ctx.quadraticCurveTo(...at(0, -0.22), ...at(1.28, 0.02));
+    // Ragged hem. Regular teeth read as a saw blade, so the depth of each
+    // tuft is pulled from a fixed irregular sequence and two of them hang
+    // noticeably longer than the rest.
+    const tufts = 9;
+    for (let i = tufts; i >= 0; i--) {
+      const u = -1.28 + (i / tufts) * 2.56;
+      const deep = 0.24 + ((i * 0.618) % 1) * 0.13 + (i === 3 || i === 7 ? 0.12 : 0);
+      const [cx2, cy2] = at(u + 1.28 / tufts, deep - 0.09);
+      ctx.quadraticCurveTo(cx2, cy2, ...at(u, deep));
+    }
+    ctx.closePath();
+    const [fx0, fy0] = at(-1.2, -0.24);
+    const [fx1, fy1] = at(1.1, 0.46);
+    const fg = ctx.createLinearGradient(fx0, fy0, fx1, fy1);
+    // A pelt sits on top of what it covers, so it stays lighter than the body
+    // under it all the way across — going dark at the bottom turned it into a
+    // hole in the chest.
+    fg.addColorStop(0, css(furL));
+    fg.addColorStop(0.45, css(tint(mixc(M.torsoLight, M.torso, 0.5))));
+    fg.addColorStop(1, css(fur));
+    ctx.fillStyle = fg;
+    ctx.fill();
+    // Locks, hanging from the hem rather than combed down the chest — the
+    // fringe is where fur reads, the middle of a pelt is just a colour.
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 20; i++) {
+      const u = -1.2 + (i / 19) * 2.4;
+      const v0 = 0.1 + ((i * 0.37) % 1) * 0.1;
+      const [x0, y0] = at(u, v0);
+      const [x1, y1] = at(u + (i % 2 ? 0.05 : -0.05), v0 + 0.16);
+      ctx.strokeStyle = css(i % 3 ? tint(mixc(M.torsoDark, M.torso, 0.3)) : furL, 0.24);
+      ctx.lineWidth = Math.max(0.6, 0.75 * s);
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + (i % 2 ? 3 : -3), y + 5);
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(x0 + (x1 - x0) * 0.3, y0 + (y1 - y0) * 0.7, x1, y1);
       ctx.stroke();
     }
+    // The crest of the pelt over the shoulders, where the moon catches it.
+    ctx.strokeStyle = css(furL, 0.5);
+    ctx.lineWidth = Math.max(0.8, 1.2 * s);
+    ctx.beginPath();
+    ctx.moveTo(...at(-1.1, -0.02));
+    ctx.quadraticCurveTo(...at(0, -0.22), ...at(1.1, -0.02));
+    ctx.stroke();
+    // A strap across the chest holding it on.
+    if (front > 0.05) {
+      ctx.save();
+      ctx.globalAlpha = front;
+      const [sx0, sy0] = at(-0.9, 0.05);
+      const [sx1, sy1] = at(0.55, 0.85);
+      ctx.strokeStyle = css(tint(M.belt || PAL.leatherDark));
+      ctx.lineWidth = 2.4 * s;
+      ctx.beginPath();
+      ctx.moveTo(sx0, sy0);
+      ctx.lineTo(sx1, sy1);
+      ctx.stroke();
+      ctx.strokeStyle = css(tint(mixc(M.belt || PAL.leatherDark, [255, 240, 210], 0.35)), 0.5);
+      ctx.lineWidth = Math.max(0.7, 0.8 * s);
+      ctx.beginPath();
+      ctx.moveTo(sx0 - 0.9 * s, sy0);
+      ctx.lineTo(sx1 - 0.9 * s, sy1);
+      ctx.stroke();
+      ctx.restore();
+    }
   } else if (def.torso === 'robe') {
-    const rg = ctx.createLinearGradient(0, P.chest[1], 0, hipL[1] + 8 * s);
-    rg.addColorStop(0, 'rgba(0,0,0,0)');
-    rg.addColorStop(1, css(M.torsoDark, 0.85));
-    ctx.fillStyle = rg;
-    ctx.fillRect(shL[0] - 20 * s, P.chest[1] - 4 * s, 40 * s, 60 * s);
+    // Cloth hangs in folds, and folds are what a robe is. Each one is a dark
+    // trough with a lit ridge beside it, all of them converging slightly
+    // towards the belt because that is where the cloth is gathered.
+    for (let i = 0; i < 5; i++) {
+      const u0 = -0.82 + i * 0.41;
+      const u1 = u0 * 0.72;
+      const wob = (i % 2 ? 1 : -1) * 0.08;
+      const [x0, y0] = at(u0, 0.12);
+      const [xm, ym] = at(u0 * 0.85 + wob, 0.55);
+      const [x1, y1] = at(u1, 1.02);
+      ctx.strokeStyle = css(tint(mixc(M.torsoDark, [8, 7, 9], 0.35)), 0.5);
+      ctx.lineWidth = 2.2 * s;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo(xm, ym, x1, y1);
+      ctx.stroke();
+      ctx.strokeStyle = css(tint(M.torsoLight), 0.28);
+      ctx.lineWidth = Math.max(0.7, 1 * s);
+      ctx.beginPath();
+      ctx.moveTo(x0 - 1.6 * s, y0);
+      ctx.quadraticCurveTo(xm - 1.6 * s, ym, x1 - 1.6 * s, y1);
+      ctx.stroke();
+    }
+    // The opening, laced across, and the collar standing away from the neck.
+    if (front > 0.05) {
+      ctx.save();
+      ctx.globalAlpha = front;
+      const [nx0, ny0] = at(-0.34, -0.04);
+      const [nx1, ny1] = at(0, 0.44);
+      const [nx2, ny2] = at(0.34, -0.04);
+      ctx.beginPath();
+      ctx.moveTo(nx0, ny0);
+      ctx.quadraticCurveTo(nx1, ny1 - 4 * s, nx1, ny1);
+      ctx.quadraticCurveTo(nx1, ny1 - 4 * s, nx2, ny2);
+      ctx.closePath();
+      ctx.fillStyle = css(tint(mixc(M.torsoDark, [8, 7, 9], 0.55)));
+      ctx.fill();
+      ctx.strokeStyle = css(tint(M.torsoLight), 0.45);
+      ctx.lineWidth = Math.max(0.7, 0.9 * s);
+      ctx.stroke();
+      for (let i = 0; i < 3; i++) {
+        const v = 0.08 + i * 0.11;
+        const [lx0, ly0] = at(-0.2 + i * 0.02, v);
+        const [lx1, ly1] = at(0.2 - i * 0.02, v + 0.03);
+        ctx.strokeStyle = css(tint(M.belt || PAL.leatherDark), 0.8);
+        ctx.lineWidth = Math.max(0.6, 0.7 * s);
+        ctx.beginPath();
+        ctx.moveTo(lx0, ly0);
+        ctx.lineTo(lx1, ly1);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  } else if (def.torso === 'bare') {
+    // Skin. The ribs catch light along the flank and the belly falls into
+    // shadow under them; two marks, and the chest stops being a board.
+    if (front > 0.05) {
+      ctx.save();
+      ctx.globalAlpha = front;
+      ctx.strokeStyle = css(tint(M.torsoDark), 0.4);
+      ctx.lineWidth = Math.max(0.7, 0.9 * s);
+      for (let i = 0; i < 3; i++) {
+        const v = 0.52 + i * 0.12;
+        for (const sgn of [-1, 1]) {
+          const [rx0, ry0] = at(sgn * 0.72, v);
+          const [rx1, ry1] = at(sgn * 0.18, v + 0.06);
+          ctx.beginPath();
+          ctx.moveTo(rx0, ry0);
+          ctx.quadraticCurveTo(sgn > 0 ? rx0 : rx1, (ry0 + ry1) * 0.5, rx1, ry1);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
   }
   ctx.restore();
 
-  // Belt
+  // Belt, with a buckle on the front of it. The buckle is four pixels of
+  // metal that tell you the figure is wearing something rather than painted.
   ctx.beginPath();
   ctx.moveTo(hipL[0] - 1.5 * s, hipL[1] - 1 * s);
   ctx.lineTo(hipR[0] + 1.5 * s, hipR[1] - 1 * s);
   ctx.lineWidth = 3 * s;
   ctx.strokeStyle = css(tint(M.belt || PAL.leatherDark));
   ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(hipL[0] - 1.5 * s, hipL[1] - 2.1 * s);
+  ctx.lineTo(hipR[0] + 1.5 * s, hipR[1] - 2.1 * s);
+  ctx.lineWidth = Math.max(0.6, 0.7 * s);
+  ctx.strokeStyle = css(tint(mixc(M.belt || PAL.leatherDark, [255, 240, 210], 0.4)), 0.45);
+  ctx.stroke();
+  if (front > 0.08 && !def.carapace) {
+    const bx = lerp(hipL[0], hipR[0], 0.5);
+    const by = lerp(hipL[1], hipR[1], 0.5) - 1 * s;
+    ctx.save();
+    ctx.globalAlpha = front;
+    ctx.beginPath();
+    ctx.rect(bx - 2.2 * s, by - 2 * s, 4.4 * s, 4 * s);
+    ctx.fillStyle = css(tint(M.metal || M.armsLight));
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(8,7,9,0.7)';
+    ctx.lineWidth = Math.max(0.6, 0.8 * s);
+    ctx.stroke();
+    ctx.fillStyle = css(tint(mixc(M.metalLight || M.armsLight, [255, 255, 245], 0.4)), 0.8);
+    ctx.fillRect(bx - 1.6 * s, by - 1.5 * s, 3.2 * s, 1 * s);
+    ctx.restore();
+  }
 
   // Robe skirt for casters
   if (def.torso === 'robe') {
@@ -1094,6 +1396,347 @@ function drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis) {
     ctx.fillStyle = sg;
     ctx.fill();
   }
+}
+
+/**
+ * A quiver, slung across the back.
+ *
+ * The huntress carried a bow and nothing to put in it. From the front all you
+ * see is three shafts and their fletching standing over her shoulder, which is
+ * the whole point: it is a silhouette detail, and silhouette is what survives
+ * at forty pixels. It hangs from the right hip to the left shoulder and is
+ * drawn behind everything, so the body always covers whatever part of it is
+ * facing away.
+ */
+function drawQuiver(ctx, P, def, s, cosF, sinF, tint) {
+  const M = def.colors;
+  const shL = P.shoulderL;
+  const hipR = P.hipR;
+  if (!shL || !hipR) return;
+  // Sits over the shoulder the bow arm is not using.
+  const flip = (def.weaponHand || 'R') === 'L' ? 1 : -1;
+  const bx = lerp(P.hip[0], hipR[0], 0.4) + cosF * 3 * s * flip;
+  const by = P.hip[1] - 2 * s;
+  const tx = lerp(P.chest[0], shL[0], 0.55) + cosF * 4 * s * flip;
+  const ty = shL[1] - 4 * s;
+
+  const leather = tint(M.belt || PAL.leatherDark);
+  const leatherL = tint(mixc(M.belt || PAL.leatherDark, [255, 236, 200], 0.4));
+
+  // The tube.
+  capsule(ctx, bx, by, tx, ty, 4.6 * s, 3.8 * s);
+  ctx.fillStyle = 'rgba(8,7,9,0.85)';
+  ctx.fill();
+  capsule(ctx, bx, by, tx, ty, 3.8 * s, 3.1 * s);
+  ctx.fillStyle = cylinderFill(
+    ctx, bx, by, tx, ty, 3.8 * s, 3.1 * s,
+    leather,
+    tint(mixc(M.belt || PAL.leatherDark, [8, 7, 9], 0.55)),
+    leatherL,
+    tint(mixc(leatherL, [255, 250, 240], 0.4))
+  );
+  ctx.fill();
+  // Two bands round it.
+  ctx.strokeStyle = css(tint(mixc(M.belt || PAL.leatherDark, [8, 7, 9], 0.4)), 0.85);
+  ctx.lineWidth = Math.max(0.9, 1.3 * s);
+  for (const t of [0.3, 0.66]) {
+    const cx = lerp(bx, tx, t);
+    const cy = lerp(by, ty, t);
+    const nx = -(ty - by);
+    const ny = tx - bx;
+    const len = Math.hypot(nx, ny) || 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - (nx / len) * 3.6 * s, cy - (ny / len) * 3.6 * s);
+    ctx.lineTo(cx + (nx / len) * 3.6 * s, cy + (ny / len) * 3.6 * s);
+    ctx.stroke();
+  }
+
+  // Arrows: shafts out of the mouth of it, each with a nock and fletching.
+  const ax = tx - (bx - tx) * 0.06;
+  const ay = ty - (by - ty) * 0.06;
+  for (let i = -1; i <= 1; i++) {
+    const sx = ax + i * 2.6 * s;
+    const sy = ay - Math.abs(i) * 0.6 * s;
+    const ex = sx + i * 2.2 * s - cosF * 1.5 * s;
+    const ey = sy - 11 * s;
+    ctx.strokeStyle = css(tint(mixc(PAL.wood || M.belt, [40, 30, 20], 0.2)));
+    ctx.lineWidth = Math.max(0.9, 1.2 * s);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+    // Fletching — two feathers, one lit and one in shade.
+    ctx.beginPath();
+    ctx.moveTo(ex, ey + 1 * s);
+    ctx.lineTo(ex - 2.2 * s, ey - 2.4 * s);
+    ctx.lineTo(ex, ey - 3.4 * s);
+    ctx.closePath();
+    ctx.fillStyle = css(tint(def.fletching || [188, 176, 150]), 0.92);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(ex, ey + 1 * s);
+    ctx.lineTo(ex + 2.2 * s, ey - 2.4 * s);
+    ctx.lineTo(ex, ey - 3.4 * s);
+    ctx.closePath();
+    ctx.fillStyle = css(tint(mixc(def.fletching || [188, 176, 150], [20, 18, 16], 0.45)), 0.92);
+    ctx.fill();
+  }
+  void sinF;
+}
+
+/**
+ * A shell over the back and shoulders.
+ *
+ * The crabling was a brown man with a claw. What makes a thing read as a
+ * crustacean at forty pixels is not its colour but its outline: a hard domed
+ * plate sitting proud of the body, scalloped along its lower edge, with the
+ * limbs coming out from under it. So the shell is drawn outside the torso's
+ * own silhouette — it is allowed to overhang — with segment seams across it
+ * and a row of spines down each side.
+ */
+function drawCarapace(ctx, P, def, s, tint) {
+  const M = def.colors;
+  const shL = P.shoulderL;
+  const shR = P.shoulderR;
+  const hipL = P.hipL;
+  const hipR = P.hipR;
+  if (!shL || !hipL) return;
+  const at = (u, v) => {
+    const lx = lerp(shL[0], hipL[0], v);
+    const ly = lerp(shL[1], hipL[1], v);
+    const rx = lerp(shR[0], hipR[0], v);
+    const ry = lerp(shR[1], hipR[1], v);
+    const k = (u + 1) * 0.5;
+    return [lerp(lx, rx, k), lerp(ly, ry, k)];
+  };
+  const shell = tint(def.shell || M.torso);
+  const shellD = tint(mixc(def.shell || M.torso, [10, 8, 6], 0.6));
+  const shellL = tint(mixc(def.shellLight || M.torsoLight, [255, 236, 200], 0.3));
+
+  ctx.beginPath();
+  ctx.moveTo(...at(-1.62, 0.5));
+  ctx.quadraticCurveTo(...at(-1.74, -0.12), ...at(-0.95, -0.5));
+  ctx.quadraticCurveTo(...at(0, -0.74), ...at(0.95, -0.5));
+  ctx.quadraticCurveTo(...at(1.74, -0.12), ...at(1.62, 0.5));
+  // Scalloped hem — six lobes, the way a carapace plates over the abdomen.
+  for (let i = 5; i >= 0; i--) {
+    const u = -1.62 + (i / 5) * 3.24;
+    const [x, y] = at(u, 0.5);
+    const [cx, cy] = at(u + 0.32, 0.68);
+    ctx.quadraticCurveTo(cx, cy, x, y);
+  }
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(8,7,9,0.9)';
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+  const [gx0, gy0] = at(-1.1, -0.35);
+  const [gx1, gy1] = at(1.2, 0.7);
+  const g = ctx.createLinearGradient(gx0, gy0, gx1, gy1);
+  g.addColorStop(0, css(shellL));
+  g.addColorStop(0.34, css(shell));
+  g.addColorStop(1, css(shellD));
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  ctx.save();
+  ctx.clip();
+  // Segment seams, following the dome.
+  for (let i = 1; i <= 3; i++) {
+    const v = -0.38 + i * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(...at(-1.45, v + 0.16));
+    ctx.quadraticCurveTo(...at(0, v - 0.14), ...at(1.45, v + 0.16));
+    ctx.strokeStyle = css(shellD, 0.75);
+    ctx.lineWidth = 1.8 * s;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(...at(-1.45, v + 0.1));
+    ctx.quadraticCurveTo(...at(0, v - 0.2), ...at(1.45, v + 0.1));
+    ctx.strokeStyle = css(shellL, 0.35);
+    ctx.lineWidth = Math.max(0.7, 0.9 * s);
+    ctx.stroke();
+  }
+  // Pitting on the crest, where the light hits hardest.
+  ctx.fillStyle = css(shellD, 0.5);
+  for (let i = 0; i < 14; i++) {
+    const u = -1.1 + ((i * 0.317) % 1) * 2.2;
+    const v = -0.44 + ((i * 0.618) % 1) * 0.78;
+    const [x, y] = at(u, v);
+    ctx.beginPath();
+    ctx.ellipse(x, y, 1.1 * s, 0.8 * s, 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Spines along both edges, bone-pale and pointing back and out.
+  ctx.strokeStyle = css(tint(def.spine || PAL.bone), 0.9);
+  ctx.lineWidth = Math.max(1, 1.5 * s);
+  ctx.lineCap = 'round';
+  for (const sgn of [-1, 1]) {
+    for (let i = 0; i < 3; i++) {
+      const v = -0.34 + i * 0.24;
+      const [x0, y0] = at(sgn * 1.45, v);
+      const [x1, y1] = at(sgn * 1.78, v - 0.26);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+  }
+}
+
+/**
+ * Eyes on stalks. Two of them, on a low bob of their own so they never sit
+ * quite still, with the glow taken from whatever the creature's eyes are.
+ */
+function drawEyestalks(ctx, H, r, s, t, cosF, tint, def, emis) {
+  const col = def.glowEyes || PAL.amber;
+  const stalk = tint(def.shell || def.colors.torso);
+  for (const sgn of [-1, 1]) {
+    const wob = Math.sin(t * 2.3 + (sgn > 0 ? 1.7 : 0)) * r * 0.12;
+    const bx = H[0] + sgn * r * 0.42 - cosF * r * 0.2;
+    const by = H[1] - r * 0.5;
+    const tx = bx + sgn * r * 0.5 + wob;
+    const ty = by - r * 1.15;
+    ctx.strokeStyle = 'rgba(8,7,9,0.85)';
+    ctx.lineWidth = Math.max(1.4, 2.6 * s);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.quadraticCurveTo(bx + sgn * r * 0.1, by - r * 0.7, tx, ty);
+    ctx.stroke();
+    ctx.strokeStyle = css(stalk);
+    ctx.lineWidth = Math.max(0.9, 1.6 * s);
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.quadraticCurveTo(bx + sgn * r * 0.1, by - r * 0.7, tx, ty);
+    ctx.stroke();
+    // The bead on top.
+    ctx.beginPath();
+    ctx.ellipse(tx, ty, r * 0.26, r * 0.28, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(8,7,9,0.9)';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(tx, ty, r * 0.19, r * 0.21, 0, 0, TAU);
+    ctx.fillStyle = css(col, 0.95);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(tx - r * 0.06, ty - r * 0.07, r * 0.07, r * 0.07, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(255,255,240,0.8)';
+    ctx.fill();
+    if (emis) emis(tx, ty, r * 1.1, col, 0.7);
+  }
+}
+
+/**
+ * A face, on a head about ten pixels across.
+ *
+ * Two dark dots for eyes is what this was, and two dark dots is a doll. But
+ * there is no room here for a drawing either: by the time the world buffer is
+ * scaled to a phone the whole head is a thumbnail. So the face is built the
+ * way a painter blocks one in before any detail — as values in the right
+ * places. A brow that shadows the sockets, a nose that catches light on one
+ * side and casts on the other, cheekbones, a mouth in the shadow under them.
+ * Blurred down to nothing it still reads as a face, because the arrangement
+ * of light and dark is what the eye recognises, not the features.
+ *
+ * Everything is offset against `cosF` so the features sit on the front of the
+ * head and slide round it as the figure turns, and the light side is taken
+ * from the same key light the armour uses.
+ */
+function drawFace(ctx, H, r, cosF, front, tint, M, def) {
+  const x = H[0] - cosF * r * 0.26;
+  const y = H[1];
+  const dark = tint(M.skinDark || M.armsDark);
+  const lit = tint(M.skinLight || M.armsLight);
+  const side = KEY_X < 0 ? -1 : 1; // which cheek the lamp is on
+
+  ctx.save();
+  ctx.globalAlpha = front;
+
+  // Brow. A band across the top of the face, dark underneath where it hangs
+  // over the eyes — this one shape does most of the work.
+  ctx.fillStyle = css(mixc(dark, [10, 9, 12], 0.45), 0.5);
+  ctx.beginPath();
+  ctx.ellipse(x, y - r * 0.22, r * 0.66, r * 0.3, 0, 0, TAU);
+  ctx.fill();
+
+  // Eyes, set into that shadow, with a glint on the lit side of each.
+  const ex = r * 0.34;
+  ctx.fillStyle = 'rgba(12,10,13,0.82)';
+  ctx.beginPath();
+  ctx.ellipse(x - ex, y - r * 0.1, r * 0.17, r * 0.14, 0, 0, TAU);
+  ctx.ellipse(x + ex, y - r * 0.1, r * 0.17, r * 0.14, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = css(lit, 0.5);
+  ctx.beginPath();
+  ctx.ellipse(x - ex + side * r * 0.07, y - r * 0.15, r * 0.06, r * 0.05, 0, 0, TAU);
+  ctx.ellipse(x + ex + side * r * 0.07, y - r * 0.15, r * 0.06, r * 0.05, 0, 0, TAU);
+  ctx.fill();
+
+  // Nose: a lit ridge with its own shadow beside it. A face with no nose is a
+  // mask, and the shadow is more of the nose than the ridge is.
+  ctx.fillStyle = css(mixc(dark, [10, 9, 12], 0.3), 0.42);
+  ctx.beginPath();
+  ctx.moveTo(x - side * r * 0.04, y - r * 0.16);
+  ctx.quadraticCurveTo(x - side * r * 0.2, y + r * 0.16, x - side * r * 0.12, y + r * 0.3);
+  ctx.lineTo(x + side * r * 0.06, y + r * 0.28);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = css(lit, 0.36);
+  ctx.beginPath();
+  ctx.moveTo(x + side * r * 0.02, y - r * 0.16);
+  ctx.quadraticCurveTo(x + side * r * 0.08, y + r * 0.1, x + side * r * 0.04, y + r * 0.26);
+  ctx.lineTo(x + side * r * 0.13, y + r * 0.24);
+  ctx.closePath();
+  ctx.fill();
+
+  // Cheekbone on the lit side, hollow under it on the other.
+  ctx.fillStyle = css(lit, 0.22);
+  ctx.beginPath();
+  ctx.ellipse(x + side * r * 0.46, y + r * 0.1, r * 0.26, r * 0.18, side * 0.4, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = css(mixc(dark, [10, 9, 12], 0.25), 0.3);
+  ctx.beginPath();
+  ctx.ellipse(x - side * r * 0.5, y + r * 0.16, r * 0.24, r * 0.22, -side * 0.4, 0, TAU);
+  ctx.fill();
+
+  if (def.beard) {
+    // A beard is a silhouette change, so it is drawn as a mass with a ragged
+    // lower edge rather than as strokes that would vanish at this size.
+    const b = tint(def.beard);
+    ctx.fillStyle = css(b);
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.72, y + r * 0.06);
+    ctx.quadraticCurveTo(x - r * 0.66, y + r * 1.32, x, y + r * 1.5);
+    ctx.quadraticCurveTo(x + r * 0.66, y + r * 1.32, x + r * 0.72, y + r * 0.06);
+    ctx.quadraticCurveTo(x, y + r * 0.62, x - r * 0.72, y + r * 0.06);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = css(mixc(b, [255, 250, 240], 0.3), 0.5);
+    ctx.beginPath();
+    ctx.moveTo(x - r * 0.66, y + r * 0.16);
+    ctx.quadraticCurveTo(x - r * 0.4, y + r * 0.9, x - r * 0.12, y + r * 1.16);
+    ctx.lineTo(x - r * 0.3, y + r * 1.1);
+    ctx.quadraticCurveTo(x - r * 0.56, y + r * 0.8, x - r * 0.7, y + r * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  // Mouth: a shadow line, with the lower lip catching a little light under it.
+  ctx.fillStyle = 'rgba(14,10,12,0.55)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.56, r * 0.24, r * 0.07, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = css(lit, 0.2);
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.68, r * 0.18, r * 0.05, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA) {
@@ -1139,15 +1782,7 @@ function drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA) {
   // The face is only drawn when the character is turned toward the camera.
   const front = clamp01(sinF * 1.4 + 0.25);
   if (front > 0.05 && def.helm !== 'greathelm' && def.helm !== 'skull') {
-    ctx.save();
-    ctx.globalAlpha = front;
-    ctx.fillStyle = 'rgba(14,12,14,0.75)';
-    const ex = r * 0.36;
-    ctx.beginPath();
-    ctx.ellipse(H[0] - ex - cosF * r * 0.22, H[1] - r * 0.1, r * 0.16, r * 0.2, 0, 0, TAU);
-    ctx.ellipse(H[0] + ex - cosF * r * 0.22, H[1] - r * 0.1, r * 0.16, r * 0.2, 0, 0, TAU);
-    ctx.fill();
-    ctx.restore();
+    drawFace(ctx, H, r, cosF, front, tint, M, def);
   }
 
   if (def.glowEyes) {
@@ -1167,10 +1802,12 @@ function drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA) {
     }
   }
 
-  drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M);
+  if (def.eyestalks) drawEyestalks(ctx, H, r, s, st.t || 0, cosF, tint, def, emis);
+
+  drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M, emis);
 }
 
-function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M) {
+function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M, emis) {
   const helm = def.helm || 'none';
   if (helm === 'none') {
     // Hair
@@ -1323,14 +1960,50 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M) {
     g.addColorStop(1, css(tint(def.hood || M.torsoDark)));
     ctx.fillStyle = g;
     ctx.fill();
-    // Shadow inside the cowl
+    // The fold where the cloth turns over the brow, and the seam running back
+    // over the crown — two lines, and the cowl stops being a bag.
+    ctx.strokeStyle = css(tint(mixc(def.hood || M.torsoDark, [8, 8, 12], 0.4)), 0.7);
+    ctx.lineWidth = Math.max(0.8, 1.1 * s);
+    ctx.beginPath();
+    ctx.moveTo(H[0] - r * 1.4, H[1] + r * 0.5);
+    ctx.quadraticCurveTo(H[0] - cosF * r * 0.4, H[1] - r * 1.1, H[0] + r * 1.34, H[1] - r * 0.1);
+    ctx.stroke();
+    ctx.strokeStyle = css(tint(def.hoodLight || M.torsoLight), 0.28);
+    ctx.lineWidth = Math.max(0.7, 0.9 * s);
+    ctx.beginPath();
+    ctx.moveTo(H[0] - r * 1.34, H[1] + r * 0.44);
+    ctx.quadraticCurveTo(H[0] - cosF * r * 0.4, H[1] - r * 1.2, H[0] + r * 1.28, H[1] - r * 0.16);
+    ctx.stroke();
+
+    // Shadow inside the cowl, and what survives it.
+    //
+    // A deep hood does not show a face; it shows the fact that there is one.
+    // The cowl's own shadow is kept almost black, and then the two things a
+    // torch would still find in there — the wet of the eyes and the line of
+    // the cheekbone — are put back on top of it. That reads as a hooded figure
+    // at any size, where a lit face under a hood just reads as a hat.
     const front = clamp01(sinF * 1.4 + 0.2);
     if (front > 0.03) {
       ctx.save();
       ctx.globalAlpha = front;
-      ctx.fillStyle = 'rgba(6,6,10,0.85)';
+      const fx = H[0] - cosF * r * 0.3;
+      ctx.fillStyle = 'rgba(6,6,10,0.88)';
       ctx.beginPath();
-      ctx.ellipse(H[0] - cosF * r * 0.3, H[1] + r * 0.12, r * 0.82, r * 0.92, 0, 0, TAU);
+      ctx.ellipse(fx, H[1] + r * 0.12, r * 0.82, r * 0.92, 0, 0, TAU);
+      ctx.fill();
+      const glint = def.glowEyes || mixc(M.skinLight || M.armsLight, [255, 250, 235], 0.3);
+      ctx.fillStyle = css(glint, def.glowEyes ? 0.95 : 0.5);
+      ctx.beginPath();
+      ctx.ellipse(fx - r * 0.3, H[1] - r * 0.02, r * 0.13, r * 0.1, 0, 0, TAU);
+      ctx.ellipse(fx + r * 0.3, H[1] - r * 0.02, r * 0.13, r * 0.1, 0, 0, TAU);
+      ctx.fill();
+      if (def.glowEyes && emis) emis(fx, H[1] - r * 0.02, r * 1.4, def.glowEyes, 0.6 * front);
+      // A sliver of jaw at the very bottom of the cowl. Any bigger and it
+      // stops reading as a chin catching light and starts reading as a mouth
+      // hanging open.
+      ctx.fillStyle = css(mixc(M.skin || M.arms, [255, 240, 220], 0.15), 0.24);
+      ctx.beginPath();
+      ctx.ellipse(fx, H[1] + r * 0.86, r * 0.4, r * 0.11, 0, 0, TAU);
       ctx.fill();
       ctx.restore();
     }
@@ -1572,7 +2245,7 @@ function drawWeapon(ctx, P, D, def, st, s, cosF, sinF, tint, emis) {
     if (emis) {
       const gx = Hd[0] + Math.cos(ang) * L * 0.92;
       const gy = Hd[1] + Math.sin(ang) * L * 0.92;
-      emis(gx, gy, 9 * s, gem, 0.85);
+      emis(gx, gy, 8 * s, gem, 0.65);
     }
   } else if (w === 'bow') {
     // Held across the body with the limbs upright, not as a hoop lying flat.
@@ -1611,15 +2284,65 @@ function drawWeapon(ctx, P, D, def, st, s, cosF, sinF, tint, emis) {
     ctx.stroke();
     ctx.restore();
   } else if (w === 'claw') {
-    ctx.strokeStyle = css(tint(PAL.bone));
-    ctx.lineWidth = 2.2 * s;
-    ctx.lineCap = 'round';
-    for (let i = -1; i <= 1; i++) {
-      ctx.beginPath();
-      ctx.moveTo(0, i * 3 * s);
-      ctx.quadraticCurveTo(L * 0.4, i * 5 * s, L * 0.62, i * 3.4 * s);
-      ctx.stroke();
+    // A pincer, not three fingernails. Two chitin halves on one hinge: a heavy
+    // fixed jaw below and a lighter one above that opens as the thing winds up
+    // and slams shut on the strike. The serrations along the inside are what
+    // make it a crab's claw and not a pair of tongs.
+    const shell = tint(def.shell || PAL.bone);
+    const shellD = tint(mixc(def.shell || PAL.bone, [12, 8, 6], 0.55));
+    const shellL = tint(mixc(def.shell || PAL.bone, [255, 240, 210], 0.45));
+    // Wind-up opens it, the strike closes it.
+    let gape = 0.34;
+    if (st.anim === 'attack' || st.anim === 'attack2') {
+      gape = st.animT < 0.36 ? 0.34 + st.animT * 1.6 : Math.max(0.06, 0.9 - (st.animT - 0.36) * 3.4);
     }
+    // The wrist knuckle the two halves hinge on.
+    ctx.beginPath();
+    ctx.ellipse(0, 0, L * 0.3, L * 0.26, 0, 0, TAU);
+    ctx.fillStyle = sphereFill(ctx, 0, 0, L * 0.3, shell, shellD, shellL, shellL);
+    ctx.fill();
+
+    const jaw = (dir, len, thick) => {
+      ctx.save();
+      ctx.rotate(dir * gape);
+      ctx.beginPath();
+      ctx.moveTo(L * 0.1, dir * thick * 0.2);
+      ctx.quadraticCurveTo(L * 0.5, dir * thick, L * len, dir * thick * 0.34);
+      ctx.quadraticCurveTo(L * (len + 0.16), 0, L * len, -dir * thick * 0.08);
+      ctx.quadraticCurveTo(L * 0.5, -dir * thick * 0.1, L * 0.1, -dir * thick * 0.2);
+      ctx.closePath();
+      ctx.strokeStyle = 'rgba(8,7,9,0.9)';
+      ctx.lineWidth = 1.4;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      const g = ctx.createLinearGradient(0, -dir * thick, L * len, dir * thick);
+      g.addColorStop(0, css(shellL));
+      g.addColorStop(0.5, css(shell));
+      g.addColorStop(1, css(shellD));
+      ctx.fillStyle = g;
+      ctx.fill();
+      // Teeth along the closing edge.
+      ctx.fillStyle = css(shellD, 0.9);
+      for (let i = 0; i < 4; i++) {
+        const t = 0.24 + i * 0.16;
+        ctx.beginPath();
+        ctx.moveTo(L * len * t, -dir * thick * 0.12);
+        ctx.lineTo(L * len * (t + 0.07), -dir * thick * 0.12);
+        ctx.lineTo(L * len * (t + 0.035), dir * thick * 0.18);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // A hard lit ridge along the back of the jaw.
+      ctx.strokeStyle = css(shellL, 0.6);
+      ctx.lineWidth = Math.max(0.7, 1 * s);
+      ctx.beginPath();
+      ctx.moveTo(L * 0.16, dir * thick * 0.62);
+      ctx.quadraticCurveTo(L * 0.55, dir * thick * 0.92, L * len * 0.94, dir * thick * 0.36);
+      ctx.stroke();
+      ctx.restore();
+    };
+    jaw(1, 1.05, 5.2 * s);
+    jaw(-1, 0.92, 3.8 * s);
   } else if (w === 'scythe') {
     ctx.fillStyle = css(wood);
     ctx.fillRect(-L * 0.35, -2 * s, L * 1.2, 4 * s);
@@ -1722,7 +2445,10 @@ function drawOffhand(ctx, P, D, def, st, s, cosF, sinF, tint, emis) {
     ctx.beginPath();
     ctx.arc(Hd[0], Hd[1] - 2 * s, 4.4 * s, 0, TAU);
     ctx.fill();
-    if (emis) emis(Hd[0], Hd[1] - 2 * s, 11 * s, gem, 0.85);
+    // Kept small on purpose: the bloom buffer blurs whatever goes into it and
+    // adds it back over the frame, so an orb this close to the body washes the
+    // figure holding it before it ever reads as a light.
+    if (emis) emis(Hd[0], Hd[1] - 2 * s, 7 * s, gem, 0.5);
   }
 }
 
@@ -1769,7 +2495,7 @@ export function poseQuadruped(st, build = {}) {
   p.chestC = [bodyLen * 0.44 + lunge, 0, bz + 4];
   p.neck = [bodyLen * 0.66 + lunge, 0, bz + 7 - headDrop * 0.4];
   p.head = [headFwd + lunge * 1.2, 0, headH + bounce * 0.6 - crouch - headDrop];
-  p.snout = [headFwd + 15 + lunge * 1.2, 0, headH - 5 + bounce * 0.6 - crouch - headDrop];
+  p.snout = [headFwd + 11 + lunge * 1.2, 0, headH - 5.5 + bounce * 0.6 - crouch - headDrop];
   p.tail = [-bodyLen * 0.74, Math.sin(t * 4 + phase) * 5, bz + 4];
   p.tailTip = [-bodyLen * 1.15, Math.sin(t * 4 + phase + 1) * 12, bz + 10 + Math.sin(t * 3) * 4];
 
@@ -1823,18 +2549,56 @@ export function drawQuadruped(ctx, def, st, px, py, s, emis) {
   ctx.save();
   if ((st.alpha ?? 1) < 1) ctx.globalAlpha = st.alpha;
 
+  // The beasts were painted flat — one colour per part, picked by which way
+  // the part faced — while the men beside them were lit as cylinders. Next to
+  // a knight with a terminator running down his arm, a wolf read as a cutout
+  // of a wolf. Same recipe as the humanoid now: a near-black contour to hold
+  // it off the ground, a cylinder gradient across the short axis, and the moon
+  // on the upper edge.
+  const contour = [8, 7, 9];
   const bone = (a, b, r0, r1, base, dark, light, depth) => {
     const A = P[a];
     const B = P[b];
-    capsule(ctx, A[0] - 1.2, A[1] - 2, B[0] - 1.2, B[1] - 2, r0 * s, r1 * s);
-    ctx.fillStyle = css(tint(rimC), rimA);
+    if (!A || !B) return;
+    capsule(ctx, A[0], A[1], B[0], B[1], r0 * s + 1, r1 * s + 1);
+    ctx.fillStyle = css(contour, 0.85);
     ctx.fill();
+    const d = clamp01(0.5 + clamp(depth * 0.8, -0.5, 0.5));
     capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s);
-    ctx.fillStyle = css(tint(shadeFor(depth, base, dark, light)));
+    ctx.fillStyle = cylinderFill(
+      ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s,
+      tint(mixc(dark, base, 0.35 + d * 0.65)),
+      tint(mixc(contour, dark, 0.55 + d * 0.3)),
+      tint(mixc(base, light, 0.45 + d * 0.5)),
+      tint(mixc(light, [255, 250, 236], 0.3 * d))
+    );
     ctx.fill();
-    capsule(ctx, A[0] - 1, A[1] - 1.5, B[0] - 1, B[1] - 1.5, r0 * s * 0.5, r1 * s * 0.5);
-    ctx.fillStyle = css(tint(light), 0.16);
+    if (rimA > 0.01) {
+      capsule(ctx, A[0] - 1.2, A[1] - 1.8, B[0] - 1.2, B[1] - 1.8, r0 * s * 0.42, r1 * s * 0.42);
+      ctx.fillStyle = css(tint(rimC), rimA * 0.5);
+      ctx.fill();
+    }
+  };
+
+  /** A muscle mass laid over the frame — haunch, shoulder, cheek. */
+  const mass = (joint, rx, ry, depth, rot = 0) => {
+    const J = P[joint];
+    if (!J) return;
+    ctx.save();
+    ctx.translate(J[0], J[1]);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx * s, ry * s, 0, 0, TAU);
+    const d = clamp01(0.5 + clamp(depth * 0.8, -0.5, 0.5));
+    ctx.fillStyle = sphereFill(
+      ctx, 0, 0, Math.max(rx, ry) * s,
+      tint(mixc(M.torsoDark, M.torso, 0.35 + d * 0.65)),
+      tint(mixc(contour, M.torsoDark, 0.6)),
+      tint(mixc(M.torso, M.torsoLight, 0.5)),
+      tint(mixc(M.torsoLight, [255, 250, 240], 0.3))
+    );
     ctx.fill();
+    ctx.restore();
   };
 
   const legPair = (pre, depth) => {
@@ -1861,28 +2625,87 @@ export function drawQuadruped(ctx, def, st, px, py, s, emis) {
   // Body — deep chest tapering to a narrow waist.
   bone('hind', 'chestC', 11.5, 13.5, M.torso, M.torsoDark, M.torsoLight, 0.2);
   bone('chestC', 'neck', 12, 8, M.torso, M.torsoDark, M.torsoLight, 0.3);
-  // Shaggy back
+  // The two masses that make an animal read as an animal: the haunch driving
+  // the back leg and the shoulder under the front one.
+  mass('hind', 13, 11, 0.1, 0.2);
+  mass('chestC', 12, 11.5, 0.3, -0.15);
+
+  // Shaggy back — tapered tufts along the spine rather than a row of pins,
+  // each one leaning back the way fur lies on a running animal.
   if (def.shaggy) {
     ctx.save();
-    ctx.strokeStyle = css(tint(M.torsoDark), 0.8);
-    ctx.lineWidth = 1.5;
     const A = P.hind;
     const B = P.neck;
-    for (let i = 0; i < 18; i++) {
-      const t = i / 17;
+    for (let i = 0; i < 16; i++) {
+      const t = i / 15;
       const x = lerp(A[0], B[0], t);
       const y = lerp(A[1], B[1], t) - 10 * s;
+      const len = (4.5 + ((i * 0.618) % 1) * 3.6) * s;
+      const lean = (B[0] - A[0]) / (Math.hypot(B[0] - A[0], B[1] - A[1]) || 1);
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + (i % 2 ? 4 : -4), y - 6 - (i % 3) * 2);
-      ctx.stroke();
+      ctx.moveTo(x - 2.2 * s, y + 1.5 * s);
+      ctx.quadraticCurveTo(x - lean * len * 0.4, y - len * 0.7, x - lean * len * 0.8, y - len);
+      ctx.quadraticCurveTo(x + 0.4 * s, y - len * 0.5, x + 2.2 * s, y + 1.5 * s);
+      ctx.closePath();
+      ctx.fillStyle = css(tint(i % 3 ? M.torsoDark : mixc(M.torsoDark, M.torso, 0.5)), 0.9);
+      ctx.fill();
     }
     ctx.restore();
   }
 
+  // The ruff: a collar of thick fur where the neck meets the shoulders. On a
+  // wolf it is the widest part of the animal from the front, and it is what
+  // stops the head reading as a knob on the end of a tube.
+  if (def.ruff !== false) {
+    const N = P.neck;
+    const C = P.chestC;
+    if (N && C) {
+      const ax = N[0] - C[0];
+      const ay = N[1] - C[1];
+      const al = Math.hypot(ax, ay) || 1;
+      const ux = ax / al;
+      const uy = ay / al;
+      const cx = N[0] - ux * 3 * s;
+      const cy = N[1] - uy * 3 * s;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(Math.atan2(uy, ux));
+      ctx.beginPath();
+      const spikes = 13;
+      for (let i = 0; i <= spikes; i++) {
+        const a = -Math.PI / 2 + (i / spikes) * Math.PI * 2;
+        const rr = (i % 2 ? 13 : 11) * s;
+        const x = Math.cos(a) * rr * 0.5;
+        const y = Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = css(contour, 0.8);
+      ctx.fill();
+      ctx.beginPath();
+      for (let i = 0; i <= spikes; i++) {
+        const a = -Math.PI / 2 + (i / spikes) * Math.PI * 2;
+        const rr = (i % 2 ? 11.6 : 9.8) * s;
+        const x = Math.cos(a) * rr * 0.5;
+        const y = Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      const rg = ctx.createLinearGradient(-8 * s, -12 * s, 6 * s, 12 * s);
+      rg.addColorStop(0, css(tint(mixc(M.torsoLight, [255, 248, 232], 0.2))));
+      rg.addColorStop(0.5, css(tint(M.torso)));
+      rg.addColorStop(1, css(tint(mixc(M.torsoDark, contour, 0.4))));
+      ctx.fillStyle = rg;
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   // Head
-  bone('neck', 'head', 8, 7, M.torso, M.torsoDark, M.torsoLight, 0.4);
-  bone('head', 'snout', 6, 3.2, M.torso, M.torsoDark, M.torsoLight, 0.5);
+  bone('neck', 'head', 8.5, 7.6, M.torso, M.torsoDark, M.torsoLight, 0.4);
+  bone('head', 'snout', 6.4, 4, M.torso, M.torsoDark, M.torsoLight, 0.5);
   const Hd = P.head;
   const Sn = P.snout;
   // Muzzle top and nose

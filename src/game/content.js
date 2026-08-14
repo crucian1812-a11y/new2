@@ -31,18 +31,24 @@ export const LOOKS = {
     // blown-out cream slab with no cross visible on it. Starting at a dirty
     // grey leaves the light somewhere to go, and keeps the black cross
     // readable — which is the whole silhouette.
-    capeColor: hex('#8e8a7d'),
-    capeColorLight: hex('#c3bfb1'),
-    capeColorDark: hex('#3c3b36'),
-    shieldColor: hex('#9d998c'),
-    shieldLight: hex('#cbc7ba'),
-    shieldDark: hex('#43423c'),
+    capeColor: hex('#78756a'),
+    capeColorLight: hex('#a7a496'),
+    capeColorDark: hex('#33322e'),
+    shieldColor: hex('#87847a'),
+    shieldLight: hex('#b0ada0'),
+    shieldDark: hex('#3a3934'),
     shieldEmblem: PAL.orderBlack,
     rim: hex('#cfd6dc'),
     colors: {
-      torso: hex('#979283'),
-      torsoLight: hex('#cbc7b8'),
-      torsoDark: hex('#43423b'),
+      // Pitched down again. The hero stands in the middle of his own torch,
+      // and the frame's contrast pass lifts whatever is already bright: at the
+      // old values the surcoat clipped to white and took the black cross and
+      // every plate seam with it. Linen that starts at two thirds grey still
+      // reads as white cloth under a flame, and it leaves the light somewhere
+      // to go.
+      torso: hex('#82806f'),
+      torsoLight: hex('#b1af9d'),
+      torsoDark: hex('#3b3a34'),
       arms: hex('#78808d'),
       armsLight: hex('#c0c8d4'),
       armsDark: hex('#333943'),
@@ -73,6 +79,10 @@ export const LOOKS = {
     weaponHand: 'L',
     weaponLen: 40,
     headR: 7.4,
+    // Arrows over the shoulder: an archer with nothing to shoot was the one
+    // thing about her silhouette that read as wrong at any size.
+    quiver: true,
+    fletching: hex('#c8bfa2'),
     hood: hex('#3a4632'),
     hoodLight: hex('#67784f'),
     rim: hex('#9fd0a8'),
@@ -112,12 +122,14 @@ export const LOOKS = {
     capeColorDark: hex('#221a2c'),
     rim: hex('#ffd08a'),
     colors: {
-      torso: hex('#4e4058'),
-      torsoLight: hex('#7a6688'),
-      torsoDark: hex('#231b2b'),
-      arms: hex('#b8916f'),
-      armsLight: hex('#e0bd97'),
-      armsDark: hex('#664a35'),
+      torso: hex('#463a50'),
+      torsoLight: hex('#6d5a7c'),
+      torsoDark: hex('#201929'),
+      // Bare arms under an amber lamp are the brightest thing on this class;
+      // at the old values they clipped and took his hands with them.
+      arms: hex('#9c7959'),
+      armsLight: hex('#c4a17c'),
+      armsDark: hex('#563e2c'),
       legs: hex('#3a3044'),
       legsLight: hex('#5e5070'),
       legsDark: hex('#1b1521'),
@@ -172,6 +184,15 @@ export const MOB_LOOKS = {
     headR: 6,
     glowEyes: hex('#ffca6a'),
     rim: hex('#ffbb77'),
+    // A shell over the back and eyes up on stalks: the two things that make
+    // the silhouette read as something that came out of the water rather than
+    // as a short man with a claw.
+    carapace: true,
+    eyestalks: true,
+    shell: hex('#8f5228'),
+    shellLight: hex('#d08c4e'),
+    spine: hex('#e8d9b4'),
+    torsoWide: 1.15,
     build: { hipH: 30, chestH: 46, neckH: 53, headH: 60, thigh: 16, shin: 15, upperArm: 16, foreArm: 15 },
     colors: {
       torso: hex('#7a4a2c'),
