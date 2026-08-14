@@ -56,6 +56,7 @@ const noop = 'function(){}';
 await measure('baseline', '');
 await measure('no props', 'window.__savedProps = window.__game.zone.props; window.__game.zone.props = [];');
 await measure('props back', 'window.__game.zone.props = window.__savedProps;');
+await measure('no sprite relight', 'window.__renderer.relightSprite = ' + noop + ';');
 await measure('no composite light', 'window.__renderer.compositeLight = ' + noop + ';');
 await measure('no bloom', 'window.__renderer.renderBloom = ' + noop + ';');
 await measure('no fog', 'window.__renderer.drawFog = ' + noop + ';');

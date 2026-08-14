@@ -10,6 +10,7 @@ const checks = [
   ['navigation', 'node', ['tools/nav-check.mjs', '--port', port]],
   ['skills & bosses', 'node', ['tools/skills-check.mjs', '--port', port]],
   ['audio', 'node', ['tools/audio-check.mjs', '--port', port]],
+  ['sprite lighting', 'node', ['tools/light-check.mjs', '--port', port]],
   ['save/reload', 'node', ['tools/save-check.mjs', '--port', port]],
   ['endings', 'node', ['tools/endgame-check.mjs', '--port', port]],
 ];

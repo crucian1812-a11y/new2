@@ -55,7 +55,7 @@ Landscape orientation is expected; the game asks you to rotate in portrait.
 
 ## How the visuals are made
 
-The look comes from four ideas, all in `src/render/`:
+The look comes from five ideas, all in `src/render/`:
 
 1. **Relief-lit materials** (`textures.js`). Each ground material is generated
    as a height field first, then lit with a real surface normal, so grit,
@@ -66,11 +66,23 @@ The look comes from four ideas, all in `src/render/`:
    the canopy, with a cold moon rim applied to the whole silhouette afterwards.
    Sprites are trimmed to their opaque bounds and pre-scaled to the current
    zoom so drawing them is a straight blit.
-3. **Articulated actors** (`actors.js`). Characters are rigs posed in 3D and
+3. **Sprites baked with SDF lighting** (`sdf.js`). A painted bitmap is lit from
+   wherever the painter stood, which is why flat cut-outs ignore the torch
+   burning next to them. So each sprite gets an exact Euclidean distance field
+   built from its own alpha; the distance becomes a bevelled height, the height
+   becomes a surface normal, and the normal can be lit. Two things come out of
+   that bake: form shading and cavity dirt composited into the sprite's own
+   pixels, and four small greyscale layers holding its response to light from
+   screen +x, −x, +y and −y. Because N·L is linear in L, any direction is two
+   of those four blended by the light's own components — so a boulder painted
+   lit from the upper left turns to face a brazier for the cost of two blits,
+   and the whole thing is dropped automatically on a device that cannot spare
+   them.
+4. **Articulated actors** (`actors.js`). Characters are rigs posed in 3D and
    projected through the same 2.5D transform as the world. That is why they can
    face any direction, occlude their own limbs correctly, and swing a weapon
    that travels through a real arc.
-4. **A lit, graded frame** (`renderer.js`). Chunked terrain, a half-resolution
+5. **A lit, graded frame** (`renderer.js`). Chunked terrain, a half-resolution
    dynamic light map multiplied over the scene and re-added for warm
    overbright, an emissive-only bloom buffer, parallax fog sheets, weather, and
    a baked grade-and-vignette pass.
@@ -85,7 +97,7 @@ playable on a slow one.
 index.html            page shell and loading screen
 styles.css            the only CSS; the game itself is one canvas
 src/core/             math, seeded RNG, input, WebAudio, save
-src/render/           noise, palette, materials, props, actors, FX, renderer
+src/render/           noise, palette, materials, props, SDF lighting, actors, FX, renderer
 src/game/             content tables, world generation, loot, the game loop
 src/ui/               HUD, panels, menus
 tools/                Playwright drivers for screenshots, benchmarks, autoplay
@@ -110,11 +122,15 @@ node tools/ablate.mjs                       # which render stage costs what
 | `nav-check` | every act's walkable space is one connected region, and the start, camps, shrines, chests and boss arena are all reachable |
 | `skills-check` | all twelve class skills and all thirteen boss abilities run in every act without throwing |
 | `audio-check` | the synthesised music and each sound effect produce measurable signal, and muting is silent |
+| `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is actually on — a flipped sign in the SDF bake looks plausible and is wrong |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
 | `endgame-check` | Perkūnas leads to the victory screen, and the Eternal Hunt restarts act I at a higher difficulty and keeps escalating |
 
 `tools/preview-art.html` and `tools/preview-actors.html` render every material,
 prop and character rig on one page, which is the fastest way to iterate on art.
+`tools/preview-lighting.html` relights every prop from eight bearings around
+the clock, which is the fastest way to see what the SDF bake is doing to a
+silhouette.
 
 Beyond the scripted checks, a bot plays the game the way a player would —
 walking, dodging, spending skills off cooldown, drinking, picking up loot. The

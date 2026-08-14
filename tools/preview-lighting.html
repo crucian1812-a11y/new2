@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>preview-lighting</title>
+<style>
+  body{margin:0;background:#15130f;color:#bbb;font:12px monospace}
+  h3{margin:8px 6px 2px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;background:#241f19;padding:8px}
+  .cell{text-align:center}
+  canvas{display:block;image-rendering:auto}
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+// Every prop, relit from eight directions around the clock — the fastest way
+// to see what the SDF bake is doing to a silhouette. The middle column is the
+// sprite as baked; the ring around it is what a torch at that bearing does.
+import { seedNoise } from '../src/render/noise.js';
+import { getProp, PROP_DEFS } from '../src/render/props.js';
+
+seedNoise(1234);
+const out = document.getElementById('out');
+const errors = [];
+window.addEventListener('error', (e) => errors.push(String(e.message)));
+
+const DIRS = 8;
+const STRENGTH = 0.62;
+
+function relit(spr, ang, scale) {
+  const w = Math.max(1, Math.round(spr.w * scale));
+  const h = Math.max(1, Math.round(spr.h * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  // A ground the shading has something to sit against.
+  ctx.fillStyle = '#2b251d';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(spr.canvas, 0, 0, w, h);
+  if (spr.shade && ang !== null) {
+    const ux = Math.cos(ang);
+    const uy = Math.sin(ang);
+    ctx.save();
+    ctx.globalCompositeOperation = 'overlay';
+    if (Math.abs(ux) > 0.06) {
+      ctx.globalAlpha = STRENGTH * Math.abs(ux);
+      ctx.drawImage(ux > 0 ? spr.shade.xp : spr.shade.xn, 0, 0, w, h);
+    }
+    if (Math.abs(uy) > 0.06) {
+      ctx.globalAlpha = STRENGTH * Math.abs(uy);
+      ctx.drawImage(uy > 0 ? spr.shade.yp : spr.shade.yn, 0, 0, w, h);
+    }
+    ctx.restore();
+  }
+  return c;
+}
+
+const t0 = performance.now();
+let bytes = 0;
+for (const name of Object.keys(PROP_DEFS)) {
+  const spr = getProp(name, 0);
+  if (spr.shade) bytes += spr.shade.xp.width * spr.shade.xp.height * 16;
+  const h = document.createElement('h3');
+  h.textContent = `${name}  ${spr.w}x${spr.h}` + (spr.shade ? `  basis ${spr.shade.xp.width}x${spr.shade.xp.height}` : '  (no basis)');
+  out.appendChild(h);
+  const row = document.createElement('div');
+  row.className = 'row';
+  const scale = Math.min(1, 150 / Math.max(spr.w, spr.h));
+  const cells = [['baked', null]];
+  for (let i = 0; i < DIRS; i++) {
+    const a = (i / DIRS) * Math.PI * 2;
+    cells.push([Math.round((a * 180) / Math.PI) + '°', a]);
+  }
+  for (const [label, ang] of cells) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.appendChild(relit(spr, ang, scale));
+    const l = document.createElement('div');
+    l.textContent = label;
+    cell.appendChild(l);
+    row.appendChild(cell);
+  }
+  out.appendChild(row);
+}
+const t1 = performance.now();
+
+const head = document.createElement('h3');
+head.textContent = `baked ${Object.keys(PROP_DEFS).length} props in ${Math.round(t1 - t0)}ms, basis memory ${(bytes / 1048576).toFixed(2)}MB`;
+out.insertBefore(head, out.firstChild);
+
+window.__stats = { bakeMs: t1 - t0, basisBytes: bytes, errors };
+document.title = 'ok';
+</script>
+</body>
+</html>

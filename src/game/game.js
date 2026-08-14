@@ -2389,7 +2389,9 @@ export class Game {
         // a clump of stalks casts a mess of thin slivers that reads as dirt
         // on the ground rather than as shade, and there are hundreds of them.
         if (pr.fade > 0.5 && spr.h > 26) r.drawSpriteShadow(spr, pr.x, pr.y, 0.3 * pr.fade);
-        r.drawScaled(spr, pr.x, pr.y, swayPx, pr.fade);
+        // Anything with real presence on screen is relit from the nearest
+        // fire; a tuft of grass is not worth two more blits.
+        r.drawScaled(spr, pr.x, pr.y, swayPx, pr.fade, spr.h > 22);
         if (spr.emissive) r.drawScaledEmissive(spr, pr.x, pr.y, swayPx);
       });
     }
@@ -2785,7 +2787,7 @@ export class Game {
   drawChest(ctx, R, c) {
     const spr = getProp('crate', (Math.abs(Math.round(c.x)) % 4));
     R.drawShadow(c.x, c.y, 26, 0.5);
-    R.drawSprite(spr, c.x, c.y, { scale: 0.85, alpha: c.opened ? 0.75 : 1 });
+    R.drawSprite(spr, c.x, c.y, { scale: 0.85, alpha: c.opened ? 0.75 : 1, relight: true });
     if (!c.opened) {
       const pulse = 0.6 + 0.4 * Math.sin(R.time * 2.4 + c.x);
       R.addLight(c.x, c.y, 130, PAL.gold, 0.35 * pulse);

@@ -10,6 +10,7 @@
 
 import { RNG } from '../core/rng.js';
 import { makeCanvas, ctxOf } from './textures.js';
+import { bakeSpriteLighting, flipShadeBasis } from './sdf.js';
 import { css, mixc, hex, PAL } from './palette.js';
 import { TAU, clamp01, lerp } from '../core/math.js';
 
@@ -223,9 +224,16 @@ function sprite(w, h, ox, oy, draw, opts = {}) {
     h = nh;
   }
 
+  // Everything above painted the prop as if the light were where the painter
+  // left it. This recovers a surface from the silhouette, shades it with the
+  // house key light, and keeps a basis the renderer can relight from whatever
+  // is actually burning nearby. See sdf.js.
+  const shade = opts.lighting === false ? null : bakeSpriteLighting(canvas, { emissive, ...(opts.sdf || {}) });
+
   return {
     canvas,
     emissive,
+    shade,
     ox,
     oy,
     w,
@@ -1787,6 +1795,13 @@ export const PROP_VARIANTS = VARIANTS;
 const scaledCache = new Map();
 let scaledZoom = -1;
 
+/** Mirrored lighting basis, kept on the source prop so a zoom change is free. */
+function flippedShade(src) {
+  if (!src.shade) return null;
+  if (!src.shadeFlipped) src.shadeFlipped = flipShadeBasis(src.shade);
+  return src.shadeFlipped;
+}
+
 export function getScaledProp(name, variant, zoom, flip = 0) {
   if (Math.abs(zoom - scaledZoom) > 0.015) {
     scaledCache.clear();
@@ -1812,6 +1827,10 @@ export function getScaledProp(name, variant, zoom, flip = 0) {
   s = {
     canvas: blit(src.canvas),
     emissive: src.emissive ? blit(src.emissive) : null,
+    // The shading basis is stretched to the sprite when it is drawn, so the
+    // zoom never touches it — but a mirrored sprite needs a mirrored basis,
+    // with the two horizontal responses trading places.
+    shade: flip ? flippedShade(src) : src.shade,
     ox: flip ? w - src.ox * zoom : src.ox * zoom,
     oy: src.oy * zoom,
     w,

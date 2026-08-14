@@ -47,6 +47,12 @@ const WORLD_PIXEL_WIDTH = 1200;
 const CHUNK = 384; // world units per terrain chunk
 const CHUNK_CACHE = 28;
 
+// How far the baked directional shading is allowed to push a prop around.
+// Past about 0.8 the overlay starts eating the painted detail underneath and
+// props read as shrink-wrapped; this is the point where the form arrives and
+// the paint survives.
+const SHADE_STRENGTH = 0.62;
+
 export class Renderer {
   constructor(canvas) {
     // Two surfaces. `screen` is the real canvas at device resolution and is
@@ -114,6 +120,7 @@ export class Renderer {
     this.scratchCtx = ctxOf(this.scratch);
 
     this.lights = [];
+    this.prevLights = [];
     this.queue = [];
     this.decals = [];
     this.time = 0;
@@ -806,7 +813,7 @@ export class Renderer {
    * `swayPx` is an integer horizontal nudge — enough to read as wind without
    * forcing a filtered transform.
    */
-  drawScaled(spr, x, y, swayPx = 0, alpha = 1) {
+  drawScaled(spr, x, y, swayPx = 0, alpha = 1, relight = false) {
     const ctx = this.ctx;
     const dx = Math.round(this.sx(x) - spr.ox + swayPx);
     const dy = Math.round(this.sy(y) - spr.oy);
@@ -819,7 +826,49 @@ export class Renderer {
       ctx.drawImage(spr.canvas, dx, dy);
       ctx.restore();
     }
+    if (relight) this.relightSprite(spr, x, y, dx, dy, spr.w, spr.h, alpha);
     return true;
+  }
+
+  /**
+   * Relights a baked sprite from the light that is actually near it.
+   *
+   * The sprite carries four small greyscale layers — its surface's response to
+   * light arriving from screen +x, -x, +y and -y — recovered from a distance
+   * field at bake time (see sdf.js). N·L is linear in L, so the response to
+   * any direction is one horizontal layer at |L.x| and one vertical layer at
+   * |L.y|, blended over the sprite in `overlay`. Two blits, and a rock that
+   * was painted lit from the upper left turns to face a torch.
+   *
+   * `dx`/`dy`/`w`/`h` are the rectangle the sprite was drawn into, so the
+   * shading lands on exactly the pixels the sprite did.
+   */
+  relightSprite(spr, x, y, dx, dy, w, h, alpha = 1) {
+    const shade = spr.shade;
+    if (!shade || this.quality < 1) return;
+    const [kx, ky] = this.keyLightDir(x, y);
+    const len = Math.hypot(kx, ky);
+    if (len < 1e-3) return;
+    const ux = kx / len;
+    const uy = ky / len;
+    // The vector's length is how much light is falling here — the zone's sun
+    // alone is a little over half of it, a torch at arm's length is well past
+    // one. A prop out in the dark gets a whisper of shaping; a prop beside the
+    // fire gets the full turn.
+    const power = clamp01(0.45 + len * 0.55) * alpha * SHADE_STRENGTH;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'overlay';
+    ctx.imageSmoothingEnabled = true;
+    if (Math.abs(ux) > 0.06) {
+      ctx.globalAlpha = power * Math.abs(ux);
+      ctx.drawImage(ux > 0 ? shade.xp : shade.xn, dx, dy, w, h);
+    }
+    if (Math.abs(uy) > 0.06) {
+      ctx.globalAlpha = power * Math.abs(uy);
+      ctx.drawImage(uy > 0 ? shade.yp : shade.yn, dx, dy, w, h);
+    }
+    ctx.restore();
   }
 
   /**
@@ -885,7 +934,8 @@ export class Renderer {
     let by = sun[1] * 0.55;
     const ox = this.sx(wx);
     const oy = this.sy(wy);
-    for (const L of this.lights) {
+    const lights = this.prevLights && this.prevLights.length ? this.prevLights : this.lights;
+    for (const L of lights) {
       const dx = this.sx(L.x) - ox;
       const dy = this.sy(L.y) - oy;
       const d = Math.hypot(dx, dy);
@@ -940,6 +990,7 @@ export class Renderer {
     }
     ctx.drawImage(spr.canvas, dx, dy, w, h);
     ctx.restore();
+    if (opts.relight) this.relightSprite(spr, x, y, dx, dy, w, h, opts.alpha ?? 1);
     return true;
   }
 
@@ -1043,6 +1094,15 @@ export class Renderer {
 
   beginFrame(dt) {
     this.time += dt;
+    // The frame's lights are collected between here and the lightmap pass, but
+    // the sprites are painted in the middle of that window: when a prop asks
+    // what is lighting it, a spell going off beside it has not been added yet.
+    // So the relight reads the previous frame's list, which is complete — and
+    // at sixty frames a second it is a sixtieth of a second out of date, which
+    // is less than the flicker on a torch.
+    const spent = this.prevLights;
+    this.prevLights = this.lights;
+    this.lights = spent;
     this.lights.length = 0;
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
