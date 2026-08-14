@@ -15,8 +15,9 @@
 //   * when the hero is nearly dead the whole mix goes underwater and a heart
 //     starts up in it. Nobody has to read the health bar to know.
 
+import { clamp } from './math.js';
+
 const NOTE = (n) => 440 * Math.pow(2, (n - 69) / 12);
-const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 // What the ground sounds like underfoot, keyed by the material an act lays
 // down as its base. Sand is a soft hiss, flagstone a hard slap with a knock

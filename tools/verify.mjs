@@ -11,6 +11,7 @@ const checks = [
   ['skills & bosses', 'node', ['tools/skills-check.mjs', '--port', port]],
   ['audio', 'node', ['tools/audio-check.mjs', '--port', port]],
   ['sprite lighting', 'node', ['tools/light-check.mjs', '--port', port]],
+  ['single-file build', 'node', ['tools/bundle-check.mjs']],
   ['save/reload', 'node', ['tools/save-check.mjs', '--port', port]],
   ['endings', 'node', ['tools/endgame-check.mjs', '--port', port]],
 ];

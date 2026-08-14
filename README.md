@@ -156,6 +156,7 @@ node tools/ablate.mjs                       # which render stage costs what
 | `skills-check` | all twelve class skills and all thirteen boss abilities run in every act without throwing |
 | `audio-check` | the music, every sound effect and every act's ambient bed produce measurable signal; a sound three screens away is a fraction of one underfoot; a dying hero's mix measurably loses its high end; and muting is silent |
 | `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is actually on — a flipped sign in the SDF bake looks plausible and is wrong |
+| `bundle-check` | the whole game flattened into `spiel.html` still builds and still boots from a `file://` URL — the bundler needs every top-level name in the codebase to be unique, and nothing else in the suite would notice |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
 | `endgame-check` | Perkūnas leads to the victory screen, and the Eternal Hunt restarts act I at a higher difficulty and keeps escalating |
 
