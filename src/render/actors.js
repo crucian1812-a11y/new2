@@ -48,6 +48,23 @@ function rot(p, cosF, sinF) {
  * Builds a humanoid pose in local space. Every value is in "character units"
  * where 100 = full height; the caller scales.
  */
+/**
+ * The distance a figure covers in one full walk cycle, in character units.
+ *
+ * Taken from the length of its own leg — about two and a half times it, which
+ * is what a running human does — so a crabling on stumps takes short quick
+ * steps and something long-limbed takes long slow ones, and neither has to be
+ * tuned by hand. The game multiplies this by the figure's world size to know
+ * how far it must travel before the cycle comes round again; the pose swings
+ * the leg through exactly the same distance. That agreement is the whole
+ * trick: while the foot is down it tracks backwards at the speed the body
+ * moves forward, so it stays on its patch of ground instead of skating.
+ */
+export function strideChar(build = {}) {
+  const { thigh = 24, shin = 23 } = build;
+  return (thigh + shin) * 2.6;
+}
+
 export function poseHumanoid(st, build = {}) {
   const {
     hipH = 47,
@@ -221,10 +238,17 @@ export function poseHumanoid(st, build = {}) {
       break;
     }
     case 'die': {
+      // Falls the way it was hit. `dieBack` is +1 when the blow came from in
+      // front and drove the body over backwards, -1 when it came from behind
+      // and pitched it onto its face; everything a body does on the way down
+      // reverses with it, so the two deaths do not read as the same animation
+      // played twice.
+      const back = st.dieBack ?? 1;
       crouch += at * hipH * 0.9;
-      lean += at * 0.5;
-      armSwingR = lerp(armSwingR, 1.4, at);
-      armSwingL = lerp(armSwingL, 1.2, at);
+      lean += at * 0.62 * back;
+      armSwingR = lerp(armSwingR, 1.4 * back, at);
+      armSwingL = lerp(armSwingL, 1.2 * back, at);
+      twist += at * 0.34 * back;
       break;
     }
     case 'roar': {
@@ -289,20 +313,62 @@ export function poseHumanoid(st, build = {}) {
   p.weaponSpin = weaponSpin;
 
   // --- legs ----------------------------------------------------------------
+  //
+  // The stride the caller is advancing the phase by, in character units. Half
+  // of it is covered by each leg's stance, so the foot has to travel from a
+  // quarter-stride in front of the hip to a quarter-stride behind it while it
+  // is on the ground — at exactly the rate the body moves forward, which is
+  // what makes it stay on its patch of earth instead of skating over it.
+  const stride = strideChar(build);
+  const reach = thigh + shin;
+  const swingAmp = Math.min(0.95, Math.asin(Math.min(0.92, stride * 0.25 / reach)));
+  // Below a slow walk the cycle blends out into the idle sway; a figure that
+  // is barely moving has no gait worth planting.
+  const gait = clamp01((walkAmt - 0.06) / 0.22);
+
   const legPose = (hipPt, phase, side) => {
     let hipA;
     let kneeA;
     let liftZ = 0;
     if (anim === 'die') {
-      hipA = -1.2 - side * 0.3;
+      const back = st.dieBack ?? 1;
+      hipA = (-1.2 - side * 0.3) * back;
       kneeA = 0.9;
     } else if (anim === 'dash') {
       hipA = side > 0 ? -0.9 : 0.7;
       kneeA = 1.1;
     } else if (walkAmt > 0.01) {
-      hipA = Math.sin(phase) * 0.85 * walkAmt;
-      kneeA = Math.max(0, Math.sin(phase - 0.9)) * 1.25 * walkAmt;
-      liftZ = Math.max(0, Math.sin(phase - 0.4)) * 5 * walkAmt;
+      // Stance runs from 0 to π: the leg sweeps back through the whole stride
+      // as a straight line in ground distance, not as a sine — a sine spends
+      // most of the contact loitering near the extremes, which is exactly
+      // where a real foot is moving fastest relative to the hip.
+      const ph = ((phase % TAU) + TAU) % TAU;
+      if (ph < Math.PI) {
+        const k = ph / Math.PI;
+        // sin(hipA) is what puts the foot forward or back, so the angle is the
+        // arcsine of the linear ground position — the leg is a pendulum whose
+        // tip has to move at constant speed.
+        hipA = Math.asin(clamp(Math.sin(swingAmp) * (1 - 2 * k), -0.999, 0.999));
+        // A trace of knee bend under load, and none of the lift: the foot is
+        // on the ground.
+        kneeA = 0.06 + Math.sin(ph) * 0.1;
+        liftZ = 0;
+      } else {
+        // Swing: the leg comes through fast, folds at the knee to clear the
+        // ground, and reaches out to plant again.
+        const k = (ph - Math.PI) / Math.PI;
+        const e = k * k * (3 - 2 * k);
+        hipA = Math.asin(clamp(Math.sin(swingAmp) * (2 * e - 1), -0.999, 0.999));
+        kneeA = Math.sin(k * Math.PI) * 1.35;
+        liftZ = Math.sin(k * Math.PI) * 4.5;
+      }
+      hipA *= gait;
+      kneeA *= gait;
+      liftZ *= gait;
+      if (gait < 1) {
+        hipA += Math.sin(t * 1.8 + side) * 0.02 * (1 - gait);
+        kneeA += 0.06 * (1 - gait);
+      }
     } else {
       hipA = Math.sin(t * 1.8 + side) * 0.02;
       kneeA = 0.06;

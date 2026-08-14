@@ -27,10 +27,10 @@ import {
   angleTowards,
   inCone,
 } from '../core/math.js';
-import { renderActor, drawActorShadow, setKeyLight } from '../render/actors.js';
+import { renderActor, drawActorShadow, setKeyLight, strideChar } from '../render/actors.js';
 import { getProp, getScaledProp } from '../render/props.js';
 import { PAL, hex, css, mixc } from '../render/palette.js';
-import { bakeBloodDecal, bakeScorchDecal } from '../render/textures.js';
+import { bakeBloodDecal, bakeScorchDecal, bakeFootprint } from '../render/textures.js';
 import { ISO_Y } from '../render/renderer.js';
 import { audio } from '../core/audio.js';
 import { save, load, clearSave } from '../core/save.js';
@@ -51,6 +51,7 @@ export class Game {
     this.rng = new RNG(1);
     this.bloodDecals = [0, 1, 2, 3].map((i) => bakeBloodDecal(1000 + i));
     this.scorch = bakeScorchDecal([40, 30, 20], 7);
+    this.footDecal = bakeFootprint(48, 3);
     this.monsters = [];
     this.projectiles = [];
     this.ground = [];
@@ -426,6 +427,30 @@ export class Game {
       aggro: false,
     };
     m.hp = m.maxHp;
+    // No two of anything.
+    //
+    // Six crablings out of the same table were six identical crablings, down
+    // to the pixel, and a pack of clones reads as wallpaper however well each
+    // one is drawn. Every spawn gets its own build: a little taller or
+    // shorter, its colours pushed a step towards warm or cold, and its walk
+    // cycle started somewhere else so the legs are not in unison. It costs one
+    // object per monster at spawn and nothing at all per frame.
+    if (!def.boss) {
+      const v = this.rng.range(-1, 1);
+      const scale = 1 + v * 0.09;
+      m.size *= scale;
+      m.radius *= 1 + v * 0.05;
+      const warm = this.rng.float() < 0.5;
+      const target = warm ? [255, 214, 176] : [186, 208, 240];
+      const amount = Math.abs(this.rng.range(0.03, 0.13));
+      const value = this.rng.range(-0.07, 0.07);
+      const colors = {};
+      for (const key in m.look.colors) {
+        const c = mixc(m.look.colors[key], target, amount);
+        colors[key] = value > 0 ? mixc(c, [255, 250, 245], value) : mixc(c, [12, 11, 14], -value);
+      }
+      m.look = { ...m.look, colors };
+    }
     if (elite) {
       m.name = eliteName(this.rng, def.name);
       m.look = { ...m.look, rim: PAL.amber };
@@ -585,6 +610,10 @@ export class Game {
     m.anim = 'die';
     m.animT = 0;
     m.deathT = 0;
+    // Which way the blow drove it. A hit landing on the front of the body
+    // takes it over backwards; one landing behind pitches it onto its face.
+    const rel = Math.cos(ang - m.facing);
+    m.dieBack = rel > 0 ? -1 : 1;
     this.corpses.push(m);
     const i = this.monsters.indexOf(m);
     if (i >= 0) this.monsters.splice(i, 1);
@@ -736,6 +765,7 @@ export class Game {
       p.alive = false;
       p.anim = 'die';
       p.animT = 0;
+      p.dieBack = 1;
       this.state = 'dead';
       audio.play('death');
       this.r.addShake(20);
@@ -1258,14 +1288,32 @@ export class Game {
       p.vx = damp(p.vx, 0, 18, dt);
       p.vy = damp(p.vy, 0, 18, dt);
     }
+    const ox = p.x;
+    const oy = p.y;
     const [nx, ny] = this.zone.resolve(p.x + p.vx * dt, p.y + p.vy * dt, p.radius);
     p.x = nx;
     p.y = ny;
 
     const sp = Math.hypot(p.vx, p.vy) / this.stats.moveSpeedTotal;
     p.speed01 = clamp01(sp);
-    p.phase += dt * (5 + p.speed01 * 8);
-    if (p.speed01 > 0.35) audio.play('step', { vol: 0.5 });
+    // The walk cycle is driven by ground covered, not by the clock. A cadence
+    // picked from a timer has no relationship to how fast the figure is
+    // actually travelling, so its feet skate — which is the one thing about a
+    // moving character everybody sees and nobody can name. Advancing the phase
+    // by distance over stride, and swinging the leg through exactly that
+    // stride (see poseHumanoid), plants the foot: while it is down it tracks
+    // backwards at the speed the body goes forward, so it stays on its patch
+    // of ground. Walking into a wall now stops the legs too, because the
+    // distance measured is the distance the collision actually allowed.
+    const moved = Math.hypot(p.x - ox, p.y - oy);
+    const wasPhase = p.phase;
+    p.phase += (moved / strideOf(p)) * TAU;
+    // A footfall is the phase crossing a half turn, which is now a real event
+    // in the world rather than a timer: the sound lands when the boot lands,
+    // and the print goes where the boot went.
+    if (p.speed01 > 0.25 && Math.floor(wasPhase / Math.PI) !== Math.floor(p.phase / Math.PI)) {
+      this.footfall(p, Math.floor(p.phase / Math.PI) % 2 === 0 ? 1 : -1);
+    }
 
     // Channelled skill (whirlwind)
     if (p.channel) {
@@ -1549,16 +1597,45 @@ export class Game {
       }
 
       if (mvx || mvy) {
+        const mox = m.x;
+        const moy = m.y;
         const [mx, my] = this.zone.resolve(m.x + mvx * dt, m.y + mvy * dt, m.radius);
         m.x = mx;
         m.y = my;
         m.speed01 = clamp01(Math.hypot(mvx, mvy) / m.speed);
-        m.phase += dt * (4 + m.speed01 * 9);
+        m.phase += (Math.hypot(m.x - mox, m.y - moy) / strideOf(m)) * TAU;
         if (m.anim === 'idle') m.facing = angleTowards(m.facing, Math.atan2(mvy, mvx), dt * 8);
       } else {
         m.speed01 = damp(m.speed01, 0, 10, dt);
       }
     }
+  }
+
+  /**
+   * One boot landing: the sound, and the print it presses into the ground.
+   *
+   * The print is placed where the foot actually is — a quarter of a stride
+   * ahead of the body and half a hip's width to one side — so a walked path
+   * comes out as two staggered lines of prints rather than a smear down the
+   * middle, and it turns with the figure.
+   */
+  footfall(p, side) {
+    audio.play('step', { vol: 0.5 });
+    const stride = strideOf(p);
+    const c = Math.cos(p.facing);
+    const sn = Math.sin(p.facing);
+    const lat = p.size * 0.075 * side;
+    const x = p.x + c * stride * 0.2 - sn * lat;
+    const y = p.y + sn * stride * 0.2 + c * lat;
+    this.r.addDecal(
+      this.footDecal,
+      x,
+      y,
+      (p.size / 100) * 0.62,
+      0.55,
+      p.facing - Math.PI / 2,
+      16
+    );
   }
 
   beginAttack(m) {
@@ -2477,6 +2554,7 @@ export class Game {
       facing: p.facing,
       speed: p.speed01,
       phase: p.phase,
+      dieBack: p.dieBack,
       flash: p.flash,
       alpha: p.invuln > 0 && p.alive ? 0.7 + 0.3 * Math.sin(R.time * 40) : 1,
     };
@@ -2531,6 +2609,7 @@ export class Game {
       facing: m.facing,
       speed: m.speed01,
       phase: m.phase,
+      dieBack: m.dieBack,
       flash: m.flash,
       alpha: (m.def.ghostly ? 0.88 : 1) * fade,
     };
@@ -2862,6 +2941,19 @@ function eliteName(rng, base) {
 
 /** A timer that respects the game loop rather than wall-clock time. */
 const pendingTimers = [];
+/**
+ * How far a figure travels in one full walk cycle, in world units.
+ *
+ * A running human covers about one and a third times their own height between
+ * one footfall of the left foot and the next, and that ratio is what makes a
+ * gait look like a gait rather than a scuttle or a moonwalk. Everything that
+ * walks is measured against its own size, so a crabling takes short quick
+ * steps and a boss takes long slow ones without either being tuned by hand.
+ */
+export function strideOf(a) {
+  return Math.max(14, strideChar(a.look && a.look.build) * ((a.size || 60) / 100));
+}
+
 export function setTimeoutSafe(game, delay, fn) {
   pendingTimers.push({ t: delay, fn });
 }

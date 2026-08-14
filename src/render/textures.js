@@ -692,3 +692,47 @@ export function bakeScorchDecal(color, seed, size = 128) {
   }
   return canvas;
 }
+
+/**
+ * A boot print, pressed into whatever the hero is walking on.
+ *
+ * Drawn pointing up the canvas and laid down rotated to the direction of
+ * travel. It is a hole in the ground, not a stain, so it is baked as pure
+ * darkness with soft edges and composited with multiply: on snow it reads as a
+ * shadowed dent, on sand as damp packed grit, on peat as a wet slot — one
+ * sprite, and the ground underneath decides what it looks like.
+ */
+export function bakeFootprint(size = 48, seed = 3) {
+  const canvas = makeCanvas(size, size * 1.4);
+  const ctx = ctxOf(canvas);
+  const rng = new RNG('foot' + seed);
+  const cx = size * 0.5;
+  const h = size * 1.4;
+
+  const blob = (x, y, rx, ry, a) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry));
+    g.addColorStop(0, `rgba(20,16,13,${a})`);
+    g.addColorStop(0.55, `rgba(24,19,15,${a * 0.72})`);
+    g.addColorStop(1, 'rgba(30,24,19,0)');
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(rx / Math.max(rx, ry), ry / Math.max(rx, ry));
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(rx, ry), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // Heel, arch and ball of the foot, the arch shallower than the two ends.
+  blob(cx, h * 0.74, size * 0.2, size * 0.17, 0.62);
+  blob(cx, h * 0.52, size * 0.15, size * 0.16, 0.32);
+  blob(cx, h * 0.32, size * 0.23, size * 0.2, 0.66);
+  // Tread: a few studs pressed deeper than the rest.
+  for (let i = 0; i < 7; i++) {
+    const y = h * (0.24 + rng.float() * 0.56);
+    const x = cx + rng.range(-size * 0.16, size * 0.16);
+    blob(x, y, size * 0.055, size * 0.045, 0.5);
+  }
+  return canvas;
+}

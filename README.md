@@ -90,7 +90,13 @@ The look comes from six ideas, all in `src/render/`:
    ragged hem on the ones who wear fur, folds and lacing on the ones in robes,
    ribs on the ones in nothing. The huntress carries arrows over her shoulder,
    the crablings a shell with their limbs coming out from under it and eyes up
-   on stalks, and the wolves a ruff, a mane and haunches.
+   on stalks, and the wolves a ruff, a mane and haunches. They walk by distance
+   rather than by a timer — the leg swings through exactly the stride the body
+   travels, so a planted foot stays on its patch of ground instead of skating,
+   the step lands when the boot lands, and walking into a wall stops the legs.
+   Nothing spawns twice the same: every monster gets its own height, its own
+   push towards warm or cold, and its own place in the cycle, and it falls the
+   way it was struck.
 5. **A lit, graded frame** (`renderer.js`). Chunked terrain, a half-resolution
    dynamic light map multiplied over the scene and re-added for warm
    overbright, an emissive-only bloom buffer, parallax fog sheets, weather, and
@@ -165,6 +171,7 @@ node tools/ablate.mjs                       # which render stage costs what
 | `skills-check` | all twelve class skills and all thirteen boss abilities run in every act without throwing |
 | `audio-check` | the music, every sound effect and every act's ambient bed produce measurable signal; a sound three screens away is a fraction of one underfoot; a dying hero's mix measurably loses its high end; and muting is silent |
 | `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is actually on — a flipped sign in the SDF bake looks plausible and is wrong |
+| `gait-check` | every rig's planted foot stays on its patch of ground through a full stride: the walk cycle is driven by distance covered, and if the stride and the cycle ever disagree the feet start skating |
 | `bundle-check` | the whole game flattened into `spiel.html` still builds and still boots from a `file://` URL — the bundler needs every top-level name in the codebase to be unique, and nothing else in the suite would notice |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
 | `endgame-check` | Perkūnas leads to the victory screen, and the Eternal Hunt restarts act I at a higher difficulty and keeps escalating |
