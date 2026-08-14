@@ -145,6 +145,7 @@ export class Game {
     this.r.setAmbience(act.ambience);
     this.r.setTerrain(act.terrain);
     this.r.setWater(this.zone.water ? { shoreX: (y) => this.zone.shoreX(y), cfg: act.water } : null);
+    this.r.setRooms(this.zone.rooms);
     this.r.clearDecals();
     this.fx.clear();
     this.fx.setWeather(
@@ -1193,6 +1194,8 @@ export class Game {
       const toShore = this.zone.shoreX(this.player.y) - this.player.x;
       audio.setSurf(clamp01(1 - toShore / 900));
     }
+    // Under a roof the world outside goes quiet and the room answers back.
+    audio.setIndoors(this.zone.inRoom(this.player.x, this.player.y, -40) ? 1 : 0);
     audio.setStress(1 - clamp01(this.player.hp / Math.max(1, this.stats.maxLife)));
   }
 

@@ -1170,6 +1170,8 @@ export const ACTS = [
       { name: 'bannerRed', w: 0.4 },
     ],
     landmarks: ['brazier', 'banner', 'ruinWallTall'],
+    // The one roofed place in the game: a hall the road runs straight through.
+    hall: { w: 860, h: 640, door: 300 },
     monsters: ['skeleton', 'crossbowman', 'skeleton', 'revenant'],
     boss: 'hochmeister',
     quota: 46,

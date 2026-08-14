@@ -763,6 +763,16 @@ export class Audio {
     this.surf = clamp(k, 0, 1);
   }
 
+  /**
+   * Whether the hero is under a roof, 0 or 1 (smoothed here rather than by the
+   * caller). Indoors the act's bed — its wind, its rain, its birds — is most
+   * of the way gone, because none of that is happening in here, and the room
+   * answers every sound back at you instead.
+   */
+  setIndoors(k) {
+    this.indoorsTarget = clamp(k, 0, 1);
+  }
+
   /** What the hero is walking on, so `step` can pick the right surface. */
   setFootMaterial(name) {
     this.footMaterial = name;
@@ -779,10 +789,19 @@ export class Audio {
 
   /** Drives the bed's slow swells and its one-shots. Called every frame. */
   updateAmbience(dt) {
-    const bed = this.bed;
-    if (!bed) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
+
+    this.indoors = this.indoors ?? 0;
+    this.indoors += ((this.indoorsTarget ?? 0) - this.indoors) * Math.min(1, dt * 1.6);
+    if (this.bedBus) this.bedBus.gain.setTargetAtTime(0.9 - this.indoors * 0.66, t, 0.4);
+    if (this.verbGain && this.bed) {
+      const dry = (BEDS[this.bed.name] || {}).verb ?? 0.3;
+      this.verbGain.gain.setTargetAtTime(dry + this.indoors * 0.45, t, 0.5);
+    }
+
+    const bed = this.bed;
+    if (!bed) return;
     for (let i = 0; i < bed.layers.length; i++) {
       const L = bed.layers[i];
       // The water layer rides the hero's distance from it; everything else

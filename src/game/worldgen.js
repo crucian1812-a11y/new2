@@ -50,6 +50,15 @@ export class Zone {
     return w.x0 + Math.sin(y * 0.0021 + w.phase) * w.amp + Math.sin(y * 0.0067 + w.phase * 2.3) * w.amp * 0.35;
   }
 
+  /** Is this point under a roof? `margin` grows the room's footprint. */
+  inRoom(x, y, margin = 0) {
+    if (!this.rooms) return false;
+    for (const r of this.rooms) {
+      if (Math.abs(x - r.x) < r.w / 2 + margin && Math.abs(y - r.y) < r.h / 2 + margin) return true;
+    }
+    return false;
+  }
+
   isWater(x, y, margin = 0) {
     return this.water ? x > this.shoreX(y) - margin : false;
   }
@@ -103,6 +112,86 @@ export class Zone {
     }
     this.road = road;
 
+    // --- the hall ---------------------------------------------------------
+    //
+    // Five acts of open country in a row is five acts of the same pacing. The
+    // Ordensburg gets a roof: a walled hall straddling the road, entered
+    // through a gap in each of its four sides, and dark inside — the renderer
+    // takes the sky out over its footprint, so the torch you have been
+    // carrying all game suddenly becomes the only thing you have. Doorways on
+    // every side rather than two, because a hall that can be sealed by one
+    // unlucky wall segment is a hall that can strand the road behind it.
+    this.rooms = [];
+    if (this.act.hall) {
+      const anchor = road[Math.min(road.length - 2, Math.max(1, Math.round(road.length * 0.45)))];
+      const hw = this.act.hall.w ?? 760;
+      const hh = this.act.hall.h ?? 560;
+      const hx = Math.max(-H + hw, Math.min(H - hw, anchor.x));
+      const hy = anchor.y;
+      const room = { x: hx, y: hy, w: hw, h: hh, door: this.act.hall.door ?? 200 };
+      this.rooms.push(room);
+
+      // Spacing is set by how wide the sprite looks, not by how wide its
+      // collision circle is: a ruin wall is two hundred units of brick with a
+      // twenty-unit radius, and stepping by the radius stacks six copies of
+      // the same bricks on top of each other. The blocking radius is set from
+      // the spacing instead, so the run is solid to walk into while being
+      // drawn about twice rather than six times.
+      const wallName = 'ruinWall';
+      const step = 120;
+      const place = (x, y) => {
+        const variant = rng.int(0, PROP_VARIANTS - 1);
+        this.props.push({
+          name: wallName,
+          variant,
+          x,
+          y,
+          scale: 1,
+          r: step * 0.66,
+          solid: true,
+          sway: 0,
+          phase: 0,
+          flip: rng.bool() ? 1 : 0,
+          wall: true,
+        });
+      };
+      // North and south runs, then east and west, each broken in the middle.
+      for (const sy of [-1, 1]) {
+        for (let x = -hw / 2; x <= hw / 2; x += step) {
+          if (Math.abs(x) < room.door / 2) continue;
+          place(hx + x, hy + (sy * hh) / 2);
+        }
+      }
+      for (const sx of [-1, 1]) {
+        for (let y = -hh / 2 + step; y < hh / 2 - step * 0.5; y += step) {
+          if (Math.abs(y) < room.door / 2) continue;
+          place(hx + (sx * hw) / 2, hy + y);
+        }
+      }
+      // A brazier in each corner: the only light in there is the light the
+      // Order left burning.
+      // Two, on the diagonal. Four lit the whole hall and there was nothing
+      // left for the torch to do.
+      const bspr = getProp('brazier', 0);
+      for (const [cx, cy] of [[-1, -1], [1, 1]]) {
+        {
+          const bx = hx + cx * (hw / 2 - 130);
+          const by = hy + cy * (hh / 2 - 110);
+          this.props.push({
+            name: 'brazier',
+            variant: rng.int(0, PROP_VARIANTS - 1),
+            x: bx,
+            y: by,
+            scale: 1,
+            r: bspr.radius,
+            solid: bspr.solid,
+            sway: 0,
+            phase: 0,
+          });
+        }
+      }
+    }
+
     // --- scatter props ----------------------------------------------------
     const props = this.act.props;
     const totalW = props.reduce((a, p) => a + p.w, 0);
@@ -122,6 +211,7 @@ export class Zone {
 
       const rd = this.roadDist(x, y);
       if (rd < 105) continue;
+      if (this.inRoom(x, y, 130)) continue;
       if (dist(x, y, this.bossArena.x, this.bossArena.y) < this.bossArena.r + 40) continue;
       if (dist(x, y, this.start.x, this.start.y) < 240) continue;
 

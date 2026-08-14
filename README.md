@@ -55,7 +55,7 @@ Landscape orientation is expected; the game asks you to rotate in portrait.
 
 ## How the visuals are made
 
-The look comes from seven ideas, all in `src/render/`:
+The look comes from eight ideas, all in `src/render/`:
 
 1. **Relief-lit materials** (`textures.js`). Each ground material is generated
    as a height field first, then lit with a real surface normal, so grit,
@@ -111,7 +111,17 @@ The look comes from seven ideas, all in `src/render/`:
    three swells further off, the moon laid down it in broken pieces — and the
    surf in the act's ambient bed swells as you walk towards it, so you can hear
    the water from behind the reeds before you can see it.
-7. **Air that holds the light** (`renderer.js`, `fx.js`). Fog is built into a
+7. **One roofed place** (`worldgen.js`, `renderer.js`). Five acts of open
+   country in a row is five acts of the same pacing, so the Ordensburg gets a
+   hall: a walled enclosure the road runs straight through, with a doorway in
+   each of its four sides — a hall that can be sealed by one unlucky wall
+   segment is a hall that can strand the road behind it. The roof is painted
+   into the light map before any light is added, so walking through the
+   doorway takes the sky away and leaves you with two braziers and the torch
+   you have been carrying since act I. Indoors the act's bed — its wind, its
+   birds, its rain — drops most of the way out, because none of that is
+   happening in here, and the room answers every sound back at you.
+8. **Air that holds the light** (`renderer.js`, `fx.js`). Fog is built into a
    buffer over black, multiplied by the light map and *added* to the frame, so
    the haze near a brazier glows and the haze out in the dark stays a cold
    suggestion — instead of the flat grey veil it used to be. Falling snow, ash

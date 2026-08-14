@@ -126,6 +126,7 @@ export class Renderer {
     this.lights = [];
     this.prevLights = [];
     this.water = null;
+    this.rooms = null;
     this.queue = [];
     this.decals = [];
     this.time = 0;
@@ -729,6 +730,10 @@ export class Renderer {
     return c;
   }
 
+  setRooms(rooms) {
+    this.rooms = rooms && rooms.length ? rooms : null;
+  }
+
   renderLightmap() {
     const lc = this.lightCtx;
     const lw = this.lightCanvas.width;
@@ -747,8 +752,35 @@ export class Renderer {
     lc.fillStyle = g;
     lc.fillRect(0, 0, lw, lh);
 
-    lc.globalCompositeOperation = 'lighter';
     const k = 0.5; // lightmap is half-resolution
+
+    // Roofs. Painted into the ambient before any light is added, so a roofed
+    // hall keeps whatever the braziers and the hero's torch put into it and
+    // nothing else — walk through the doorway and the sky goes out. Drawn as
+    // a multiply so it takes the sky away rather than laying grey over it, and
+    // with a soft border so the eaves shade rather than cut.
+    if (this.rooms) {
+      lc.save();
+      lc.globalCompositeOperation = 'multiply';
+      for (const r of this.rooms) {
+        const x0 = this.sx(r.x - r.w / 2) * k;
+        const x1 = this.sx(r.x + r.w / 2) * k;
+        const y0 = this.sy(r.y - r.h / 2) * k;
+        const y1 = this.sy(r.y + r.h / 2) * k;
+        if (x1 < 0 || y1 < 0 || x0 > lw || y0 > lh) continue;
+        const g = lc.createLinearGradient(x0, y0, x0, y1);
+        const dark = 'rgba(26,24,30,1)';
+        g.addColorStop(0, 'rgba(70,66,76,1)');
+        g.addColorStop(0.18, dark);
+        g.addColorStop(0.82, dark);
+        g.addColorStop(1, 'rgba(58,54,64,1)');
+        lc.fillStyle = g;
+        lc.fillRect(x0, y0, x1 - x0, y1 - y0);
+      }
+      lc.restore();
+    }
+
+    lc.globalCompositeOperation = 'lighter';
     for (const L of this.lights) {
       const sx = this.sx(L.x) * k;
       const sy = this.sy(L.y) * k;
