@@ -9,6 +9,8 @@ import {
   BOSSES,
   LOOKS,
   MOB_LOOKS,
+  HIT_MATERIALS,
+  ELITE_AFFIXES,
   xpForLevel,
   MAX_LEVEL,
 } from './content.js';
@@ -170,6 +172,7 @@ export class Game {
     this.r.cam.x = this.player.x;
     this.r.cam.y = this.player.y;
 
+    this.player.burn = 0;
     this.killQuota = Math.round(act.quota * (this.endless ? 1.3 : 1));
     this.kills = 0;
     this.bossSpawned = false;
@@ -454,8 +457,15 @@ export class Game {
       m.look = { ...m.look, colors };
     }
     if (elite) {
-      m.name = eliteName(this.rng, def.name);
-      m.look = { ...m.look, rim: PAL.amber };
+      const keys = Object.keys(ELITE_AFFIXES);
+      const affixId = keys[this.rng.int(0, keys.length - 1)];
+      const affix = ELITE_AFFIXES[affixId];
+      m.affix = affixId;
+      // The affix *is* the name. Stacking it on top of the old random epithet
+      // gave three-word titles that overlapped each other above a pack.
+      m.name = `${affix.name} ${def.name}`;
+      m.look = { ...m.look, rim: affix.color, rimA: 0.75 };
+      if (affix.speed) m.speed *= affix.speed;
     }
     this.monsters.push(m);
     return m;
@@ -509,6 +519,8 @@ export class Game {
     if (!m.alive) return 0;
     const mit = mitigation(m.armor, this.player.level);
     let dmg = amount * (1 - mit);
+    const aff = m.affix ? ELITE_AFFIXES[m.affix] : null;
+    if (aff && aff.ward) dmg *= 1 - aff.ward;
     if (m.stun > 0) dmg *= 1.15;
     dmg = Math.max(1, dmg);
     m.hp -= dmg;
@@ -548,7 +560,23 @@ export class Game {
     if (opts.root && !m.boss) m.root = Math.max(m.root, opts.root);
 
     const ang = opts.angle ?? Math.atan2(m.y - this.player.y, m.x - this.player.x);
-    this.fx.blood(m.x, m.y, m.size * 0.5, Math.cos(ang), Math.sin(ang), opts.crit ? 18 : 9, opts.bloodColor || PAL.blood);
+    // What comes off it depends on what it is made of. A skeleton throwing a
+    // fan of arterial blood was the single most obviously wrong thing left in
+    // the fight; now bone throws chips and dust, chitin throws shell, mail
+    // throws sparks, and only meat bleeds.
+    const mat = HIT_MATERIALS[m.def.material] || HIT_MATERIALS.flesh;
+    const n = opts.crit ? 18 : 9;
+    if (mat.kind === 'blood') {
+      this.fx.blood(m.x, m.y, m.size * 0.5, Math.cos(ang), Math.sin(ang), n, opts.bloodColor || mat.spray);
+    } else if (mat.kind === 'shard') {
+      this.fx.shards(m.x, m.y, m.size * 0.5, Math.round(n * 0.7), mat.spray, 230);
+      this.fx.smoke(m.x, m.y, m.size * 0.4, 3, mat.dust || mat.spray, 12);
+    } else if (mat.kind === 'spark') {
+      this.fx.sparks(m.x, m.y, m.size * 0.5, Math.cos(ang), Math.sin(ang), n, mat.spray, 300);
+      this.fx.blood(m.x, m.y, m.size * 0.5, Math.cos(ang), Math.sin(ang), Math.round(n * 0.4), PAL.bloodDark);
+    } else {
+      this.fx.embers(m.x, m.y, m.size * 0.5, Math.round(n * 0.6), mat.spray, 16);
+    }
     if (opts.sparkColor) this.fx.sparks(m.x, m.y, m.size * 0.5, Math.cos(ang), Math.sin(ang), 8, opts.sparkColor);
     // A hot flash exactly where the blow landed.
     this.fx.spawn({
@@ -568,7 +596,7 @@ export class Game {
       glow: true,
     });
 
-    audio.play(opts.crit ? 'crit' : m.def.hitSound || 'hitFlesh', { x: m.x, y: m.y });
+    audio.play(opts.crit ? 'crit' : mat.sound, { x: m.x, y: m.y });
     this.hitStop = Math.max(this.hitStop, opts.crit ? 0.075 : 0.038);
     this.r.addShake(opts.crit ? 6 : 2.4);
 
@@ -625,16 +653,38 @@ export class Game {
     this.player.totalKills++;
     this.gainXp(m.xp);
     audio.play('monsterDie', { x: m.x, y: m.y });
-    this.fx.blood(m.x, m.y, m.size * 0.4, Math.cos(ang), Math.sin(ang), 22);
-    this.r.addDecal(
-      this.bloodDecals[rndInt(0, 3)],
-      m.x + rnd(-8, 8),
-      m.y + rnd(-6, 6),
-      (m.size / 70) * rnd(0.8, 1.3),
-      0.85,
-      rnd(0, TAU),
-      Infinity
-    );
+    const mat = HIT_MATERIALS[m.def.material] || HIT_MATERIALS.flesh;
+    if (mat.kind === 'blood' || mat.kind === 'spark') {
+      this.fx.blood(m.x, m.y, m.size * 0.4, Math.cos(ang), Math.sin(ang), 22, mat.kind === 'spark' ? PAL.bloodDark : mat.spray);
+    } else {
+      this.fx.shards(m.x, m.y, m.size * 0.4, 20, mat.spray, 300);
+      this.fx.smoke(m.x, m.y, m.size * 0.3, 7, mat.dust || mat.spray, 20);
+      audio.play(mat.sound, { x: m.x, y: m.y, vol: 0.7 });
+    }
+    // Only things with blood in them leave a pool. A pile of bones leaves a
+    // scuff of dust, and a wraith leaves nothing at all — which is the point
+    // of a wraith.
+    if (mat.stains) {
+      this.r.addDecal(
+        this.bloodDecals[rndInt(0, 3)],
+        m.x + rnd(-8, 8),
+        m.y + rnd(-6, 6),
+        (m.size / 70) * rnd(0.8, 1.3),
+        0.85,
+        rnd(0, TAU),
+        Infinity
+      );
+    } else if (mat.dust) {
+      this.r.addDecal(
+        this.scorch,
+        m.x + rnd(-8, 8),
+        m.y + rnd(-6, 6),
+        (m.size / 90) * rnd(0.7, 1.1),
+        0.34,
+        rnd(0, TAU),
+        26
+      );
+    }
 
     if (this.stats.powers.includes('amberBurst')) {
       this.fx.shards(m.x, m.y, m.size * 0.4, 10, PAL.amber, 300);
@@ -741,6 +791,14 @@ export class Game {
     p.hp -= dmg;
     p.flash = 1;
     p.invuln = 0.24;
+    // A burning champion leaves you burning. It is the one affix that follows
+    // you out of its reach, so it has to be the one you can see coming.
+    const srcAffix = source && source.affix ? ELITE_AFFIXES[source.affix] : null;
+    if (srcAffix && srcAffix.burn) {
+      p.burn = Math.max(p.burn || 0, 3);
+      p.burnDmg = srcAffix.burn * (1 + this.actIndex * 0.5);
+      this.fx.embers(p.x, p.y, 30, 10, srcAffix.color, 16);
+    }
     this.r.addShake(Math.min(16, 3 + dmg * 0.12));
     this.hitStop = Math.max(this.hitStop, 0.05);
     audio.play('hurt');
@@ -762,17 +820,22 @@ export class Game {
       p.resource = Math.min(s.maxResource, p.resource + this.cls.resource.onTakeHit);
     }
 
-    if (p.hp <= 0) {
-      p.hp = 0;
-      p.alive = false;
-      p.anim = 'die';
-      p.animT = 0;
-      p.dieBack = 1;
-      this.state = 'dead';
-      audio.play('death');
-      this.r.addShake(20);
-      this.logLine('Ты пал.');
-    }
+    if (p.hp <= 0) this.killPlayer();
+  }
+
+  killPlayer() {
+    const p = this.player;
+    if (!p.alive) return;
+    p.hp = 0;
+    p.alive = false;
+    p.anim = 'die';
+    p.animT = 0;
+    p.dieBack = 1;
+    p.burn = 0;
+    this.state = 'dead';
+    audio.play('death');
+    this.r.addShake(20);
+    this.logLine('Ты пал.');
   }
 
   // =========================================================================
@@ -1217,6 +1280,14 @@ export class Game {
 
     p.invuln = Math.max(0, p.invuln - dt);
     p.flash = Math.max(0, p.flash - dt * 6);
+    if (p.burn > 0) {
+      p.burn -= dt;
+      p.hp -= (p.burnDmg || 0) * dt;
+      if (Math.random() < dt * 14) {
+        this.fx.embers(p.x + rnd(-10, 10), p.y + rnd(-8, 8), rnd(10, 50), 1, PAL.torch, 8);
+      }
+      if (p.hp <= 0) this.killPlayer();
+    }
     p.potionCd = Math.max(0, p.potionCd - dt);
     for (const k in p.cds) p.cds[k] = Math.max(0, p.cds[k] - dt);
     for (const k in p.buffs) {
@@ -2622,6 +2693,54 @@ export class Game {
       flash: m.flash,
       alpha: (m.def.ghostly ? 0.88 : 1) * fade,
     };
+    // A champion's ring. Drawn on the ground before the figure so it reads as
+    // something it is standing in rather than something painted over it, and
+    // in the colour of whatever it is carrying — you should know which of the
+    // three is walking at you before it is close enough to matter.
+    const aff = m.affix && !isCorpse ? ELITE_AFFIXES[m.affix] : null;
+    if (aff) {
+      const pulse = 0.55 + 0.45 * Math.sin(R.time * 2.4 + m.phase);
+      const rr = m.radius * 1.9 * zoom;
+      const cx = R.sx(m.x);
+      const cy = R.sy(m.y);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = css(aff.color, 0.18 + 0.22 * pulse);
+      ctx.lineWidth = Math.max(1, 2.2 * zoom);
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rr, rr * ISO_Y, 0, 0, TAU);
+      ctx.stroke();
+      if (aff.ring) {
+        ctx.strokeStyle = css(aff.color, 0.12 + 0.16 * (1 - pulse));
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rr * (1.2 + 0.25 * pulse), rr * ISO_Y * (1.2 + 0.25 * pulse), 0, 0, TAU);
+        ctx.stroke();
+      }
+      ctx.restore();
+      if (aff.burn && Math.random() < 0.3) {
+        this.fx.embers(m.x + rnd(-12, 12), m.y + rnd(-8, 8), rnd(8, m.size * 0.7), 1, aff.color, 10);
+      }
+      if (aff.trail && m.speed01 > 0.4 && Math.random() < 0.5) {
+        // The smear it leaves: its own silhouette, one step behind and going.
+        this.fx.spawn({
+          kind: 'ember',
+          x: m.x,
+          y: m.y,
+          z: m.size * 0.45,
+          vx: 0,
+          vy: 0,
+          vz: 0,
+          life: 0.26,
+          maxLife: 0.26,
+          size: m.size * 0.32,
+          color: aff.color,
+          grav: 0,
+          drag: 0,
+          glow: true,
+        });
+      }
+    }
+
     drawActorShadow(ctx, m.look, st, R.sx(m.x), R.sy(m.y), s, R.ambience.sunDir);
     setKeyLight(...R.keyLightDir(m.x, m.y));
     renderActor(ctx, m.look, st, R.sx(m.x), R.sy(m.y), s, (x, y, r, c, a) =>
@@ -2941,12 +3060,6 @@ export class Game {
 }
 
 // ---------------------------------------------------------------------------
-
-const ELITE_PREFIX = ['Кровавый', 'Древний', 'Проклятый', 'Закованный', 'Бешеный', 'Стылый'];
-function eliteName(rng, base) {
-  // Kept short on purpose: long names collide above a pack of elites.
-  return `${rng.pick(ELITE_PREFIX)} ${base}`;
-}
 
 /** A timer that respects the game loop rather than wall-clock time. */
 const pendingTimers = [];

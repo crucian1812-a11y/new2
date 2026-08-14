@@ -385,6 +385,25 @@ export class Audio {
         this.noiseHit({ freq: 3400, q: 2.4, dur: 0.19, gain: 0.24 * v, sweep: 0.3 });
         this.tone({ freq: 1200, to: 420, dur: 0.13, gain: 0.14 * v, type: 'square' });
         break;
+      case 'hitShell':
+        // Chitin: a dry crack with a hollow knock under it, and no wet at all.
+        this.noiseHit({ freq: 2400, q: 6, dur: 0.1, gain: 0.3 * v, sweep: 0.28 });
+        this.tone({ freq: 520, to: 200, dur: 0.09, gain: 0.16 * v, type: 'square' });
+        this.noiseHit({ freq: 700, q: 2.2, dur: 0.14, gain: 0.14 * v, sweep: 0.4, delay: 0.015 });
+        break;
+      case 'hitWood':
+        this.noiseHit({ freq: 900, q: 3.5, dur: 0.12, gain: 0.26 * v, sweep: 0.35 });
+        this.tone({ freq: 240, to: 130, dur: 0.13, gain: 0.16 * v, type: 'triangle' });
+        break;
+      case 'hitSpirit':
+        // Nothing solid to hit: a breath displaced, and a note that bends away.
+        this.noiseHit({ freq: 1800, q: 0.6, dur: 0.34, gain: 0.16 * v, sweep: 0.22 });
+        this.tone({ freq: 420, to: 180, dur: 0.3, gain: 0.12 * v, type: 'sine', attack: 0.04 });
+        break;
+      case 'hitStone':
+        this.noiseHit({ freq: 1600, q: 1.6, dur: 0.13, gain: 0.32 * v, sweep: 0.2 });
+        this.tone({ freq: 150, to: 70, dur: 0.16, gain: 0.2 * v, type: 'triangle' });
+        break;
       case 'hitBone':
         this.noiseHit({ freq: 1500, q: 3, dur: 0.11, gain: 0.3 * v, sweep: 0.25 });
         break;

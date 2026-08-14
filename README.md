@@ -48,6 +48,10 @@ Landscape orientation is expected; the game asks you to rotate in portrait.
 - **Five acts**, each a generated region with its own ground, weather, palette,
   bestiary, camps, shrines, chests and a boss with scripted abilities and
   phases. Finish the fifth and *Die Ewige Jagd* restarts the campaign harder.
+- **Champions** with a trait apiece — burning, swift or warded — each with a
+  ring on the ground in its own colour and a tell you can read before it
+  reaches you: embers off the burning one, a smear behind the swift one, a
+  second ring around the warded one.
 - **Loot** with rarities, rolled affixes, and six uniques that change how a
   build plays (chain lightning on hit, a frost nova when you're struck, and so
   on). Upgrades equip themselves so you can keep fighting.
@@ -133,6 +137,13 @@ The look comes from eight ideas, all in `src/render/`:
 Resolution and effect quality adapt automatically to whatever frame rate the
 device is holding, so the same build looks its best on a fast phone and stays
 playable on a slow one.
+
+Every monster is made of something — flesh, bone, chitin, mail, stone, or
+nothing at all — and the material decides what a blow does. Bone throws chips
+and a puff of dust, chitin throws shell, mail throws sparks with a little dark
+blood behind them, a wraith throws motes of itself; only meat bleeds, and only
+meat leaves a pool on the floor afterwards. The impact sound comes from the
+same table, so what you hear and what you see agree about what you just hit.
 
 ## How the sound is made
 

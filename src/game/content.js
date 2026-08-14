@@ -145,6 +145,57 @@ export const LOOKS = {
 
 const mob = (o) => ({ plan: 'humanoid', headR: 7.2, ...o });
 
+/**
+ * What a thing is made of.
+ *
+ * Every monster in the game bled when you hit it, skeletons and crabs and
+ * suits of empty armour included, and every one of them made one of three
+ * noises. The material decides both: what comes off it, what colour that is,
+ * whether the ground keeps a stain afterwards, and what the blow sounds like.
+ * It is one line per monster and it is most of what makes a fight informative
+ * rather than decorative.
+ */
+/**
+ * What makes a champion a champion.
+ *
+ * An elite used to be a bigger monster with a gold rim and a longer name, and
+ * in a pack of six that is invisible. Each one now carries a single trait that
+ * changes how the fight goes and announces itself before it does: the burning
+ * one trails embers and sets you alight, the swift one leaves a smear of
+ * itself behind, the warded one stands inside a ring you can see. One trait,
+ * not a stack of them — the point is that you can read it in the half second
+ * before it reaches you.
+ */
+export const ELITE_AFFIXES = {
+  fiery: {
+    name: 'Горящий',
+    color: hex('#ff9a3c'),
+    burn: 9,
+  },
+  swift: {
+    name: 'Быстрый',
+    color: hex('#9ff0b4'),
+    speed: 1.45,
+    trail: true,
+  },
+  warded: {
+    name: 'Огражденный',
+    color: hex('#8fc2ff'),
+    ward: 0.4,
+    ring: true,
+  },
+};
+
+export const HIT_MATERIALS = {
+  flesh: { sound: 'hitFlesh', spray: hex('#8e1f21'), kind: 'blood', stains: true },
+  bone: { sound: 'hitBone', spray: hex('#cfc4a6'), kind: 'shard', dust: hex('#a89c7e') },
+  shell: { sound: 'hitShell', spray: hex('#d79553'), kind: 'shard', dust: hex('#8f5228') },
+  mail: { sound: 'hitArmor', spray: hex('#cfd8e4'), kind: 'spark', stains: true },
+  stone: { sound: 'hitStone', spray: hex('#b8b3a6'), kind: 'shard', dust: hex('#6c675c') },
+  wood: { sound: 'hitWood', spray: hex('#8a6b45'), kind: 'shard', dust: hex('#4a3524') },
+  spirit: { sound: 'hitSpirit', spray: hex('#9fd6cf'), kind: 'mote' },
+};
+
 export const MOB_LOOKS = {
   drowned: mob({
     helm: 'none',
@@ -780,7 +831,7 @@ export const MONSTERS = {
     attackRange: 34,
     attackCd: 1.1,
     windup: 0.32,
-    hitSound: 'hitBone',
+    material: 'shell',
   },
   drowned: {
     id: 'drowned',
@@ -797,7 +848,7 @@ export const MONSTERS = {
     attackRange: 46,
     attackCd: 1.7,
     windup: 0.44,
-    hitSound: 'hitFlesh',
+    material: 'flesh',
   },
   wolf: {
     id: 'wolf',
@@ -815,7 +866,7 @@ export const MONSTERS = {
     attackCd: 1.6,
     windup: 0.34,
     lunge: 190,
-    hitSound: 'hitFlesh',
+    material: 'flesh',
     sound: 'growl',
   },
   raider: {
@@ -833,7 +884,7 @@ export const MONSTERS = {
     attackRange: 52,
     attackCd: 1.5,
     windup: 0.4,
-    hitSound: 'hitArmor',
+    material: 'mail',
   },
   shaman: {
     id: 'shaman',
@@ -851,7 +902,7 @@ export const MONSTERS = {
     attackCd: 2.8,
     windup: 0.85,
     spell: 'bogfire',
-    hitSound: 'hitFlesh',
+    material: 'flesh',
   },
   wraith: {
     id: 'wraith',
@@ -869,7 +920,7 @@ export const MONSTERS = {
     attackCd: 1.9,
     windup: 0.5,
     ghostly: true,
-    hitSound: 'hitFlesh',
+    material: 'spirit',
   },
   skeleton: {
     id: 'skeleton',
@@ -886,7 +937,7 @@ export const MONSTERS = {
     attackRange: 52,
     attackCd: 1.4,
     windup: 0.38,
-    hitSound: 'hitBone',
+    material: 'bone',
   },
   crossbowman: {
     id: 'crossbowman',
@@ -904,7 +955,7 @@ export const MONSTERS = {
     attackCd: 2.6,
     windup: 0.7,
     projSpeed: 620,
-    hitSound: 'hitBone',
+    material: 'bone',
   },
   revenant: {
     id: 'revenant',
@@ -921,7 +972,7 @@ export const MONSTERS = {
     attackRange: 62,
     attackCd: 1.7,
     windup: 0.52,
-    hitSound: 'hitArmor',
+    material: 'mail',
   },
 };
 
@@ -943,7 +994,7 @@ export const BOSSES = {
     attackCd: 2.4,
     windup: 0.62,
     boss: true,
-    hitSound: 'hitArmor',
+    material: 'mail',
     abilities: ['slam', 'shards'],
     light: { color: PAL.amber, r: 300, i: 0.8 },
   },
@@ -965,7 +1016,7 @@ export const BOSSES = {
     windup: 0.36,
     lunge: 320,
     boss: true,
-    hitSound: 'hitFlesh',
+    material: 'flesh',
     abilities: ['howl', 'leap'],
     light: { color: hex('#ff6a3c'), r: 220, i: 0.5 },
   },
@@ -987,7 +1038,7 @@ export const BOSSES = {
     windup: 0.7,
     boss: true,
     ghostly: true,
-    hitSound: 'hitFlesh',
+    material: 'flesh',
     abilities: ['bogNova', 'summon'],
     light: { color: PAL.bogfire, r: 340, i: 0.9 },
   },
@@ -1008,7 +1059,7 @@ export const BOSSES = {
     attackCd: 1.5,
     windup: 0.44,
     boss: true,
-    hitSound: 'hitArmor',
+    material: 'mail',
     abilities: ['charge', 'swordRing', 'summon'],
     light: { color: hex('#ff7a4a'), r: 260, i: 0.7 },
   },
@@ -1029,7 +1080,7 @@ export const BOSSES = {
     attackCd: 1.6,
     windup: 0.5,
     boss: true,
-    hitSound: 'hitArmor',
+    material: 'mail',
     abilities: ['lightning', 'swordRing', 'slam', 'summon'],
     light: { color: PAL.thunder, r: 420, i: 1.0 },
   },
