@@ -55,7 +55,7 @@ Landscape orientation is expected; the game asks you to rotate in portrait.
 
 ## How the visuals are made
 
-The look comes from six ideas, all in `src/render/`:
+The look comes from seven ideas, all in `src/render/`:
 
 1. **Relief-lit materials** (`textures.js`). Each ground material is generated
    as a height field first, then lit with a real surface normal, so grit,
@@ -101,7 +101,17 @@ The look comes from six ideas, all in `src/render/`:
    dynamic light map multiplied over the scene and re-added for warm
    overbright, an emissive-only bloom buffer, parallax fog sheets, weather, and
    a baked grade-and-vignette pass.
-6. **Air that holds the light** (`renderer.js`, `fx.js`). Fog is built into a
+6. **A shore you can walk down to** (`worldgen.js`, `renderer.js`). Act I is
+   named for the Frisches Haff and had no water in it. The lagoon is a single
+   curve down the eastern edge — two sines at different rates, so it wanders
+   without repeating — and everything is measured against that one function:
+   nothing is placed seaward of it, nothing can walk past it, and the water is
+   painted from it, so the line you can see is the line you are stopped by. Wet
+   sand landward, a band of foam breathing over it, caustics drifting out,
+   three swells further off, the moon laid down it in broken pieces — and the
+   surf in the act's ambient bed swells as you walk towards it, so you can hear
+   the water from behind the reeds before you can see it.
+7. **Air that holds the light** (`renderer.js`, `fx.js`). Fog is built into a
    buffer over black, multiplied by the light map and *added* to the frame, so
    the haze near a brazier glows and the haze out in the dark stays a cold
    suggestion — instead of the flat grey veil it used to be. Falling snow, ash

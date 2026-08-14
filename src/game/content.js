@@ -1048,6 +1048,14 @@ export const ACTS = [
       'Буря выбросила когг на косу. Между янтарём и льдом что-то выползает из воды.',
     ambience: 'coast',
     key: 38,
+    // The Haff itself, along the eastern edge. `at` is where the shore sits as
+    // a fraction of the half-map; the zone wanders it from there.
+    water: {
+      at: 0.5,
+      shallow: hex('#33697a'),
+      deep: hex('#122e3c'),
+      foam: hex('#cfe2e4'),
+    },
     terrain: {
       base: 'sand',
       wet: 0.16,

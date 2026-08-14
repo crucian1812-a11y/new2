@@ -144,6 +144,7 @@ export class Game {
     this.zone = new Zone(act, index, (this.seed + index * 7919) >>> 0);
     this.r.setAmbience(act.ambience);
     this.r.setTerrain(act.terrain);
+    this.r.setWater(this.zone.water ? { shoreX: (y) => this.zone.shoreX(y), cfg: act.water } : null);
     this.r.clearDecals();
     this.fx.clear();
     this.fx.setWeather(
@@ -1188,6 +1189,10 @@ export class Game {
     // The ear rides with the camera, and half a view is the distance a sound
     // is measured against — so the mix widens and quietens with the zoom.
     audio.setListener(this.player.x, this.player.y, this.r.viewW * 0.5);
+    if (this.zone.water) {
+      const toShore = this.zone.shoreX(this.player.y) - this.player.x;
+      audio.setSurf(clamp01(1 - toShore / 900));
+    }
     audio.setStress(1 - clamp01(this.player.hp / Math.max(1, this.stats.maxLife)));
   }
 
@@ -2425,6 +2430,7 @@ export class Game {
     R.updateCamera(p.x, p.y - 40, dt);
     R.beginFrame(dt);
     R.drawGround();
+    R.drawWater();
     R.drawWetSheen();
     R.drawDecals(dt);
     this.drawGroundEffects();

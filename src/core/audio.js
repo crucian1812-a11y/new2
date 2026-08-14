@@ -130,6 +130,7 @@ export class Audio {
     this.lRange = 900;
     this.stress = 0;
     this.bedName = null;
+    this.surf = undefined;
     this.footMaterial = 'sand';
     this._nextBeat2 = 0;
     this._nextEvent = 0;
@@ -749,6 +750,19 @@ export class Audio {
     this._eventDue = this.bed.events.map((e) => 1 + Math.random() * (e.every[1] - e.every[0]));
   }
 
+  /**
+   * How close the hero is standing to open water, 0 to 1.
+   *
+   * The coast's bed already had surf in it; it just played at the same volume
+   * two hundred paces inland as it did at the waterline. The bed's first layer
+   * is the one that carries the water in every act that has any, so it is the
+   * one that swells as you walk down to it — and it is why the lagoon can be
+   * heard from behind the reeds before it can be seen.
+   */
+  setSurf(k) {
+    this.surf = clamp(k, 0, 1);
+  }
+
   /** What the hero is walking on, so `step` can pick the right surface. */
   setFootMaterial(name) {
     this.footMaterial = name;
@@ -769,11 +783,18 @@ export class Audio {
     if (!bed) return;
     const ctx = this.ctx;
     const t = ctx.currentTime;
-    for (const L of bed.layers) {
-      if (!L.swell) continue;
+    for (let i = 0; i < bed.layers.length; i++) {
+      const L = bed.layers[i];
+      // The water layer rides the hero's distance from it; everything else
+      // just breathes.
+      const near = i === 0 && this.surf !== undefined ? 0.55 + this.surf * 1.15 : 1;
+      if (!L.swell) {
+        if (near !== 1) L.g.gain.setTargetAtTime(L.base * near, t, 0.5);
+        continue;
+      }
       const [rate, depth] = L.swell;
-      const s = 1 + Math.sin(t * rate * 6.28 + L.phase) * depth;
-      L.g.gain.setTargetAtTime(L.base * s, t, 0.3);
+      const sw = 1 + Math.sin(t * rate * 6.28 + L.phase) * depth;
+      L.g.gain.setTargetAtTime(L.base * sw * near, t, 0.3);
     }
     for (let i = 0; i < bed.events.length; i++) {
       this._eventDue[i] -= dt;

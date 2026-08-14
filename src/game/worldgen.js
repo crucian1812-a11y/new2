@@ -31,7 +31,27 @@ export class Zone {
   }
 
   inBounds(x, y) {
-    return Math.abs(x) < this.half - 60 && Math.abs(y) < this.half - 60;
+    return Math.abs(x) < this.half - 60 && Math.abs(y) < this.half - 60 && !this.isWater(x, y, 90);
+  }
+
+  /**
+   * Where the water starts, as a function of how far north you are.
+   *
+   * The Haff is a lagoon, and act I is named for it, and there was no water in
+   * it. The shore is a single curve — two sines at different rates so it
+   * wanders without repeating — that everything else in the zone is measured
+   * against: nothing is placed seaward of it, nothing can walk past it, and
+   * the renderer paints the water from the same function so the line you see
+   * is the line you are stopped by.
+   */
+  shoreX(y) {
+    const w = this.water;
+    if (!w) return Infinity;
+    return w.x0 + Math.sin(y * 0.0021 + w.phase) * w.amp + Math.sin(y * 0.0067 + w.phase * 2.3) * w.amp * 0.35;
+  }
+
+  isWater(x, y, margin = 0) {
+    return this.water ? x > this.shoreX(y) - margin : false;
   }
 
   /** Distance from the walkable road network — used to keep paths clear. */
@@ -55,6 +75,11 @@ export class Zone {
     const S = this.size;
     const H = this.half;
 
+    const wcfg = this.act.water;
+    this.water = wcfg
+      ? { x0: H * (wcfg.at ?? 0.52), amp: H * 0.09, phase: rng.float() * TAU, cfg: wcfg }
+      : null;
+
     // --- the road: a wandering spine from the south edge to the boss ------
     this.start = { x: rng.range(-H * 0.3, H * 0.3), y: H - 320 };
     const end = { x: rng.range(-H * 0.35, H * 0.35), y: -H + 420 };
@@ -71,6 +96,11 @@ export class Zone {
       });
     }
     road[road.length - 1] = { ...end };
+    // The road is the one thing that must never end up in the lagoon: every
+    // camp, shrine and chest is placed relative to it.
+    if (this.water) {
+      for (const pt of road) pt.x = Math.min(pt.x, this.shoreX(pt.y) - 420);
+    }
     this.road = road;
 
     // --- scatter props ----------------------------------------------------
@@ -276,6 +306,7 @@ export class Zone {
   }
 
   blocked(x, y, r) {
+    if (this.isWater(x, y, r + 8)) return true;
     for (const p of this.props) {
       if (!p.solid) continue;
       if (Math.abs(p.y - y) > 260) continue;
@@ -286,6 +317,10 @@ export class Zone {
 
   /** Pushes a circle out of any solid prop it overlaps. Returns [x, y]. */
   resolve(x, y, r) {
+    if (this.water) {
+      const edge = this.shoreX(y) - r - 8;
+      if (x > edge) x = edge;
+    }
     for (let pass = 0; pass < 2; pass++) {
       for (const p of this.props) {
         if (!p.solid) continue;

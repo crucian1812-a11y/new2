@@ -125,6 +125,7 @@ export class Renderer {
 
     this.lights = [];
     this.prevLights = [];
+    this.water = null;
     this.queue = [];
     this.decals = [];
     this.time = 0;
@@ -495,6 +496,156 @@ export class Renderer {
         ctx.drawImage(c, x, y, w, h);
       }
     }
+    ctx.restore();
+  }
+
+  /**
+   * The lagoon.
+   *
+   * Painted from the same shoreline function the zone stops the player at, so
+   * the line you can see and the line you can walk to are the same line — the
+   * one thing that makes water read as water rather than as a texture painted
+   * on the floor. Everything is built along that curve: wet sand landward of
+   * it, a band of foam breathing in and out over it, the water darkening as it
+   * goes out, caustics drifting across the whole surface, three swells further
+   * out, and the moon laid down it in broken pieces.
+   */
+  setWater(water) {
+    this.water = water;
+  }
+
+  drawWater() {
+    const W = this.water;
+    if (!W) return;
+    const ctx = this.ctx;
+    const t = this.time;
+    const cfg = W.cfg || {};
+    const shallow = cfg.shallow || [30, 60, 68];
+    const deep = cfg.deep || [10, 26, 36];
+    const foam = cfg.foam || [206, 226, 230];
+
+    // Sample the shore across a little more than the visible height, in world
+    // space, so the curve is right however the camera is placed.
+    const y0 = this.cam.y - this.viewH * 0.75;
+    const y1 = this.cam.y + this.viewH * 0.75;
+    const steps = 26;
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const wy = lerp(y0, y1, i / steps);
+      // A slow swell breathing over the shoreline itself.
+      const surge = Math.sin(wy * 0.004 + t * 0.55) * 9 + Math.sin(wy * 0.011 - t * 0.9) * 4;
+      pts.push([this.sx(W.shoreX(wy) + surge), this.sy(wy), wy]);
+    }
+    if (pts[0][0] > this.w + 40 && pts[pts.length - 1][0] > this.w + 40) return;
+
+    const edge = () => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    };
+
+    // Wet sand: the ground just inland of the water, darkened and glossy.
+    ctx.save();
+    edge();
+    ctx.lineWidth = 26 * this.cam.zoom * this.pxScale;
+    ctx.strokeStyle = css(mixc(shallow, [10, 9, 8], 0.45), 0.35);
+    ctx.stroke();
+    ctx.restore();
+
+    // The water body: everything seaward of the curve.
+    ctx.save();
+    edge();
+    ctx.lineTo(this.w + 60, pts[pts.length - 1][1]);
+    ctx.lineTo(this.w + 60, -60);
+    ctx.lineTo(pts[0][0], pts[0][1]);
+    ctx.closePath();
+    ctx.clip();
+
+    const g = ctx.createLinearGradient(pts[0][0], 0, pts[0][0] + this.w * 0.9, 0);
+    g.addColorStop(0, css(shallow));
+    g.addColorStop(0.35, css(mixc(shallow, deep, 0.55)));
+    g.addColorStop(1, css(deep));
+    ctx.fillStyle = g;
+    ctx.fillRect(-10, -60, this.w + 80, this.h + 120);
+
+    // The far water lifts towards the sky it is reflecting. Without it the
+    // lagoon is a flat slab of colour with a coast drawn on one side.
+    const sky = ctx.createLinearGradient(0, -60, 0, this.h);
+    sky.addColorStop(0, css(mixc(shallow, this.ambience.sky || [40, 50, 70], 0.5), 0.55));
+    sky.addColorStop(0.55, css(shallow, 0.12));
+    sky.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sky;
+    ctx.fillRect(-10, -60, this.w + 80, this.h + 120);
+
+    // Caustics, drifting seaward, squashed by the projection like everything
+    // else that lies on the ground.
+    if (this.quality >= 1) {
+      if (!this._causticPattern) this._causticPattern = ctx.createPattern(this.caustics, 'repeat');
+      const sc = 2.2 * this.cam.zoom * this.pxScale;
+      ctx.save();
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.globalAlpha = 0.5;
+      ctx.translate((this.sx(t * 5) % (256 * sc)) - 256 * sc, (this.sy(-t * 3) % (256 * sc)) - 256 * sc);
+      ctx.scale(sc, sc * ISO_Y);
+      ctx.fillStyle = this._causticPattern;
+      const ww = (this.w * 3) / sc;
+      const hh = (this.h * 3) / (sc * ISO_Y);
+      ctx.fillRect(0, 0, ww, hh);
+      ctx.restore();
+    }
+
+    // Swells further out: the same curve pushed seaward and phase-shifted, so
+    // they run parallel to the beach the way real sets do.
+    ctx.lineCap = 'round';
+    for (let k = 1; k <= 3; k++) {
+      const off = k * 34 * this.cam.zoom * this.pxScale;
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i++) {
+        const wob = Math.sin(pts[i][2] * 0.009 + t * (1.1 + k * 0.3) + k) * 7 * this.cam.zoom * this.pxScale;
+        const x = pts[i][0] + off + wob;
+        if (i === 0) ctx.moveTo(x, pts[i][1]);
+        else ctx.lineTo(x, pts[i][1]);
+      }
+      ctx.strokeStyle = css(foam, 0.3 / k);
+      ctx.lineWidth = (2.4 - k * 0.4) * this.cam.zoom * this.pxScale;
+      ctx.stroke();
+    }
+
+    // The moon on the water, in broken pieces rather than a mirror.
+    const moon = this.ambience.rim || [190, 205, 220];
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 26; i++) {
+      const wy = lerp(y0, y1, ((i * 0.618) % 1));
+      const sway = Math.sin(wy * 0.02 + t * 1.7 + i) * 26;
+      const x = this.sx(W.shoreX(wy) + 120 + ((i * 97) % 260) + sway);
+      const y = this.sy(wy);
+      const a = 0.22 + 0.3 * Math.abs(Math.sin(t * 1.3 + i * 2.1));
+      const w2 = (7 + ((i * 13) % 11)) * this.cam.zoom * this.pxScale;
+      ctx.fillStyle = css(moon, a);
+      ctx.fillRect(x, y, w2, Math.max(1, 1.2 * this.cam.zoom * this.pxScale));
+    }
+    ctx.restore();
+    ctx.restore();
+
+    // Foam at the waterline: a bright, uneven band that breathes with the
+    // swell, plus a thin lip of spray landward of it.
+    ctx.save();
+    const breathe = 0.55 + 0.45 * Math.sin(t * 0.8);
+    edge();
+    ctx.strokeStyle = css(foam, 0.5 + 0.28 * breathe);
+    ctx.lineWidth = (3.4 + 3 * breathe) * this.cam.zoom * this.pxScale;
+    ctx.stroke();
+    ctx.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      const wob = Math.sin(pts[i][2] * 0.017 - t * 1.4) * 5 * this.cam.zoom * this.pxScale;
+      const x = pts[i][0] - 5 * this.cam.zoom * this.pxScale + wob;
+      if (i === 0) ctx.moveTo(x, pts[i][1]);
+      else ctx.lineTo(x, pts[i][1]);
+    }
+    ctx.strokeStyle = css(foam, 0.3 * breathe);
+    ctx.lineWidth = 1.4 * this.cam.zoom * this.pxScale;
+    ctx.stroke();
     ctx.restore();
   }
 
