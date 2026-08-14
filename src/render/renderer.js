@@ -101,6 +101,10 @@ export class Renderer {
     this.lightCtx = ctxOf(this.lightCanvas, false);
     this.emisCanvas = makeCanvas(1, 1);
     this.emisCtx = ctxOf(this.emisCanvas);
+    // The fog is built here, at the light map's resolution, so the two can be
+    // multiplied together without resampling either.
+    this.fogCanvas = makeCanvas(1, 1);
+    this.fogCtx = ctxOf(this.fogCanvas, false);
     this.blurA = makeCanvas(1, 1);
     this.blurACtx = ctxOf(this.blurA);
     this.blurB = makeCanvas(1, 1);
@@ -189,6 +193,9 @@ export class Renderer {
     this.lightCanvas.height = lh;
     this.emisCanvas.width = lw;
     this.emisCanvas.height = lh;
+    this.fogCanvas.width = lw;
+    this.fogCanvas.height = lh;
+    this._fogPattern = null;
     this.blurA.width = Math.max(2, Math.round(w * 0.16));
     this.blurA.height = Math.max(2, Math.round(h * 0.16));
     this.blurB.width = this.blurA.width;
@@ -683,29 +690,67 @@ export class Renderer {
     return c;
   }
 
-  /** Parallax sheets of ground haze. Sells depth more than anything else. */
+  /**
+   * Parallax sheets of ground haze, lit by the frame's own lights.
+   *
+   * Fog you can see is fog with light in it. Laid over the picture as a flat
+   * grey veil — which is what this used to be — it reads as a dirty window;
+   * what it should do is catch the torch, so the air near a fire glows and the
+   * air out in the dark stays a cold suggestion.
+   *
+   * So the sheets are drawn into a half-resolution buffer over black, that
+   * buffer is multiplied by the light map, and the result is *added* to the
+   * frame. Multiplying against black keeps the arithmetic honest — a
+   * translucent buffer would let the blend spill the light map itself into the
+   * gaps — and adding is what scattered light does: it lifts the blacks near a
+   * source and leaves everything else alone.
+   */
   drawFog() {
     const amb = this.ambience;
     if (amb.fogAmount <= 0) return;
     const ctx = this.ctx;
     const zoom = this.cam.zoom * this.pxScale;
+    const fw = this.fogCanvas.width;
+    const fh = this.fogCanvas.height;
+    const k = fw / this.w;
+    const f = this.fogCtx;
+    f.setTransform(1, 0, 0, 1, 0, 0);
+    f.globalCompositeOperation = 'source-over';
+    f.globalAlpha = 1;
+    f.fillStyle = '#000';
+    f.fillRect(0, 0, fw, fh);
+
     const sheets = this.quality >= 2 ? 2 : 1;
     for (let i = 0; i < sheets; i++) {
       const sheet = this.tintedSheet(this.fogSheets[i], amb.fog, 'fog' + i);
       const par = i ? 0.5 : 0.3;
-      const sc = (i ? 2.6 : 4.2) * zoom;
-      const px = -this.cam.x * par * zoom + this.time * (i ? 13 : 7);
-      const py = -this.cam.y * par * zoom * ISO_Y + this.time * (i ? 5 : 2.5);
-      ctx.save();
-      ctx.globalAlpha = amb.fogAmount * (i ? 0.42 : 0.6);
-      ctx.translate(px % (sheet.width * sc), py % (sheet.height * sc * 0.7));
-      ctx.scale(sc, sc * 0.7);
-      ctx.fillStyle = ctx.createPattern(sheet, 'repeat');
-      const ww = (this.w * 2) / sc;
-      const hh = (this.h * 2) / (sc * 0.7);
-      ctx.fillRect(-ww, -hh, ww * 2, hh * 2);
-      ctx.restore();
+      const sc = (i ? 2.6 : 4.2) * zoom * k;
+      const px = (-this.cam.x * par * zoom + this.time * (i ? 13 : 7)) * k;
+      const py = (-this.cam.y * par * zoom * ISO_Y + this.time * (i ? 5 : 2.5)) * k;
+      f.save();
+      f.globalAlpha = amb.fogAmount * (i ? 1 : 1.5);
+      f.translate(px % (sheet.width * sc), py % (sheet.height * sc * 0.7));
+      f.scale(sc, sc * 0.7);
+      f.fillStyle = f.createPattern(sheet, 'repeat');
+      const ww = (fw * 2) / sc;
+      const hh = (fh * 2) / (sc * 0.7);
+      f.fillRect(-ww, -hh, ww * 2, hh * 2);
+      f.restore();
     }
+
+    // Light it. A little of the unlit sheet is left behind so haze in the far
+    // dark does not disappear altogether — real distance still washes out.
+    f.globalCompositeOperation = 'multiply';
+    f.globalAlpha = 0.86;
+    f.drawImage(this.lightCanvas, 0, 0, fw, fh);
+    f.globalCompositeOperation = 'source-over';
+    f.globalAlpha = 1;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.fogCanvas, 0, 0, this.w, this.h);
+    ctx.restore();
   }
 
   /**

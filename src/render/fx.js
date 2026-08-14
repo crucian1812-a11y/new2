@@ -287,9 +287,24 @@ export class FX {
 
   // -- weather --------------------------------------------------------------
 
+  /**
+   * A stroke of lightning somewhere off past the trees.
+   *
+   * There is no bolt drawn: what you see of a distant strike is the world
+   * turning pale for two frames, and that is cheaper and more convincing than
+   * any polyline. The flash is a real light — it goes into the light map with
+   * everything else, so the ground, the props and the figures all take it —
+   * and a wash over the finished frame on top of that.
+   */
+  lightning(strength = 1) {
+    this.flash = Math.max(this.flash || 0, strength);
+    this.flashT = 0;
+  }
+
   setWeather(kind, amount) {
     this.weatherKind = kind;
     this.weatherAmount = amount;
+    this.flash = 0;
     this.weather.length = 0;
     const n = Math.round(amount * (kind === 'mist' ? 26 : 150));
     for (let i = 0; i < n; i++) {
@@ -364,6 +379,17 @@ export class FX {
     const R = this.r;
     const ctx = R.ctx;
     const zoom = R.cam.zoom * R.pxScale;
+
+    // The lightning goes in before the light map is built, so the strike
+    // lights the world rather than merely being painted over it. It decays
+    // fast and unevenly — a real stroke flickers two or three times.
+    if (this.flash > 0) {
+      this.flashT += dt;
+      const k = Math.max(0, 1 - this.flashT / 0.42);
+      const flicker = k * (0.55 + 0.45 * Math.abs(Math.sin(this.flashT * 47)));
+      if (k <= 0) this.flash = 0;
+      else R.addLight(R.cam.x, R.cam.y, 4200, [176, 200, 255], this.flash * flicker * 0.85, true);
+    }
 
     // Ground rings first — they belong to the floor.
     for (const r of this.rings) {
@@ -548,6 +574,19 @@ export class FX {
 
   /** Snow, drifting leaves, ash or rain, drawn in screen space with parallax. */
   drawWeather(dt) {
+    if (this.flash > 0) {
+      // The wash over the finished frame. Half the strike's brightness is
+      // already in the light map; this is the part that hits the eye rather
+      // than the ground.
+      const k = Math.max(0, 1 - this.flashT / 0.42);
+      const c = this.r.ctx;
+      c.save();
+      c.globalCompositeOperation = 'lighter';
+      c.globalAlpha = Math.min(0.5, this.flash * k * k * 0.42);
+      c.fillStyle = 'rgb(150,172,214)';
+      c.fillRect(0, 0, this.r.w, this.r.h);
+      c.restore();
+    }
     if (!this.weatherKind || !this.weather.length) return;
     const R = this.r;
     const ctx = R.ctx;
@@ -559,6 +598,41 @@ export class FX {
     ctx.save();
     const kind = this.weatherKind;
 
+    // The frame's lights, in screen space and brightest first. Weather that
+    // ignores them is the thing that gives a snowfall away as an overlay: real
+    // snow crossing a brazier goes orange for the half second it is in the
+    // light, and nothing else in the picture says "this is falling *here*"
+    // half as loudly. Six is plenty — past that they are all the same fire.
+    const lights = [];
+    for (const L of R.lights) {
+      const sx = R.sx(L.x);
+      const sy = R.sy(L.y);
+      const r = L.r * R.cam.zoom * R.pxScale;
+      if (sx + r < 0 || sy + r < 0 || sx - r > W || sy - r > H) continue;
+      lights.push({ sx, sy, r, i: L.i, c: L.color });
+    }
+    lights.sort((a, b) => b.i - a.i);
+    lights.length = Math.min(lights.length, 6);
+
+    /** Light landing on one flake, as a 0..1 weight and a colour. */
+    const litAt = (x, y, out) => {
+      out[0] = out[1] = out[2] = out[3] = 0;
+      for (const L of lights) {
+        const dx = x - L.sx;
+        const dy = y - L.sy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > L.r) continue;
+        const f = 1 - d / L.r;
+        const w = L.i * f * f;
+        out[0] += L.c[0] * w;
+        out[1] += L.c[1] * w;
+        out[2] += L.c[2] * w;
+        out[3] += w;
+      }
+      return out[3];
+    };
+    const lit = [0, 0, 0, 0];
+
     if (kind === 'mist') {
       ctx.globalCompositeOperation = 'source-over';
       for (const p of this.weather) {
@@ -566,9 +640,16 @@ export class FX {
         const x = ((p.x * W * 1.6 - camX * depth * 0.35 + t * 12 * depth) % (W * 1.6)) - W * 0.3;
         const y = ((p.y * H * 1.4 - camY * depth * 0.2) % (H * 1.4)) - H * 0.2;
         const r = (60 + p.s * 130) * depth;
+        // A bank of mist with a torch inside it is a lantern; the same bank
+        // twenty paces off is a cold smear.
+        const w = Math.min(1, litAt(x, y, lit) * 0.9);
+        const cr = Math.round(150 + (lit[0] / Math.max(0.001, lit[3]) - 150) * w);
+        const cg = Math.round(178 + (lit[1] / Math.max(0.001, lit[3]) - 178) * w);
+        const cb = Math.round(186 + (lit[2] / Math.max(0.001, lit[3]) - 186) * w);
+        const a = (0.05 + p.s * 0.05) * this.weatherAmount * (1 + w * 1.6);
         const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(150,178,186,${(0.05 + p.s * 0.05) * this.weatherAmount})`);
-        g.addColorStop(1, 'rgba(150,178,186,0)');
+        g.addColorStop(0, `rgba(${cr},${cg},${cb},${a})`);
+        g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
         ctx.fillStyle = g;
         ctx.fillRect(x - r, y - r, r * 2, r * 2);
       }
@@ -582,38 +663,60 @@ export class FX {
       let y;
       let size;
       let alpha;
-      let col;
+      let cr;
+      let cg;
+      let cb;
       if (kind === 'snow') {
         const drift = Math.sin(t * 1.4 + p.p) * 26 * depth;
         x = mod(p.x * W - camX * depth * 0.6 + drift + t * 24 * depth, W + 80) - 40;
         y = mod(p.y * H + t * (70 + p.s * 90) * depth - camY * depth * 0.4, H + 80) - 40;
         size = (1.1 + p.s * 2.4) * depth * R.pxScale;
         alpha = (0.35 + p.s * 0.55) * depth;
-        col = '234,244,255';
+        cr = 234;
+        cg = 244;
+        cb = 255;
       } else if (kind === 'ash') {
         const drift = Math.sin(t * 0.9 + p.p) * 34 * depth;
         x = mod(p.x * W - camX * depth * 0.6 + drift + t * 34 * depth, W + 80) - 40;
         y = mod(p.y * H + t * (34 + p.s * 54) * depth - camY * depth * 0.4, H + 80) - 40;
         size = (0.9 + p.s * 2) * depth * R.pxScale;
         alpha = (0.25 + p.s * 0.45) * depth;
-        col = p.s > 0.86 ? '255,168,92' : '128,124,118';
+        cr = p.s > 0.86 ? 255 : 128;
+        cg = p.s > 0.86 ? 168 : 124;
+        cb = p.s > 0.86 ? 92 : 118;
       } else if (kind === 'leaves') {
         const drift = Math.sin(t * 1.1 + p.p) * 60 * depth;
         x = mod(p.x * W - camX * depth * 0.6 + drift + t * 46 * depth, W + 80) - 40;
         y = mod(p.y * H + t * (52 + p.s * 66) * depth - camY * depth * 0.4, H + 80) - 40;
         size = (1.6 + p.s * 3.2) * depth * R.pxScale;
         alpha = (0.3 + p.s * 0.4) * depth;
-        col = p.s > 0.6 ? '150,124,54' : '86,96,48';
+        cr = p.s > 0.6 ? 150 : 86;
+        cg = p.s > 0.6 ? 124 : 96;
+        cb = p.s > 0.6 ? 54 : 48;
       } else {
         // storm — hard slanted rain
         x = mod(p.x * W - camX * depth * 0.6 + t * 200 * depth, W + 80) - 40;
         y = mod(p.y * H + t * (900 + p.s * 500) * depth - camY * depth * 0.4, H + 80) - 40;
         size = (1 + p.s * 1.4) * depth * R.pxScale;
         alpha = (0.18 + p.s * 0.3) * depth;
-        col = '176,196,224';
+        cr = 176;
+        cg = 196;
+        cb = 224;
       }
-      ctx.globalAlpha = alpha * this.weatherAmount;
-      ctx.fillStyle = `rgb(${col})`;
+      // Warm it where it crosses a fire. A flake in the dark keeps its own
+      // cold colour and stays faint; the same flake three feet from a brazier
+      // takes the brazier's colour and brightens, which is what tells the eye
+      // the snow is in the world and not on the lens.
+      const w = Math.min(1, litAt(x, y, lit) * 1.1);
+      if (w > 0.02) {
+        const inv = 1 / Math.max(0.001, lit[3]);
+        cr = Math.round(cr + (lit[0] * inv - cr) * w);
+        cg = Math.round(cg + (lit[1] * inv - cg) * w);
+        cb = Math.round(cb + (lit[2] * inv - cb) * w);
+        alpha *= 1 + w * 0.9;
+      }
+      ctx.globalAlpha = Math.min(1, alpha * this.weatherAmount);
+      ctx.fillStyle = `rgb(${cr},${cg},${cb})`;
       if (kind === 'storm') {
         ctx.fillRect(x, y, size * 0.7, size * 16);
       } else if (kind === 'leaves') {

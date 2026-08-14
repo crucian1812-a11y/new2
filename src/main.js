@@ -162,6 +162,8 @@ function loop(now) {
   }
   hud.draw(dt);
 
+  // Outside a run there is nobody to bleed, so the mix comes back up.
+  if (game.state !== 'playing') audio.setStress(0);
   audio.update(dt, game.state === 'playing' ? game.tension : 0);
   input.endFrame();
 

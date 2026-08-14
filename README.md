@@ -55,7 +55,7 @@ Landscape orientation is expected; the game asks you to rotate in portrait.
 
 ## How the visuals are made
 
-The look comes from five ideas, all in `src/render/`:
+The look comes from six ideas, all in `src/render/`:
 
 1. **Relief-lit materials** (`textures.js`). Each ground material is generated
    as a height field first, then lit with a real surface normal, so grit,
@@ -86,10 +86,43 @@ The look comes from five ideas, all in `src/render/`:
    dynamic light map multiplied over the scene and re-added for warm
    overbright, an emissive-only bloom buffer, parallax fog sheets, weather, and
    a baked grade-and-vignette pass.
+6. **Air that holds the light** (`renderer.js`, `fx.js`). Fog is built into a
+   buffer over black, multiplied by the light map and *added* to the frame, so
+   the haze near a brazier glows and the haze out in the dark stays a cold
+   suggestion — instead of the flat grey veil it used to be. Falling snow, ash
+   and rain take the colour of whatever fire they are crossing. In the sacred
+   grove the storm strikes: the flash goes into the light map, so the whole
+   valley — trees, stones and whatever is walking towards you — is revealed for
+   two frames, and the thunder catches up a second or two later.
 
 Resolution and effect quality adapt automatically to whatever frame rate the
 device is holding, so the same build looks its best on a fast phone and stays
 playable on a slow one.
+
+## How the sound is made
+
+Every noise in the game is three oscillators and one buffer of white noise,
+shaped by filters and envelopes in `src/core/audio.js`. Impacts are filtered
+noise bursts, spells are swept oscillators, and the score is a slow drone in D
+minor with a war drum that only wakes up when something is trying to kill you.
+
+Three things past the sound set make it a place rather than a soundboard:
+
+- **Everything that happens somewhere is heard there.** A blow landing at the
+  left edge of the screen arrives from the left and quieter; falloff is
+  measured against half a view and squashed two to one, the same as the
+  projection, so what the ear reports agrees with what the eye sees. Anything
+  far enough off screen is never synthesised at all.
+- **Each act carries its own bed.** Surf and gulls and groaning ice on the
+  Haff, wind through needles with crows and a far-off wolf in the Rominte,
+  drips and frogs in the bog, iron and embers in the Ordensburg, rain and
+  thunder in the grove — looping filtered noise with slow tides in its gain,
+  and one-shots thrown out into the dark around the hero at random intervals.
+  The reverb opens up indoors and dries out on the coast. Footsteps know what
+  they are landing on: sand hisses, flagstone slaps, bog swallows the tail.
+- **Dying is audible.** Past half health the whole mix starts going under
+  water, and a heart comes up in it that quickens as it gets worse. Nobody has
+  to read the health bar.
 
 ## Layout
 
@@ -121,7 +154,7 @@ node tools/ablate.mjs                       # which render stage costs what
 |---|---|
 | `nav-check` | every act's walkable space is one connected region, and the start, camps, shrines, chests and boss arena are all reachable |
 | `skills-check` | all twelve class skills and all thirteen boss abilities run in every act without throwing |
-| `audio-check` | the synthesised music and each sound effect produce measurable signal, and muting is silent |
+| `audio-check` | the music, every sound effect and every act's ambient bed produce measurable signal; a sound three screens away is a fraction of one underfoot; a dying hero's mix measurably loses its high end; and muting is silent |
 | `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is actually on — a flipped sign in the SDF bake looks plausible and is wrong |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
 | `endgame-check` | Perkūnas leads to the victory screen, and the Eternal Hunt restarts act I at a higher difficulty and keeps escalating |

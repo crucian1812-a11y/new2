@@ -152,6 +152,8 @@ export class Game {
       { coast: 0.55, forest: 0.4, bog: 0.85, castle: 0.5, grove: 0.75 }[act.ambience]
     );
     audio.setKey(act.key);
+    audio.setAmbience(act.ambience);
+    audio.setFootMaterial(act.terrain.base);
 
     this.monsters.length = 0;
     this.projectiles.length = 0;
@@ -457,7 +459,7 @@ export class Game {
     this.player.potions = this.player.maxPotions;
     m.aggro = true;
     this.boss = m;
-    audio.play('bossRoar');
+    audio.play('bossRoar', { x: m.x, y: m.y });
     this.r.addShake(26);
     this.fx.ring(m.x, m.y, { r0: 20, r1: 460, life: 1.4, color: b.light?.color || PAL.blood, width: 14 });
     this.fx.shards(m.x, m.y, 40, 40, b.light?.color || PAL.blood, 420);
@@ -539,7 +541,7 @@ export class Game {
       glow: true,
     });
 
-    audio.play(opts.crit ? 'crit' : m.def.hitSound || 'hitFlesh');
+    audio.play(opts.crit ? 'crit' : m.def.hitSound || 'hitFlesh', { x: m.x, y: m.y });
     this.hitStop = Math.max(this.hitStop, opts.crit ? 0.075 : 0.038);
     this.r.addShake(opts.crit ? 6 : 2.4);
 
@@ -591,7 +593,7 @@ export class Game {
     this.player.kills++;
     this.player.totalKills++;
     this.gainXp(m.xp);
-    audio.play('monsterDie');
+    audio.play('monsterDie', { x: m.x, y: m.y });
     this.fx.blood(m.x, m.y, m.size * 0.4, Math.cos(ang), Math.sin(ang), 22);
     this.r.addDecal(
       this.bloodDecals[rndInt(0, 3)],
@@ -630,7 +632,7 @@ export class Game {
       this.boss = null;
       this.r.addShake(30);
       this.fx.ring(m.x, m.y, { r0: 20, r1: 520, life: 1.6, color: PAL.holy, width: 16 });
-      audio.play('legendary');
+      audio.play('legendary', { x: m.x, y: m.y });
       this.onBossDefeated(m);
     }
   }
@@ -1139,6 +1141,24 @@ export class Game {
     }
     this.tension = clamp01(near / 7) * (this.boss ? 1 : 0.85);
     if (this.boss) this.tension = 1;
+
+    // A storm somewhere over the grove. The flash comes first and the thunder
+    // catches up a second or two later, which is the only detail that makes a
+    // strike read as far away rather than as a lamp being switched on.
+    if (this.fx.weatherKind === 'storm') {
+      this.stormT = (this.stormT ?? 4) - dt;
+      if (this.stormT <= 0) {
+        this.stormT = 5 + Math.random() * 11;
+        const near = 0.45 + Math.random() * 0.55;
+        this.fx.lightning(near);
+        setTimeoutSafe(this, 0.5 + (1 - near) * 2.6, () => audio.play('farThunder', { vol: 0.5 + near }));
+      }
+    }
+
+    // The ear rides with the camera, and half a view is the distance a sound
+    // is measured against — so the mix widens and quietens with the zoom.
+    audio.setListener(this.player.x, this.player.y, this.r.viewW * 0.5);
+    audio.setStress(1 - clamp01(this.player.hp / Math.max(1, this.stats.maxLife)));
   }
 
   updateVisualOnly(dt) {
@@ -1401,7 +1421,7 @@ export class Game {
       const d = dist(m.x, m.y, p.x, p.y);
       if (!m.aggro && d < (m.boss ? 900 : 560)) {
         m.aggro = true;
-        if (m.def.sound && Math.random() < 0.3) audio.play(m.def.sound);
+        if (m.def.sound && Math.random() < 0.3) audio.play(m.def.sound, { x: m.x, y: m.y });
       }
 
       // Knockback decay
@@ -1573,7 +1593,7 @@ export class Game {
         owner: m,
         kind: 'bolt',
       });
-      audio.play('swing', { vol: 0.7 });
+      audio.play('swing', { vol: 0.7, x: m.x, y: m.y });
       return;
     }
     if (def.ai === 'caster') {
@@ -1590,7 +1610,7 @@ export class Game {
         onEnd: () => {
           this.fx.ring(target.x, target.y, { r0: 10, r1: 100, life: 0.4, color: PAL.bogfire, width: 7 });
           this.fx.sparks(target.x, target.y, 6, 0, -1, 18, PAL.bogfire, 320);
-          audio.play('fire');
+          audio.play('fire', { x: target.x, y: target.y });
           if (dist2(p.x, p.y, target.x, target.y) < 100 * 100) this.damagePlayer(m.dmg, m);
         },
       });
@@ -1602,14 +1622,14 @@ export class Game {
       m.lungeT = 0.26;
       m.lungeVX = Math.cos(a) * (def.lunge / 0.26);
       m.lungeVY = Math.sin(a) * (def.lunge / 0.26);
-      audio.play('growl', { vol: 0.7 });
+      audio.play('growl', { vol: 0.7, x: m.x, y: m.y });
       return;
     }
     if (d < def.attackRange + p.radius) {
       this.damagePlayer(m.dmg, m);
       this.fx.sparks(p.x, p.y, 40, Math.cos(m.facing), Math.sin(m.facing), 8, PAL.blood, 220);
     } else {
-      audio.play('swing', { vol: 0.5 });
+      audio.play('swing', { vol: 0.5, x: m.x, y: m.y });
     }
   }
 
@@ -1663,7 +1683,7 @@ export class Game {
           color: PAL.amberDeep,
           hostile: true,
           onEnd: () => {
-            audio.play('thunder');
+            audio.play('thunder', { x: tx, y: ty });
             this.r.addShake(20);
             this.fx.ring(tx, ty, { r0: 20, r1: 240, life: 0.6, color: PAL.amber, width: 12 });
             this.fx.shards(tx, ty, 10, 22, PAL.amber, 380);
@@ -1694,12 +1714,12 @@ export class Game {
             kind: 'shard',
           });
         }
-        audio.play('cast');
+        audio.play('cast', { x: m.x, y: m.y });
         break;
       }
       case 'howl': {
         this.setAnim(m, 'roar', 1.1);
-        audio.play('bossRoar', { vol: 0.7 });
+        audio.play('bossRoar', { vol: 0.7, x: m.x, y: m.y });
         this.fx.ring(m.x, m.y, { r0: 20, r1: 420, life: 0.8, color: hex('#ff8a4a'), width: 10 });
         this.r.addShake(12);
         // Calls the pack.
@@ -1731,7 +1751,7 @@ export class Game {
           onEnd: () => {
             m.x = tx;
             m.y = ty;
-            audio.play('thunder', { vol: 0.7 });
+            audio.play('thunder', { vol: 0.7, x: tx, y: ty });
             this.r.addShake(16);
             this.fx.dust(tx, ty, 24);
             this.fx.ring(tx, ty, { r0: 16, r1: 190, life: 0.5, color: hex('#ff6a3c'), width: 9 });
@@ -1748,7 +1768,7 @@ export class Game {
           setTimeoutSafe(this, delay, () => {
             const r = 120 + k * 130;
             this.fx.ring(m.x, m.y, { r0: r - 40, r1: r + 40, life: 0.5, color: PAL.bogfire, width: 12 });
-            audio.play('frost', { vol: 0.6 });
+            audio.play('frost', { vol: 0.6, x: m.x, y: m.y });
             const dd = dist(p.x, p.y, m.x, m.y);
             if (Math.abs(dd - r) < 62) this.damagePlayer(m.dmg * 0.8, m);
           });
@@ -1769,7 +1789,7 @@ export class Game {
             this.fx.smoke(x, y, 10, 8, [40, 80, 70], 20);
           }
         }
-        audio.play('cast');
+        audio.play('cast', { x: m.x, y: m.y });
         break;
       }
       case 'charge': {
@@ -1778,7 +1798,7 @@ export class Game {
         m.lungeT = 0.55;
         m.lungeVX = Math.cos(a) * 900;
         m.lungeVY = Math.sin(a) * 900;
-        audio.play('dash');
+        audio.play('dash', { x: m.x, y: m.y });
         break;
       }
       case 'swordRing': {
@@ -1802,7 +1822,7 @@ export class Game {
             kind: 'shard',
           });
         }
-        audio.play('swing');
+        audio.play('swing', { x: m.x, y: m.y });
         break;
       }
       case 'lightning': {
@@ -1823,7 +1843,7 @@ export class Game {
             color: PAL.thunder,
             hostile: true,
             onEnd: () => {
-              audio.play('thunder', { vol: 0.6 });
+              audio.play('thunder', { vol: 0.6, x: tx, y: ty });
               this.fx.beam(tx, ty, tx, ty, {
                 z0: 1200,
                 z1: 0,
@@ -1997,7 +2017,7 @@ export class Game {
               sparkColor: PAL.steelLight,
             });
             this.fx.sparks(g.x, g.y, 8, 0, -1, 14, PAL.steelLight, 260);
-            audio.play('hitArmor');
+            audio.play('hitArmor', { x: g.x, y: g.y });
             break;
           }
         }
@@ -2152,7 +2172,7 @@ export class Game {
 
   openChest(c) {
     c.opened = true;
-    audio.play('chest');
+    audio.play('chest', { x: c.x, y: c.y });
     this.fx.sparks(c.x, c.y, 30, 0, -1, 22, PAL.gold, 260);
     this.fx.ring(c.x, c.y, { r0: 6, r1: 90, life: 0.5, color: PAL.gold, width: 5 });
     const n = rndInt(2, 3);
