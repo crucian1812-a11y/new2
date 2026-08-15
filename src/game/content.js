@@ -1279,6 +1279,24 @@ export const SLOT_NAMES = {
   amulet: 'Амулет',
 };
 
+/**
+ * How heavy a weapon feels when it lands.
+ *
+ * A war hammer and a bow both did the same thing to the frame: the same
+ * quarter-frame of hitstop, the same shake, the same shove. Weight scales all
+ * three, so a hammer blow stops the world for a moment and throws the thing
+ * you hit, and an arrow ticks. It is one number and it is most of the
+ * difference between weapons that read as different and weapons that only
+ * differ on the item card.
+ */
+export const WEAPON_WEIGHT = {
+  sword: 1,
+  falchion: 1.15,
+  warhammer: 1.75,
+  bow: 0.45,
+  staff: 0.8,
+};
+
 export const ITEM_BASES = [
   { id: 'sword', slot: 'weapon', name: 'Орденский меч', dmg: [10, 16], icon: 'sword' },
   { id: 'falchion', slot: 'weapon', name: 'Фальшион', dmg: [13, 19], icon: 'sword' },

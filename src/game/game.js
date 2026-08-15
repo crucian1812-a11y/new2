@@ -11,6 +11,7 @@ import {
   MOB_LOOKS,
   HIT_MATERIALS,
   ELITE_AFFIXES,
+  WEAPON_WEIGHT,
   xpForLevel,
   MAX_LEVEL,
 } from './content.js';
@@ -50,6 +51,7 @@ export class Game {
     this.state = 'menu'; // menu | playing | dead | victory | paused
     this.time = 0;
     this.hitStop = 0;
+    this.slowmo = 0;
     this.rng = new RNG(1);
     this.bloodDecals = [0, 1, 2, 3].map((i) => bakeBloodDecal(1000 + i));
     this.scorch = bakeScorchDecal([40, 30, 20], 7);
@@ -173,6 +175,7 @@ export class Game {
     this.r.cam.y = this.player.y;
 
     this.player.burn = 0;
+    this.slowmo = 0;
     this.killQuota = Math.round(act.quota * (this.endless ? 1.3 : 1));
     this.kills = 0;
     this.bossSpawned = false;
@@ -508,6 +511,12 @@ export class Game {
   // Combat
   // =========================================================================
 
+  /** How much weight the hero's blows land with, from what is in his hand. */
+  get weaponWeight() {
+    const w = this.player.equipment && this.player.equipment.weapon;
+    return WEAPON_WEIGHT[w && w.base] ?? 1;
+  }
+
   playerAttackRoll(coef) {
     const s = this.stats;
     const base = rnd(s.weaponMin, s.weaponMax) * s.damageMult * coef;
@@ -521,6 +530,8 @@ export class Game {
     let dmg = amount * (1 - mit);
     const aff = m.affix ? ELITE_AFFIXES[m.affix] : null;
     if (aff && aff.ward) dmg *= 1 - aff.ward;
+    // Spells and monster-on-monster damage carry no weapon behind them.
+    const wt = opts.weight ?? (opts.spell ? 0.7 : this.weaponWeight);
     if (m.stun > 0) dmg *= 1.15;
     dmg = Math.max(1, dmg);
     m.hp -= dmg;
@@ -548,7 +559,7 @@ export class Game {
 
     if (opts.knock) {
       const a = opts.angle ?? Math.atan2(m.y - this.player.y, m.x - this.player.x);
-      const kb = opts.knock * (m.boss ? 0.12 : m.elite ? 0.5 : 1);
+      const kb = opts.knock * wt * (m.boss ? 0.12 : m.elite ? 0.5 : 1);
       m.knockX += Math.cos(a) * kb;
       m.knockY += Math.sin(a) * kb;
     }
@@ -596,9 +607,11 @@ export class Game {
       glow: true,
     });
 
-    audio.play(opts.crit ? 'crit' : mat.sound, { x: m.x, y: m.y });
-    this.hitStop = Math.max(this.hitStop, opts.crit ? 0.075 : 0.038);
-    this.r.addShake(opts.crit ? 6 : 2.4);
+    audio.play(opts.crit ? 'crit' : mat.sound, { x: m.x, y: m.y, vol: 0.75 + wt * 0.35 });
+    // Weight, spent on the three things that carry it: how long the world
+    // holds still, how hard the camera jumps, and how far the thing goes.
+    this.hitStop = Math.max(this.hitStop, (opts.crit ? 0.075 : 0.038) * (0.55 + wt * 0.6));
+    this.r.addShake((opts.crit ? 6 : 2.4) * (0.5 + wt * 0.7));
 
     // Unique item powers.
     if (this.stats.powers.includes('chainLightning') && !opts.chained && Math.random() < 0.28) {
@@ -647,6 +660,15 @@ export class Game {
     this.corpses.push(m);
     const i = this.monsters.indexOf(m);
     if (i >= 0) this.monsters.splice(i, 1);
+
+    // A champion or a boss earns the beat; a crabling does not.
+    if (m.boss) {
+      this.slowmo = Math.max(this.slowmo, 0.9);
+      this.r.addShake(26);
+    } else if (m.elite) {
+      this.slowmo = Math.max(this.slowmo, 0.4);
+      this.r.addShake(10);
+    }
 
     this.kills++;
     this.player.kills++;
@@ -1209,6 +1231,14 @@ export class Game {
     if (this.hitStop > 0) {
       this.hitStop -= dt;
       dt *= 0.12;
+    }
+    // The beat after something big goes down. Not a freeze — a freeze reads as
+    // a dropped frame — but the world running at a third speed for a moment
+    // while the body falls, which is long enough to watch it happen and short
+    // enough that nobody reaches for the controls.
+    if (this.slowmo > 0) {
+      this.slowmo -= dt;
+      dt *= 0.34 + 0.66 * clamp01(1 - this.slowmo / 0.5);
     }
     this.time += dt;
 

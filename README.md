@@ -138,6 +138,13 @@ Resolution and effect quality adapt automatically to whatever frame rate the
 device is holding, so the same build looks its best on a fast phone and stays
 playable on a slow one.
 
+Weapons land with weight. A war hammer and a bow used to do the same thing to
+the frame — the same hitstop, the same shake, the same shove — and now one
+number per weapon scales all three, so a hammer blow stops the world for a
+moment and throws what it hits while an arrow ticks. When a champion or a boss
+goes down the world runs at a third speed for half a second: not a freeze,
+which reads as a dropped frame, but long enough to watch the body fall.
+
 Every monster is made of something — flesh, bone, chitin, mail, stone, or
 nothing at all — and the material decides what a blow does. Bone throws chips
 and a puff of dust, chitin throws shell, mail throws sparks with a little dark
