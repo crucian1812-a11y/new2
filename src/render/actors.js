@@ -16,8 +16,24 @@ import { ISO_Y } from './renderer.js';
 // Geometry helpers
 // ---------------------------------------------------------------------------
 
-/** Tapered capsule between two screen points. */
-function capsule(ctx, x0, y0, x1, y1, r0, r1) {
+/**
+ * The shape of a limb between two screen points.
+ *
+ * This was a straight tapered capsule, and a straight taper is the single
+ * loudest thing that says "these are tubes with a person drawn on them". No
+ * limb on a body is a cone: an upper arm swells at the deltoid and thins at
+ * the elbow, a calf carries almost all its mass in the top third and runs to
+ * nothing at the ankle, a thigh is thickest where it leaves the hip. So each
+ * side of the limb now bows out through a mid station — `belly` is how far
+ * past the straight taper that station sits, `mid` is where along the limb it
+ * falls. The two sides bow independently of the end caps, so the silhouette
+ * is a proper spindle rather than a pill, and the cost is two quadratics
+ * instead of two lines.
+ *
+ * `belly = 0` reproduces the old shape exactly, which is what flat things —
+ * blades, straps, bones — still want.
+ */
+function capsule(ctx, x0, y0, x1, y1, r0, r1, belly = 0, mid = 0.42) {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const len = Math.hypot(dx, dy) || 1e-4;
@@ -26,11 +42,19 @@ function capsule(ctx, x0, y0, x1, y1, r0, r1) {
   const nx = -uy;
   const ny = ux;
   const a = Math.atan2(dy, dx);
+  // A quadratic only reaches half way to its control point, so the control
+  // sits at twice the bulge to put the curve where the bulge was asked for.
+  const mx = x0 + dx * mid;
+  const my = y0 + dy * mid;
+  const rm = lerp(r0, r1, mid);
+  const cr = rm + rm * belly * 2;
   ctx.beginPath();
   ctx.moveTo(x0 + nx * r0, y0 + ny * r0);
-  ctx.lineTo(x1 + nx * r1, y1 + ny * r1);
+  if (belly > 0) ctx.quadraticCurveTo(mx + nx * cr, my + ny * cr, x1 + nx * r1, y1 + ny * r1);
+  else ctx.lineTo(x1 + nx * r1, y1 + ny * r1);
   ctx.arc(x1, y1, r1, a + Math.PI / 2, a - Math.PI / 2, true);
-  ctx.lineTo(x0 - nx * r0, y0 - ny * r0);
+  if (belly > 0) ctx.quadraticCurveTo(mx - nx * cr, my - ny * cr, x0 - nx * r0, y0 - ny * r0);
+  else ctx.lineTo(x0 - nx * r0, y0 - ny * r0);
   ctx.arc(x0, y0, r0, a - Math.PI / 2, a + Math.PI / 2, true);
   ctx.closePath();
 }
@@ -95,21 +119,58 @@ export function poseHumanoid(st, build = {}) {
 
   // --- base sway -----------------------------------------------------------
   let lean = 0; // forward lean, radians
+  let roll = 0; // sideways lean of the spine, radians — positive leans left
   let bob = 0;
-  let twist = 0; // torso rotation about up-axis
+  let twist = 0; // shoulder rotation about the up-axis
+  let pelvis = 0; // pelvis rotation about the up-axis
+  let list = 0; // pelvis tilt: how much higher the left hip rides than the right
   let crouch = 0;
 
   const runPhase = st.phase || 0;
   const walkAmt = clamp01(speed);
+  // How hard the figure is turning, in radians per second, and how much of its
+  // own weight that throws sideways. A body going round a corner banks into
+  // it; a body that does not is on rails.
+  const turn = clamp(st.turn || 0, -6, 6);
+  // Every figure needs its own clock or a pack of them breathes in unison,
+  // which is the most inhuman thing a crowd can do.
+  const seed = st.seed || 0;
 
   if (walkAmt > 0.01) {
     lean += 0.16 * walkAmt;
     bob += Math.sin(runPhase * 2) * 2.2 * walkAmt;
     twist += Math.sin(runPhase) * 0.22 * walkAmt;
+
+    // The pelvis and the shoulders turn *against* each other. This is the
+    // whole difference between a walk and a wind-up toy: the arm that swings
+    // forward drags the shoulder with it, and the leg that swings forward
+    // drags the hip, and since those are opposite legs the two girdles wind
+    // in opposite directions across the waist.
+    pelvis -= Math.sin(runPhase) * 0.16 * walkAmt;
+
+    // And the pelvis tilts. With all the weight on one leg, the hip on the
+    // *unsupported* side has nothing under it and drops — the abductors on
+    // the standing side pay for holding it up at all. In the cycle below the
+    // left leg is in stance while sin(phase) is positive, so that is exactly
+    // when the right hip falls away.
+    list += Math.sin(runPhase) * 1.7 * walkAmt;
   } else {
-    bob += Math.sin(t * 1.8) * 0.9;
-    lean += Math.sin(t * 0.7) * 0.02;
+    // Standing is not a pose, it is a slow argument between two legs about
+    // which of them is holding the body up. The weight drifts from one to the
+    // other every few seconds; the loaded hip rides high, the spine bends the
+    // other way to put the head back over the feet, and the free leg unlocks.
+    // This is contrapposto, and it is the reason a carved figure from 450 BC
+    // looks alive and a mannequin does not.
+    const w = Math.sin(t * 0.42 + seed);
+    bob += Math.sin(t * 1.8 + seed) * 0.9;
+    lean += Math.sin(t * 0.7 + seed) * 0.02;
+    list += w * 2.1;
+    roll -= w * 0.05;
+    twist += w * 0.05;
   }
+
+  // Banking. Lean into the turn like a runner, and no further than a runner.
+  roll += clamp(turn * 0.06, -0.16, 0.16) * (0.35 + walkAmt * 0.65);
 
   // --- animation overlays --------------------------------------------------
   let armSwingR = 0; // right arm forward/back in the sagittal plane
@@ -228,6 +289,10 @@ export function poseHumanoid(st, build = {}) {
       armSwingR += 0.5 * e;
       armSwingL += 0.5 * e;
       twist += 0.2 * e;
+      // A blow does not fold a body straight backwards. It knocks it off its
+      // own axis, and the recoil unloads one hip as the weight comes off it.
+      roll += 0.22 * e * e;
+      list -= 2.2 * e;
       break;
     }
     case 'dash': {
@@ -249,6 +314,10 @@ export function poseHumanoid(st, build = {}) {
       armSwingR = lerp(armSwingR, 1.4 * back, at);
       armSwingL = lerp(armSwingL, 1.2 * back, at);
       twist += at * 0.34 * back;
+      // Nothing falls squarely. The body rolls onto one hip on the way down,
+      // which is what stops the death reading as a hinge.
+      roll += at * 0.4 * back;
+      list += at * 2.6 * back;
       break;
     }
     case 'roar': {
@@ -264,10 +333,13 @@ export function poseHumanoid(st, build = {}) {
 
   const cl = Math.cos(lean);
   const sl = Math.sin(lean);
-  // Spine tilts forward about the hip.
+  const sr = Math.sin(roll);
+  // The spine tilts forward about the hip and bends sideways with it, so
+  // everything stacked above the pelvis — chest, neck, head, both shoulders —
+  // travels together instead of the trunk pivoting inside a rigid body.
   const spine = (h) => {
     const dh = h - hipH;
-    return [sl * dh, 0, hipH + cl * dh + bob - crouch];
+    return [sl * dh, sr * dh, hipH + cl * dh + bob - crouch];
   };
 
   p.hip = [0, 0, hipH + bob - crouch];
@@ -275,18 +347,57 @@ export function poseHumanoid(st, build = {}) {
   p.neck = spine(neckH);
   p.head = spine(headH);
 
+  // The head rides quieter than the body carrying it. A walking figure's
+  // pelvis rises and falls twice a stride; its head barely does, because the
+  // neck spends the whole cycle paying that motion back to keep the eyes
+  // level. Leaving the head welded to the top of the bob is what makes a
+  // marching figure look like it is being bounced on a stick.
+  const stabilise = bob * 0.45 * walkAmt;
+  p.neck[2] -= stabilise * 0.55;
+  p.head[2] -= stabilise;
+
+  // Where the head is pointed, as an offset from where the body is pointed.
+  //
+  // A figure whose head is welded to its chest can only ever look where it is
+  // walking. People do the opposite: the head goes first and the body follows
+  // it round the corner, and a creature circling something keeps its eyes on
+  // the thing it is circling however its feet are carrying it. `lookAt` is a
+  // world angle the caller can aim; the neck will only give it so much before
+  // the shoulders have to come too.
+  let headYaw = clamp(turn * 0.09, -0.5, 0.5) - twist * 0.6;
+  if (st.lookAt !== undefined) {
+    let d = st.lookAt - (st.facing || 0);
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    headYaw += clamp(d, -1.05, 1.05);
+  } else if (walkAmt < 0.02) {
+    // Standing, the head drifts around the way an idle person's does.
+    headYaw += Math.sin(t * 0.31 + seed * 2.3) * 0.34;
+  }
+  p.headYaw = clamp(headYaw, -1.2, 1.2);
+
   const ct = Math.cos(twist);
   const stw = Math.sin(twist);
-  const twistPt = (base, sideOff) => [
-    base[0] - stw * sideOff,
-    base[1] + ct * sideOff,
-    base[2],
-  ];
+  const twistPt = (base, sideOff, ang) => {
+    const c = ang === undefined ? ct : Math.cos(ang);
+    const sn = ang === undefined ? stw : Math.sin(ang);
+    return [base[0] - sn * sideOff, base[1] + c * sideOff, base[2]];
+  };
 
   p.shoulderL = twistPt(p.chest, shoulderW);
   p.shoulderR = twistPt(p.chest, -shoulderW);
-  p.hipL = [p.hip[0], hipW, p.hip[2]];
-  p.hipR = [p.hip[0], -hipW, p.hip[2]];
+  p.hipL = twistPt(p.hip, hipW, pelvis);
+  p.hipR = twistPt(p.hip, -hipW, pelvis);
+  // The legs hang from where the hips would be with the pelvis level. If the
+  // tilt drove them too, the standing leg would lift its own foot off the
+  // ground every time the pelvis rolled over it — the tilt is the pelvis
+  // moving *about* a planted leg, not with it.
+  const legL = [p.hipL[0], p.hipL[1], p.hipL[2]];
+  const legR = [p.hipR[0], p.hipR[1], p.hipR[2]];
+  p.hipL[2] += list;
+  p.hipR[2] -= list;
+  // The waist and the crotch, which is where the pelvis gets drawn between.
+  p.waist = twistPt([p.hip[0] + sl * 9, sr * 9, p.hip[2] + cl * 9], 0, pelvis);
+  p.groin = [p.hip[0], 0, p.hip[2] - 7.5];
 
   // --- arms ----------------------------------------------------------------
   const arm = (sh, swing, lift, bend, side) => {
@@ -326,17 +437,31 @@ export function poseHumanoid(st, build = {}) {
   // is barely moving has no gait worth planting.
   const gait = clamp01((walkAmt - 0.06) / 0.22);
 
+  // Which leg is carrying the body while it stands: +1 the left, -1 the right.
+  // The same slow oscillator the pelvis tilts with, so the loaded hip and the
+  // straight leg are always the same one.
+  const bearing = Math.sin(t * 0.42 + seed);
+
   const legPose = (hipPt, phase, side) => {
     let hipA;
     let kneeA;
     let liftZ = 0;
+    // The ankle, in radians: positive is toes up, negative is heel up. A leg
+    // that ends in a rigid plank is the last thing keeping a good walk from
+    // reading as a real one — a foot lands on its heel, rolls flat under the
+    // body, and leaves off the toe, and that roll is three quarters of what
+    // the eye reads as "pushing off the ground".
+    let ankle = 0;
+    let splay = 0; // how far the foot sits out from under its hip
     if (anim === 'die') {
       const back = st.dieBack ?? 1;
       hipA = (-1.2 - side * 0.3) * back;
       kneeA = 0.9;
+      ankle = -0.3 * back;
     } else if (anim === 'dash') {
       hipA = side > 0 ? -0.9 : 0.7;
       kneeA = 1.1;
+      ankle = side > 0 ? 0.3 : -0.55;
     } else if (walkAmt > 0.01) {
       // Stance runs from 0 to π: the leg sweeps back through the whole stride
       // as a straight line in ground distance, not as a sine — a sine spends
@@ -353,6 +478,9 @@ export function poseHumanoid(st, build = {}) {
         // on the ground.
         kneeA = 0.06 + Math.sin(ph) * 0.1;
         liftZ = 0;
+        // Heel strike, roll to flat by a third of the way through, then the
+        // heel comes up and the whole push happens over the toe.
+        ankle = k < 0.32 ? lerp(0.36, 0, k / 0.32) : lerp(0, -0.62, (k - 0.32) / 0.68);
       } else {
         // Swing: the leg comes through fast, folds at the knee to clear the
         // ground, and reaches out to plant again.
@@ -361,17 +489,28 @@ export function poseHumanoid(st, build = {}) {
         hipA = Math.asin(clamp(Math.sin(swingAmp) * (2 * e - 1), -0.999, 0.999));
         kneeA = Math.sin(k * Math.PI) * 1.35;
         liftZ = Math.sin(k * Math.PI) * 4.5;
+        // Off the toe, then the foot pulls up hard to clear the ground and
+        // drops its toe again to meet it.
+        ankle = k < 0.45 ? lerp(-0.62, 0.42, k / 0.45) : lerp(0.42, 0.36, (k - 0.45) / 0.55);
       }
       hipA *= gait;
       kneeA *= gait;
       liftZ *= gait;
+      ankle *= gait;
       if (gait < 1) {
         hipA += Math.sin(t * 1.8 + side) * 0.02 * (1 - gait);
         kneeA += 0.06 * (1 - gait);
       }
     } else {
-      hipA = Math.sin(t * 1.8 + side) * 0.02;
-      kneeA = 0.06;
+      // Standing. The leg the weight is on locks out straight and takes the
+      // foot square under the hip; the free one softens at the knee, slides
+      // out and forward, and rests on its heel. Which leg is which drifts
+      // back and forth on the same slow clock the pelvis tilts on.
+      const load = clamp01(side * bearing * 1.6); // 1 loaded, 0 free
+      hipA = Math.sin(t * 1.8 + side) * 0.02 + (1 - load) * 0.17;
+      kneeA = 0.05 + (1 - load) * 0.3;
+      ankle = (1 - load) * 0.2;
+      splay = (1 - load) * 2.4;
     }
     const a1 = hipA - Math.PI / 2;
     const kx = hipPt[0] + Math.cos(a1) * thigh;
@@ -380,15 +519,18 @@ export function poseHumanoid(st, build = {}) {
     const a2 = a1 - kneeA;
     const fx = kx + Math.cos(a2) * shin;
     const fz = Math.max(0, kz + Math.sin(a2) * shin) + liftZ;
-    return { knee: [kx, hipPt[1], kz], foot: [fx, hipPt[1], fz] };
+    const fy = hipPt[1] + side * splay;
+    return { knee: [kx, lerp(hipPt[1], fy, 0.4), kz], foot: [fx, fy, fz], ankle };
   };
 
-  const lL = legPose(p.hipL, runPhase, 1);
-  const lR = legPose(p.hipR, runPhase + Math.PI, -1);
+  const lL = legPose(legL, runPhase, 1);
+  const lR = legPose(legR, runPhase + Math.PI, -1);
   p.kneeL = lL.knee;
   p.footL = lL.foot;
   p.kneeR = lR.knee;
   p.footR = lR.foot;
+  p.ankleL = lL.ankle;
+  p.ankleR = lR.ankle;
 
   return p;
 }
@@ -536,6 +678,13 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   }
   P.__spin = p.weaponSpin || 0;
 
+  // The head has its own heading. Everything that belongs to the face — the
+  // features, the visor slot, the eye glow, a hood's opening — is drawn
+  // against these instead of the body's, so the skull can turn on the neck.
+  const hFace = facing + (p.headYaw || 0);
+  const hcos = Math.cos(hFace);
+  const hsin = Math.sin(hFace);
+
   const flash = st.flash || 0;
   const alpha = st.alpha ?? 1;
   const tint = (c) => (flash > 0 ? mixc(c, [255, 236, 220], flash) : c);
@@ -556,12 +705,12 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
   // one, a figure at this pixel size dissolves into whatever it stands on.
   const contour = [8, 7, 9];
 
-  const bone = (a, b, r0, r1, base, dark, light, depth, bands = 0) => {
+  const bone = (a, b, r0, r1, base, dark, light, depth, bands = 0, belly = 0, mid = 0.42) => {
     const A = P[a];
     const B = P[b];
     if (!A || !B) return;
     // Silhouette, slightly fatter than the limb, so the edge survives.
-    capsule(ctx, A[0], A[1], B[0], B[1], r0 * s + 1, r1 * s + 1);
+    capsule(ctx, A[0], A[1], B[0], B[1], r0 * s + 1, r1 * s + 1, belly, mid);
     ctx.fillStyle = css(contour, 0.85);
     ctx.fill();
 
@@ -573,7 +722,7 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     const bd = tint(mixc(contour, dark, 0.55 + d * 0.3));
     const bl = tint(mixc(base, light, 0.45 + d * 0.5));
     const bs = tint(mixc(light, [255, 250, 236], 0.3 * d));
-    capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s);
+    capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s, belly, mid);
     ctx.fillStyle = cylinderFill(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s, b0, bd, bl, bs);
     ctx.fill();
 
@@ -583,7 +732,7 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     // it; bare skin and cloth stay smooth.
     if (bands > 0) {
       ctx.save();
-      capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s);
+      capsule(ctx, A[0], A[1], B[0], B[1], r0 * s, r1 * s, belly, mid);
       ctx.clip();
       const dx = B[0] - A[0];
       const dy = B[1] - A[1];
@@ -670,10 +819,15 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
       // not just a darker paint, which is what tells you the torso is in
       // front of the leg and above it.
       if (HP) contactAO(ctx, HP[0], HP[1] - 1 * s, 10 * s * lw, 0.5);
-      bone('hip' + side, 'knee' + side, 6.6 * lw, 5 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
+      // A thigh carries its mass high and a calf higher still; both run out to
+      // almost nothing at the joint below. Armour flattens the swell — a
+      // cuisse is a shell over the leg, not the leg — so plated figures get
+      // about half as much of it.
+      const soft = legPlate ? 0.5 : 1;
+      bone('hip' + side, 'knee' + side, 6.6 * lw, 5 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate, 0.17 * soft, 0.3);
       if (legPlate) cop('knee' + side, 4.5 * lw, D['hip' + side]);
-      bone('knee' + side, 'foot' + side, 5 * lw, 3.5 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate);
-      drawBoot(ctx, P['foot' + side], def, s, lw, cosF, tint, D['hip' + side], contour);
+      bone('knee' + side, 'foot' + side, 5 * lw, 3.5 * lw, M.legs, M.legsDark, M.legsLight, D['hip' + side], legPlate, 0.24 * soft, 0.26);
+      drawBoot(ctx, P['foot' + side], def, s, lw, cosF, tint, D['hip' + side], contour, p['ankle' + side] || 0);
     });
   }
 
@@ -688,9 +842,12 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
     // top of the chest rather than socketed into it.
     const SH = P['shoulder' + side];
     if (SH) contactAO(ctx, SH[0], SH[1] + 2 * s, 9 * s * lw, 0.42);
-    bone('shoulder' + side, 'elbow' + side, 5 * lw, 4 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
+    // Deltoid and biceps high on the upper arm; the forearm's mass sits just
+    // below the elbow and runs out to a narrow wrist.
+    const soft = plated ? 0.5 : 1;
+    bone('shoulder' + side, 'elbow' + side, 5 * lw, 4 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated, 0.2 * soft, 0.34);
     if (plated) cop('elbow' + side, 3.8 * lw, D['shoulder' + side]);
-    bone('elbow' + side, 'hand' + side, 4 * lw, 3 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated);
+    bone('elbow' + side, 'hand' + side, 4 * lw, 3 * lw, M.arms, M.armsDark, M.armsLight, D['shoulder' + side], plated, 0.16 * soft, 0.28);
 
     // Spaulder. Two overlapping lames with straight edges and a hard ridge
     // along the top, rather than the pale sphere this used to be — a sphere
@@ -756,12 +913,19 @@ export function drawActor(ctx, def, st, px, py, s, emis) {
 
   push(D['shoulder' + armFar] - 0.3, () => drawArm(armFar));
 
-  // Torso + head
+  // Pelvis, torso, head. The pelvis goes on before the trunk so the belt line
+  // is the trunk's own bottom edge rather than a band stuck over it.
   push(0, () => {
+    drawPelvis(ctx, P, D, def, s, tint, contour);
     drawTorso(ctx, P, D, def, s, tint, rimC, rimA, emis, cosF, sinF);
     drawNeck(ctx, P, def, s, tint);
-    drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA);
+    drawHead(ctx, P, D, def, st, s, hcos, hsin, tint, emis, rimC, rimA);
   });
+
+  // Cloth that hangs from the belt: a surcoat, a robe's skirt, a kilt of
+  // rags. Over the pelvis and the near leg, under the arms and whatever they
+  // are carrying.
+  if (def.skirt) push(0.12, () => drawSkirt(ctx, P, D, def, st, s, cosF, sinF, tint, contour));
 
   // Near arm and whatever it's holding
   push(D['shoulder' + armNear] + 0.4, () => {
@@ -861,16 +1025,36 @@ function drawRunes(ctx, P, def, s, emis) {
  * turns over the toes, and a cuff where the leg goes in. The toe points where
  * the figure faces, so a turning character's feet turn with it.
  */
-function drawBoot(ctx, F, def, s, lw, cosF, tint, depth, contour) {
+function drawBoot(ctx, F, def, s, lw, cosF, tint, depth, contour, ankle = 0) {
   if (!F) return;
   const M = def.colors;
   const base = tint(shadeFor(depth, M.boots, M.legsDark, M.legsLight));
   const lit = tint(mixc(M.boots, M.legsLight, 0.5));
   const len = 7.4 * s * lw;
-  const toe = cosF * len * 0.55;
+  // The boot is drawn in profile with its toe out along +x, and mirrored to
+  // face the way the figure does. It used to be drawn pointing right whatever
+  // the character was doing, so half the compass had a knight walking one way
+  // on feet aimed the other — the sort of thing nobody names and everybody
+  // sees. `fore` is how much of the foot's length survives the projection:
+  // side on it is the whole boot, coming at the camera it is a stub.
+  const dir = cosF < 0 ? -1 : 1;
+  const fore = Math.abs(cosF);
+  const toe = fore * len * 0.55;
 
   ctx.save();
   ctx.translate(F[0], F[1]);
+  ctx.scale(dir, 1);
+
+  // Heel strike and toe-off. The foot pivots on whichever end is still on the
+  // ground — the heel when the toes are up, the toes when the heel is up —
+  // and only as far as the projection lets you see it, so a figure walking
+  // towards the camera does not waggle its boot at you.
+  if (Math.abs(ankle) > 0.01) {
+    const pivot = ankle > 0 ? -len * 0.5 : len * 0.6 + toe;
+    ctx.translate(pivot, 1.1 * s);
+    ctx.rotate(-ankle * 0.5 * fore);
+    ctx.translate(-pivot, -1.1 * s);
+  }
 
   // Sole: flat on the ground, longer than the boot above it, near-black. This
   // is the line that puts the figure on the floor.
@@ -910,6 +1094,100 @@ function drawBoot(ctx, F, def, s, lw, cosF, tint, depth, contour) {
   ctx.beginPath();
   ctx.moveTo(-len * 0.12, -4.6 * s * lw);
   ctx.quadraticCurveTo(len * 0.34 + toe * 0.3, -4.2 * s * lw, len * 0.58 + toe, -1.5 * s * lw);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The pelvis, and the belt across it.
+ *
+ * The rig had a waist and it had two legs and there was nothing between them:
+ * the torso stopped at a flat line and two tubes came out of the bottom of it.
+ * That gap is why the figures read as a doll with the legs pushed into a body
+ * — a real pelvis is a solid, and the heaviest solid in the whole figure. It
+ * is a wedge, wide at the belt and narrowing to the crotch, with the thighs
+ * hanging off its outside corners, and it is the piece the eye uses to tell
+ * whether a body has weight on it.
+ *
+ * Drawn between the legs and the torso, and rotated with the hips rather than
+ * the shoulders, so a walking figure's waist visibly winds against its chest.
+ */
+function drawPelvis(ctx, P, D, def, s, tint, contour) {
+  const L = P.hipL;
+  const R = P.hipR;
+  const G = P.groin;
+  if (!L || !R || !G) return;
+  const M = def.colors;
+  const lw = def.limbScale ?? 1;
+  const wide = (def.torsoWide ?? 1) * lw;
+
+  // Corners: the belt line is a little wider than the hip joints, and the
+  // crotch sits below and between them.
+  const ox = (R[0] - L[0]) * 0.16;
+  const oy = (R[1] - L[1]) * 0.16;
+  const lx = L[0] - ox;
+  const ly = L[1] - oy - 1.2 * s;
+  const rx = R[0] + ox;
+  const ry = R[1] + oy - 1.2 * s;
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(lx, ly);
+  ctx.lineTo(rx, ry);
+  ctx.quadraticCurveTo(rx + ox * 0.5, ry + (G[1] - ry) * 0.55, G[0] + (rx - G[0]) * 0.34, G[1]);
+  ctx.quadraticCurveTo(G[0], G[1] + 1.2 * s, G[0] + (lx - G[0]) * 0.34, G[1]);
+  ctx.quadraticCurveTo(lx - ox * 0.5, ly + (G[1] - ly) * 0.55, lx, ly);
+  ctx.closePath();
+  ctx.strokeStyle = css(contour, 0.85);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const d = clamp01(0.5 + clamp(D.hip * 0.8, -0.5, 0.5));
+  const g = ctx.createLinearGradient(lx + KEY_X * 8 * s, ly + KEY_Y * 8 * s, G[0] - KEY_X * 6 * s, G[1]);
+  g.addColorStop(0, css(tint(mixc(M.legsLight, [255, 248, 232], 0.2 * d))));
+  g.addColorStop(0.4, css(tint(M.legs)));
+  g.addColorStop(1, css(tint(mixc(M.legsDark, contour, 0.4))));
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // The seam where the legs part, and the pool of shadow it sits in. Two
+  // strokes, and the wedge stops being a plate and becomes a body.
+  ctx.beginPath();
+  ctx.moveTo(G[0], G[1]);
+  ctx.lineTo((lx + rx) * 0.5, (ly + ry) * 0.5 + 1.5 * s);
+  ctx.strokeStyle = 'rgba(8,7,9,0.45)';
+  ctx.lineWidth = Math.max(0.8, 1.1 * s);
+  ctx.stroke();
+  contactAO(ctx, G[0], G[1] - 1 * s, 7 * s * wide, 0.36);
+
+  // The belt. Every figure in the game has one — a line across the waist is
+  // how a garment gets divided into a top and a bottom at all — and it is the
+  // cheapest possible way to read the pelvis as separate from the chest.
+  const bw = 2.6 * s * wide;
+  ctx.beginPath();
+  ctx.moveTo(lx, ly);
+  ctx.lineTo(rx, ry);
+  ctx.lineTo(rx, ry + bw);
+  ctx.lineTo(lx, ly + bw);
+  ctx.closePath();
+  const bg = ctx.createLinearGradient(lx, ly, lx, ly + bw);
+  const belt = tint(M.belt || M.boots || M.legsDark);
+  bg.addColorStop(0, css(mixc(belt, [255, 240, 210], 0.35)));
+  bg.addColorStop(0.5, css(belt));
+  bg.addColorStop(1, css(mixc(belt, contour, 0.6)));
+  ctx.fillStyle = bg;
+  ctx.fill();
+
+  // A buckle, only when there is a front to hang it on.
+  const bx = (lx + rx) * 0.5;
+  const by = (ly + ry) * 0.5;
+  ctx.beginPath();
+  ctx.rect(bx - 1.5 * s, by + bw * 0.1, 3 * s, bw * 0.8);
+  ctx.fillStyle = css(tint(mixc(M.metal || M.legsLight, [255, 246, 220], 0.3)), 0.9);
+  ctx.fill();
+  ctx.strokeStyle = css(contour, 0.7);
+  ctx.lineWidth = Math.max(0.6, 0.7 * s);
   ctx.stroke();
   ctx.restore();
 }
@@ -2108,6 +2386,177 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M, emis) {
       ctx.restore();
     }
   }
+}
+
+/**
+ * Cloth hanging from the belt: a knight's surcoat, a robe's skirt, a corpse's
+ * rags.
+ *
+ * Every figure in the game was wearing trousers, which is a strange thing for
+ * a crusading order and a stranger one for a sorcerer, and it is also the
+ * reason they all read as the same doll in different paint: two legs on show
+ * from the hip down is the most generic silhouette a humanoid has. Cloth over
+ * the top of them changes the outline, which is the only part of a
+ * forty-pixel figure the eye reliably gets.
+ *
+ * It is not simulated. It does not need to be: a hem does exactly three
+ * things, and all three are functions of the pose the figure is already in.
+ * It swings out where a knee is driving through it. It trails behind the
+ * direction of travel. And it splits open around the legs when they part.
+ */
+function drawSkirt(ctx, P, D, def, st, s, cosF, sinF, tint, contour) {
+  const K = def.skirt;
+  const L = P.hipL;
+  const R = P.hipR;
+  if (!K || !L || !R) return;
+  const M = def.colors;
+  const base = tint(K.color || M.torso);
+  const light = tint(K.light || M.torsoLight);
+  const dark = tint(K.dark || M.torsoDark);
+  const len = (K.len ?? 26) * s;
+  const flare = K.flare ?? 1.3;
+  const split = clamp01(K.split ?? 0.45);
+  const speed = clamp01(st.speed || 0);
+
+  // The belt line, and the two directions the cloth answers to: down, which is
+  // gravity, and forward, which is where the body is going.
+  // The belt line runs a little wider than the hip joints and a little above
+  // them, so the cloth overlaps the bottom of the trunk instead of butting
+  // against it and leaving a seam of daylight across the waist.
+  const waist = K.waist ?? 1.3;
+  const cx = (L[0] + R[0]) * 0.5;
+  const cy = (L[1] + R[1]) * 0.5;
+  const ux = (R[0] - L[0]) * 0.5 * waist;
+  const uy = (R[1] - L[1]) * 0.5 * waist;
+  const fx = cosF;
+  const fy = sinF * ISO_Y;
+  // Trailing. Cloth is always a beat behind the body wearing it, so the hem
+  // sits back along the line of travel — and further back the faster it goes.
+  const trailX = -fx * len * 0.3 * speed;
+  const trailY = -fy * len * 0.3 * speed;
+  // And the knees push it. The hem over each leg follows that leg's knee,
+  // which is what makes the two halves of a surcoat cross and open as the
+  // figure walks rather than swinging as one board.
+  const kick = (K.kick ?? 0.26) * len * 0.06;
+  const kickL = P.kneeL ? clamp((P.kneeL[0] - L[0]) * 0.34, -kick, kick) : 0;
+  const kickR = P.kneeR ? clamp((P.kneeR[0] - R[0]) * 0.34, -kick, kick) : 0;
+  const kickLy = P.kneeL ? (P.kneeL[1] - L[1]) * 0.08 : 0;
+  const kickRy = P.kneeR ? (P.kneeR[1] - R[1]) * 0.08 : 0;
+
+  const belt = (u) => [cx + ux * u, cy + uy * u - 3.4 * s];
+  const hem = (u) => {
+    const k = (u + 1) * 0.5; // 0 at the left hip, 1 at the right
+    // Cloth hangs, so the hem sags towards the middle of each panel rather
+    // than running straight between its corners.
+    const sag = (1 - u * u) * 1.6 * s;
+    return [
+      cx + ux * u * flare + trailX + lerp(kickL, kickR, k),
+      cy + uy * u * flare + trailY + len + sag + lerp(kickLy, kickRy, k),
+    ];
+  };
+
+  ctx.save();
+  ctx.lineJoin = 'round';
+
+  // One garment with a slit up the front, not two boards hung side by side.
+  // Drawn as a single outline: down one flared edge, along the hem, up into
+  // the slit and down again, along the rest of the hem and back up the other
+  // edge. The slit opens as far as the legs have parted, so a standing figure
+  // is closed and a striding one flies apart.
+  const gap = split * (0.08 + speed * 0.3);
+  const notchTop = 1 - clamp01(split);
+  const notch = [
+    lerp(belt(0)[0], hem(0)[0], notchTop),
+    lerp(belt(0)[1], hem(0)[1], notchTop),
+  ];
+  const bL = belt(-1);
+  const bR = belt(1);
+  const hL = hem(-1);
+  const hR = hem(1);
+  const hLi = hem(-gap);
+  const hRi = hem(gap);
+
+  // The outer edges bow *outwards*: cloth pushed away from the body by the
+  // hips under it, not a straight line down from the belt.
+  const edge = (b, h, side) => {
+    const mx = (b[0] + h[0]) * 0.5 + side * Math.abs(h[0] - b[0]) * 0.18 + side * 2.4 * s;
+    const my = (b[1] + h[1]) * 0.5;
+    ctx.quadraticCurveTo(mx, my, h[0], h[1]);
+  };
+
+  ctx.beginPath();
+  ctx.moveTo(bL[0], bL[1]);
+  ctx.lineTo(bR[0], bR[1]);
+  edge(bR, hR, 1);
+  ctx.quadraticCurveTo((hR[0] + hRi[0]) * 0.5, (hR[1] + hRi[1]) * 0.5 + 1.4 * s, hRi[0], hRi[1]);
+  if (split > 0.02) {
+    ctx.lineTo(notch[0], notch[1]);
+    ctx.lineTo(hLi[0], hLi[1]);
+  }
+  ctx.quadraticCurveTo((hL[0] + hLi[0]) * 0.5, (hL[1] + hLi[1]) * 0.5 + 1.4 * s, hL[0], hL[1]);
+  edge(hL, bL, -1);
+  ctx.closePath();
+
+  ctx.strokeStyle = css(contour, 0.85);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  const g = ctx.createLinearGradient(
+    bL[0] + KEY_X * 10 * s,
+    bL[1] + KEY_Y * 10 * s,
+    hR[0] - KEY_X * 6 * s,
+    hR[1] + 4 * s
+  );
+  g.addColorStop(0, css(mixc(light, [255, 248, 232], 0.3)));
+  g.addColorStop(0.3, css(mixc(base, light, 0.35)));
+  g.addColorStop(0.66, css(base));
+  // The hem is the part furthest from any lamp and closest to the ground, and
+  // cloth that does not go dark down there floats.
+  g.addColorStop(1, css(mixc(dark, base, 0.25)));
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // Folds. Cloth hangs in verticals that converge on the belt, and a dark
+  // crease with a lit ridge beside it is the whole difference between a skirt
+  // and a triangle of paint. They stop short of the hem so the bottom edge
+  // stays a single silhouette.
+  ctx.save();
+  ctx.clip();
+  for (let i = 0; i < 5; i++) {
+    const u = -0.8 + i * 0.4;
+    const b = belt(u);
+    const h = hem(u * (1 + gap * 0.4));
+    const deep = 1 - Math.abs(u) * 0.25;
+    ctx.beginPath();
+    ctx.moveTo(b[0], b[1] + 1.5 * s);
+    ctx.quadraticCurveTo((b[0] + h[0]) * 0.5 - 1.4 * s, (b[1] + h[1]) * 0.5, h[0], h[1]);
+    ctx.strokeStyle = css(dark, 0.42 * deep);
+    ctx.lineWidth = Math.max(0.8, 1.3 * s);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(b[0] + 1.5 * s, b[1] + 1.5 * s);
+    ctx.quadraticCurveTo((b[0] + h[0]) * 0.5 + 0.2 * s, (b[1] + h[1]) * 0.5, h[0] + 1.5 * s, h[1]);
+    ctx.strokeStyle = css(light, 0.22 * deep);
+    ctx.lineWidth = Math.max(0.6, 0.8 * s);
+    ctx.stroke();
+  }
+  // The body's own shadow across the top of the cloth, where the trunk
+  // overhangs it.
+  const bc = belt(0);
+  contactAO(ctx, bc[0], bc[1] + 1 * s, Math.abs(ux) * 1.6, 0.4);
+  ctx.restore();
+
+  // The emblem rides on the cloth, not on the chest, when the def asks for it.
+  if (K.emblem) {
+    const e = hem(0);
+    const b = belt(0);
+    const ex = lerp(b[0], e[0], 0.42);
+    const ey = lerp(b[1], e[1], 0.42);
+    const w = 3 * s;
+    ctx.fillStyle = css(tint(K.emblem), 0.85);
+    ctx.fillRect(ex - w * 0.32, ey - w * 1.5, w * 0.64, w * 3);
+    ctx.fillRect(ex - w * 1.2, ey - w * 0.32, w * 2.4, w * 0.64);
+  }
+  ctx.restore();
 }
 
 function drawCape(ctx, P, D, def, st, s, cosF, sinF, px, py, tint) {

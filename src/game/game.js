@@ -397,6 +397,9 @@ export class Game {
       animT: 0,
       animDur: 0,
       phase: rnd(0, TAU),
+      // Its own clock for everything that idles: breathing, the weight
+      // shifting from one leg to the other, where it happens to be looking.
+      varPhase: rnd(0, TAU),
       speed01: 0,
       level: lvl,
       maxHp: Math.round(def.life * hpScale * (elite ? 3.4 : 1) * (def.boss ? 0.42 : 1)),
@@ -1414,6 +1417,7 @@ export class Game {
     // backwards at the speed the body goes forward, so it stays on its patch
     // of ground. Walking into a wall now stops the legs too, because the
     // distance measured is the distance the collision actually allowed.
+    trackTurn(p, dt);
     const moved = Math.hypot(p.x - ox, p.y - oy);
     const wasPhase = p.phase;
     p.phase += (moved / strideOf(p)) * TAU;
@@ -1705,6 +1709,7 @@ export class Game {
         }
       }
 
+      trackTurn(m, dt);
       if (mvx || mvy) {
         const mox = m.x;
         const moy = m.y;
@@ -2667,6 +2672,12 @@ export class Game {
       phase: p.phase,
       dieBack: p.dieBack,
       flash: p.flash,
+      turn: p.turn,
+      seed: 0,
+      // The hero looks where he is aiming even while he is backing away from
+      // it, which is the whole reason a player can strafe and still read as
+      // fighting the thing in front of him.
+      lookAt: p.alive ? this.aimAngle() : undefined,
       alpha: p.invuln > 0 && p.alive ? 0.7 + 0.3 * Math.sin(R.time * 40) : 1,
     };
     drawActorShadow(ctx, p.look, st, R.sx(p.x), R.sy(p.y), s, R.ambience.sunDir);
@@ -2722,6 +2733,15 @@ export class Game {
       phase: m.phase,
       dieBack: m.dieBack,
       flash: m.flash,
+      turn: m.turn,
+      // Its own clock, so a pack of six does not breathe and shift its weight
+      // in lockstep — which is the one thing that gives a crowd away as one
+      // animation played six times.
+      seed: m.varPhase || 0,
+      // And its eyes on you, whatever its feet are doing. A wolf circling at
+      // the edge of the torchlight watching the hero is a different animal
+      // from one trotting past him.
+      lookAt: !isCorpse && this.player.alive ? Math.atan2(this.player.y - m.y, this.player.x - m.x) : undefined,
       alpha: (m.def.ghostly ? 0.88 : 1) * fade,
     };
     // A champion's ring. Drawn on the ground before the figure so it reads as
@@ -3105,6 +3125,26 @@ const pendingTimers = [];
  */
 export function strideOf(a) {
   return Math.max(14, strideChar(a.look && a.look.build) * ((a.size || 60) / 100));
+}
+
+/**
+ * How hard something is turning, in radians per second, smoothed.
+ *
+ * A body going round a corner banks into it, its head goes first and its coat
+ * swings out — and none of that can be drawn from a single frame's facing,
+ * because a heading tells you where a thing points, not how fast it is
+ * changing. So the rate is measured here, where the heading is already being
+ * updated, and smoothed hard: the raw value jumps every time a monster picks
+ * a new target, and a figure that snapped its weight sideways on those frames
+ * would look like it was being shoved rather than steering.
+ */
+export function trackTurn(a, dt) {
+  if (dt <= 0) return;
+  const prev = a.facingPrev ?? a.facing;
+  let d = a.facing - prev;
+  d = Math.atan2(Math.sin(d), Math.cos(d));
+  a.facingPrev = a.facing;
+  a.turn = damp(a.turn || 0, d / dt, 9, dt);
 }
 
 export function setTimeoutSafe(game, delay, fn) {

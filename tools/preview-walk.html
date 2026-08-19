@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>walk cycle</title>
+<style>body{margin:0;background:#1b1e22;color:#889;font:11px monospace}canvas{display:block}</style>
+</head><body>
+<canvas id="c" width="1500" height="900"></canvas>
+<script type="module">
+// One figure through a whole stride, then standing still over a slow minute:
+// the two things that are impossible to judge from a single frame.
+import { renderActor } from '../src/render/actors.js';
+import { LOOKS, MOB_LOOKS } from '../src/game/content.js';
+const errors = [];
+window.addEventListener('error', (e) => errors.push(String(e.message)));
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const params = new URLSearchParams(location.search);
+const who = (params.get('who') || 'ritter').split(',');
+const facing = +(params.get('facing') ?? -0.6);
+const defs = who.map((k) => [k, LOOKS[k] || MOB_LOOKS[k]]);
+const rowH = 210;
+c.height = rowH * defs.length * 2 + 30;
+ctx.fillStyle = '#20242a';
+ctx.fillRect(0, 0, c.width, c.height);
+ctx.font = '12px monospace';
+let row = 0;
+for (const [name, def] of defs) {
+  for (const mode of ['walk', 'stand']) {
+    const y = rowH * (row + 1) - 20;
+    ctx.fillStyle = '#8899aa';
+    ctx.fillText(name + ' ' + mode, 6, y - rowH * 0.78);
+    let x = 120;
+    for (let i = 0; i < 10; i++) {
+      renderActor(ctx, def, {
+        t: mode === 'walk' ? 1.2 : i * 1.6,
+        anim: 'idle',
+        animT: 0,
+        facing,
+        speed: mode === 'walk' ? 1 : 0,
+        phase: mode === 'walk' ? (i / 10) * Math.PI * 2 : 0,
+        turn: 0,
+        seed: 0,
+      }, x, y, 1.6, null);
+      x += 135;
+    }
+    row++;
+  }
+}
+window.__stats = { errors, rows: row };
+</script>
+</body></html>

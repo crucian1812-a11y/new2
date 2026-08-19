@@ -34,6 +34,17 @@ export const LOOKS = {
     capeColor: hex('#78756a'),
     capeColorLight: hex('#a7a496'),
     capeColorDark: hex('#33322e'),
+    // The surcoat, split to the hip for the saddle. A brother of the Order in
+    // trousers is a man in fancy dress; the linen falling to the knee with the
+    // cross on it is the entire silhouette the Order is known by.
+    skirt: {
+      len: 22,
+      flare: 1.9,
+      split: 0.62,
+      color: hex('#82806f'),
+      light: hex('#b1af9d'),
+      dark: hex('#3b3a34'),
+    },
     shieldColor: hex('#87847a'),
     shieldLight: hex('#b0ada0'),
     shieldDark: hex('#3a3934'),
@@ -83,6 +94,16 @@ export const LOOKS = {
     // thing about her silhouette that read as wrong at any size.
     quiver: true,
     fletching: hex('#c8bfa2'),
+    // A short hunting tunic — cut high and split wide, because she has to run
+    // in it.
+    skirt: {
+      len: 15,
+      flare: 1.7,
+      split: 0.75,
+      color: hex('#3c3a24'),
+      light: hex('#645f3c'),
+      dark: hex('#191810'),
+    },
     hood: hex('#3a4632'),
     hoodLight: hex('#67784f'),
     rim: hex('#9fd0a8'),
@@ -117,6 +138,16 @@ export const LOOKS = {
     capeLen: 54,
     headR: 7.4,
     gem: PAL.amber,
+    // A robe is one garment from collar to ankle, so the skirt runs long and
+    // barely splits — it opens only as far as a stride forces it to.
+    skirt: {
+      len: 30,
+      flare: 1.75,
+      split: 0.3,
+      color: hex('#463a50'),
+      light: hex('#6d5a7c'),
+      dark: hex('#181322'),
+    },
     capeColor: hex('#4a3a58'),
     capeColorLight: hex('#75608a'),
     capeColorDark: hex('#221a2c'),
@@ -199,6 +230,8 @@ export const HIT_MATERIALS = {
 export const MOB_LOOKS = {
   drowned: mob({
     helm: 'none',
+    // What is left of whatever it drowned in, hanging heavy and dark.
+    skirt: { len: 18, flare: 1.7, split: 0.55, color: hex('#31403f'), light: hex('#55696a'), dark: hex('#101718') },
     hair: hex('#243036'),
     torso: 'fur',
     weapon: 'none',
@@ -267,6 +300,8 @@ export const MOB_LOOKS = {
   }),
   raider: mob({
     helm: 'horned',
+    // A kilt of hide strips — short, wide and always moving.
+    skirt: { len: 15, flare: 1.6, split: 0.8, color: hex('#4a3c2c'), light: hex('#786349'), dark: hex('#1c160f') },
     torso: 'fur',
     weapon: 'axe',
     weaponLen: 34,
@@ -291,6 +326,8 @@ export const MOB_LOOKS = {
   }),
   shaman: mob({
     helm: 'hood',
+    // Rag-hemmed robe, torn short so the shins show.
+    skirt: { len: 26, flare: 1.8, split: 0.34, color: hex('#3d4a33'), light: hex('#65754f'), dark: hex('#141a10') },
     torso: 'robe',
     weapon: 'staff',
     offhand: 'orb',
@@ -378,6 +415,9 @@ export const MOB_LOOKS = {
   },
   skeleton: mob({
     helm: 'skull',
+    // A rotted mail skirt over the hips: the one thing that stops a skeleton
+    // reading as a diagram of a skeleton.
+    skirt: { len: 16, flare: 1.6, split: 0.6, color: hex('#43434a'), light: hex('#70707a'), dark: hex('#17171c') },
     torso: 'mail',
     weapon: 'sword',
     offhand: 'shield',
@@ -410,6 +450,7 @@ export const MOB_LOOKS = {
   }),
   crossbowman: mob({
     helm: 'kettle',
+    skirt: { len: 17, flare: 1.6, split: 0.55, color: hex('#474750'), light: hex('#757580'), dark: hex('#191920') },
     torso: 'mail',
     weapon: 'bow',
     weaponLen: 36,
@@ -438,6 +479,8 @@ export const MOB_LOOKS = {
   }),
   knightRevenant: mob({
     helm: 'greathelm',
+    // The Order's own surcoat, grey with grave-dirt, and the cross still on it.
+    skirt: { len: 21, flare: 1.85, split: 0.6, color: hex('#5a5347'), light: hex('#8a8172'), dark: hex('#211e18'), emblem: PAL.orderBlack },
     torso: 'plate',
     weapon: 'greatsword',
     weaponLen: 46,
@@ -471,6 +514,7 @@ export const MOB_LOOKS = {
   }),
   amberGiant: mob({
     helm: 'horned',
+    skirt: { len: 25, flare: 1.8, split: 0.55, color: hex('#54371a'), light: hex('#9a6c28'), dark: hex('#1a1008') },
     torso: 'plate',
     pauldrons: true,
     weapon: 'mace',
@@ -502,6 +546,7 @@ export const MOB_LOOKS = {
   }),
   perkunas: mob({
     helm: 'horned',
+    skirt: { len: 28, flare: 1.85, split: 0.5, color: hex('#2b2740'), light: hex('#584f7a'), dark: hex('#0c0a14') },
     torso: 'plate',
     weapon: 'mace',
     weaponLen: 58,
