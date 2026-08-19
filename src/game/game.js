@@ -30,7 +30,7 @@ import {
   angleTowards,
   inCone,
 } from '../core/math.js';
-import { renderActor, drawActorShadow, setKeyLight, strideChar } from '../render/actors.js';
+import { renderActor, drawActorShadow, setKeyLight, strideChar, strideQuad } from '../render/actors.js';
 import { getProp, getScaledProp } from '../render/props.js';
 import { PAL, hex, css, mixc } from '../render/palette.js';
 import { bakeBloodDecal, bakeScorchDecal, bakeFootprint } from '../render/textures.js';
@@ -3124,7 +3124,12 @@ const pendingTimers = [];
  * steps and a boss takes long slow ones without either being tuned by hand.
  */
 export function strideOf(a) {
-  return Math.max(14, strideChar(a.look && a.look.build) * ((a.size || 60) / 100));
+  const look = a.look;
+  const build = look && look.build;
+  // A wolf's cycle is measured against its own leg, not against a man's. It
+  // used to be measured against a man's, and every paw in act I skated.
+  const chars = look && look.plan === 'quadruped' ? strideQuad(build) : strideChar(build);
+  return Math.max(14, chars * ((a.size || 60) / 100));
 }
 
 /**

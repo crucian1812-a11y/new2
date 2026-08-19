@@ -26,15 +26,74 @@ await page.waitForFunction(() => document.getElementById('loader')?.classList.co
 });
 
 const out = await page.evaluate(async () => {
-  const { poseHumanoid, strideChar } = await import('/src/render/actors.js');
+  const { poseHumanoid, poseQuadruped } = await import('/src/render/actors.js');
+  // Deliberately the *game's* stride, not the rig's own — the agreement being
+  // tested is between the distance the game advances the phase by and the
+  // distance the pose swings the leg through, and it has been broken at that
+  // seam before: every quadruped in the game was being measured against a
+  // man's stride while its legs swung through a wolf's.
+  const { strideOf } = await import('/src/game/game.js');
+  const strideFor = (def) => strideOf({ look: def, size: 100 });
   const { LOOKS, MOB_LOOKS } = await import('/src/game/content.js');
   const rigs = { ...LOOKS, ...MOB_LOOKS };
   const res = {};
 
+  // How far one foot drifts across a stance, as a fraction of the stride it is
+  // supposed to be covering. Shared by both body plans, because both make the
+  // same promise: while the foot is down it tracks backwards at exactly the
+  // speed the body moves forward.
+  const measure = (stride, footAt) => {
+    const N = 240;
+    let worst = 0;
+    let lo = Infinity;
+    let hi = -Infinity;
+    let down = false;
+    for (let i = 0; i <= N; i++) {
+      const phase = (i / N) * Math.PI * 2;
+      const bodyX = (i / N) * stride;
+      const f = footAt(phase);
+      const world = bodyX + f[0];
+      if (f[2] < 0.5) {
+        // Skip the first sample of a stance: the foot is landing and is
+        // allowed to be moving then.
+        if (down) {
+          lo = Math.min(lo, world);
+          hi = Math.max(hi, world);
+        }
+        down = true;
+      } else if (down) {
+        if (hi > lo) worst = Math.max(worst, hi - lo);
+        lo = Infinity;
+        hi = -Infinity;
+        down = false;
+      }
+    }
+    if (hi > lo) worst = Math.max(worst, hi - lo);
+    return worst;
+  };
+
   for (const [name, def] of Object.entries(rigs)) {
+    // A wolf's cycle is measured against its own leg. It used to be measured
+    // against a man's, and nothing in here noticed.
+    if (def.plan === 'quadruped') {
+      const build = def.build || {};
+      const stride = strideFor(def);
+      let worst = 0;
+      for (const paw of ['flFoot', 'brFoot']) {
+        worst = Math.max(
+          worst,
+          measure(stride, (phase) => {
+            const p = poseQuadruped({ t: 0, anim: 'idle', animT: 0, facing: 0, speed: 1, phase }, build);
+            return p[paw];
+          })
+        );
+      }
+      res[name] = { stride: +stride.toFixed(1), drift: +((worst / stride) * 100).toFixed(1) };
+      continue;
+    }
     if (def.plan && def.plan !== 'humanoid') continue;
     const build = def.build || {};
-    const stride = strideChar(build);
+    const stride = strideFor(def);
     const N = 240;
     // Peak-to-peak drift of the foot's world position within each stance.
     let worst = 0;

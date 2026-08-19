@@ -13,6 +13,7 @@ const checks = [
   ['sprite lighting', 'node', ['tools/light-check.mjs', '--port', port]],
   ['gait', 'node', ['tools/gait-check.mjs', '--port', port]],
   ['posture', 'node', ['tools/pose-check.mjs', '--port', port]],
+  ['heads', 'node', ['tools/head-check.mjs', '--port', port]],
   ['gpu composite', 'node', ['tools/gl-check.mjs', '--port', port]],
   ['single-file build', 'node', ['tools/bundle-check.mjs']],
   ['save/reload', 'node', ['tools/save-check.mjs', '--port', port]],

@@ -132,6 +132,22 @@ any of 360 directions and their limbs occlude correctly.
 Local axes: `+x` forward, `+y` the character's left, `+z` up. After rotating by
 `facing`, a point `(dx,dy,dz)` lands at `(dx, dy*ISO_Y - dz)`.
 
+### Four legs
+
+`poseQuadruped` keeps the same contract as the humanoid: the game advances
+`phase` by `moved / strideOf(a) * TAU` and the paw travels backwards by exactly
+one stride's worth per cycle while it is down. `strideOf` dispatches on
+`look.plan` — quadrupeds are measured by `strideQuad` (their own leg), and when
+they were measured by `strideChar` instead every wolf in act I skated and
+nothing noticed. `gait-check` covers both plans now.
+
+Each leg has four joints — hip, knee, ankle, foot — and the *bends do not
+vanish* when the leg extends: a foreleg keeps its elbow behind the line and a
+hind leg keeps its hock behind, which is the Z that makes a dog a dog. The
+`slack` that deepens them is measured against the height the leg actually has
+to cover, not against a nominal bone length, or a hip standing higher than the
+leg is long reports a permanently straight leg and the animal walks on stilts.
+
 ### `poseHumanoid(st, build)` → joint dictionary
 
 `st` = `{ t, anim, animT, facing, speed, phase, turn, seed, lookAt, dieBack,
@@ -159,6 +175,36 @@ Things in there that are load-bearing and easy to break:
 - A limp is **vertical only** (a bob dip + knee/lift asymmetry). A horizontal
   limp would fail `gait-check`.
 
+### The head (`headFrame`, `crownCap`)
+
+Everything on a head is a place on a sphere, not a place on the screen. `hp(a,
+b, c)` projects a local point (+a forward, +b the head's left, +c up, in radii)
+through the same transform as the rig; `vis` is that point's dot with the view
+direction, which under this camera is one fixed vector. Two consequences do all
+the work:
+
+- **The silhouette of the head is always the same ellipse**, `r` by `r·√1.25`,
+  because the unit sphere's image under this projection is. And **the edge of
+  the head is exactly the great circle square to the view direction** — so
+  anything that has to be closed off along the head's own outline (hair, a
+  cowl, a helmet's rim) can take that arc from the geometry instead of guessing
+  it. `crownCap` does; guessing it dropped the hair off every head turned
+  between about 200° and 300°.
+- **A cap's boundary must be a plane cut**, not an elevation that varies with
+  heading. A plane circle is split by the silhouette into exactly one visible
+  arc and one hidden one, always; a wavy ring can go over the horizon in two
+  places and then the outline cannot be closed. `hairPlane(front, back)` builds
+  one from the two elevations it crosses at the brow and the nape;
+  `HAIR_PLANE`, `HAIR_UNDER` (hair under a hat), `HELM_PLANE`, `KETTLE_PLANE`
+  and `HOOD_PLANE` are all the same construction.
+
+Two more traps, both hit: the skull's cranium, jaw and muzzle are filled
+**separately** out of the same gradient, because as subpaths of one path their
+windings cancel where they overlap and punch a hole through the face — one that
+appears and vanishes as the head turns. And the nose and jaw stand *outside*
+the sphere, so on the far side of the head they have to be pulled back in
+(`faceOn`), or they spike out through the back of the skull.
+
 ### Drawing
 
 `drawActor` projects every joint once, sorts body parts by depth and paints
@@ -168,9 +214,15 @@ station — `belly = 0` is the old straight taper, for blades and straps),
 as a cylinder), `sphereFill`, `contactAO`.
 
 Body pieces are separate functions: `drawPelvis`, `drawTorso`, `drawNeck`,
-`drawHead`, `drawHelm`, `drawFace`, `drawHand`, `drawBoot`, `drawSkirt`,
+`drawHead`, `drawHelm`, `drawMantle`, `drawFace`, `drawEar`, `drawHairBack`,
+`drawHairCap`, `drawBeard`, `drawHand`, `drawBoot`, `drawSkirt`, `drawSleeve`,
 `drawCape`, `drawWeapon`, `drawOffhand`, `drawQuiver`, `drawCarapace`,
-`drawEyestalks`. Plus `poseQuadruped`/`drawQuadruped` and `drawWraith`.
+`drawEyestalks`. Plus `poseQuadruped`/`drawQuadruped` and `drawWraith`, which
+share the head machinery for their cowls.
+
+A cowl's **mantle belongs to the body, not the head** — it is drawn from the
+shoulder joints, because a hood that swivels its own shoulder cape reads as a
+puppet.
 
 `drawSkirt` is deliberately **not simulated**: a hem swings where a knee drives
 through it, trails along the line of travel, and opens as far as the legs have
@@ -204,8 +256,9 @@ The suite:
 | `skills-check` | 12 class skills + 13 boss abilities run in every act |
 | `audio-check` | every sound produces signal; distance attenuates; the stress filter measurably eats highs; mute is silent |
 | `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is on |
-| `gait-check` | planted feet do not skate (worst slip 0.3%, budget 12%) |
+| `gait-check` | planted feet do not skate — quadrupeds included, measured against the game's own `strideOf` (worst slip 1.3%, budget 12%) |
 | `pose-check` | counter-rotation, pelvic drop, head carriage, heel-to-toe roll, contrapposto, banking, head lead, kinetic chain, and each gait dial |
+| `head-check` | the face travels round the skull, none of it survives on the back of the head, the hair is drawn at all 24 headings, and a beard reads head-on |
 | `gl-check` | the shader honours emissive alpha and never goes darker for brighter input |
 | `bundle-check` | `spiel.html` builds and boots from `file://` |
 | `save-check` | a run survives reload |
@@ -218,7 +271,8 @@ cannot fail is decoration.
 
 Preview pages (open through the server, they are ES modules):
 `tools/preview-art.html`, `preview-actors.html`, `preview-walk.html`
-(`?who=drowned,skeleton,raider`), `preview-lighting.html`, `preview-one.html`.
+(`?who=drowned,skeleton,raider`), `preview-lighting.html`, `preview-one.html`,
+`preview-heads.html` (every head spun through twelve headings at 5x).
 
 Screenshots: `node tools/shot.mjs /tools/preview-actors.html out.png --w 1500
 --h 1000 --dpr 1 --wait 3000 --full`. Note that a headless browser will not
@@ -298,15 +352,15 @@ a8a726a Put the sound in the world, and the light in the air
 
 ### Known rough edges
 
-- **The hexer's torso** reads as a narrow strap over bare skin; the `robe`
-  torso treatment does not cover him the way the def implies.
-- **The `fur` torso** (drowned, raider, jägerin) is a mass across the chest
-  with a fringe; at three-quarter angles it looks like a bib.
-- **Quadrupeds and the wraith did not get any of the pose work** — no pelvis,
-  no gait dials, no counter-rotation, no foot roll. They are still on their
-  original cycles.
-- **Helms are drawn against the head's heading now**, but a hood's mantle
-  over the shoulders should follow the *body* and does not.
+- **The wraith's shoulders** read as two lobes stacked under the cowl at close
+  range; they hold together at game size but not in `preview-one`.
+- **Quadrupeds have legs and a gait now but no pose dials** — no
+  counter-rotation across the shoulders, no lead/lag between the diagonal
+  pairs, and `pose-check` still does not look at them at all.
+- **The direwolf's trunk** is one long spindle; from the side it still reads
+  closer to a barrel than to a deep chest over a tucked loin.
+- **The skeleton's skull** is still the old flat ellipse with two dots — it is
+  the one head that did not get the sphere treatment.
 - The **wide bloom halo** on the GPU path is one extra texture fetch that
   approximates a scaled Canvas2D blit; it is close, not identical.
 
@@ -315,10 +369,9 @@ a8a726a Put the sound in the world, and the light in the air
 1. **Music with a motif** — a melodic line per act and a boss sting; music
    ducking under big hits. The audio engine is there; only the composition
    is missing.
-2. **Quadruped and wraith motion** to the same standard as the humanoids.
-3. **Faces and hair** — heads are spheres with values painted on; hair, beards
-   and plumes with the same lag as the cloth would carry a lot at this size.
-4. **Real-hardware performance numbers.** Nothing in this repo has ever been
+2. **Quadruped posture** to the same standard as the humanoids: the shoulders
+   and hips of a running animal counter-rotate too, and nothing measures it.
+3. **Real-hardware performance numbers.** Nothing in this repo has ever been
    measured on a phone, only on SwiftShader, which measures nothing.
 5. **Hit reactions per material** — the material table exists for debris and
    sound but does not yet change the recoil animation.

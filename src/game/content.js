@@ -106,6 +106,10 @@ export const LOOKS = {
     },
     hood: hex('#3a4632'),
     hoodLight: hex('#67784f'),
+    // A braid out from under the cowl — the one thing that reads at this size
+    // as somebody rather than as a hood on legs.
+    hair: hex('#4a3520'),
+    hairLen: 0.85,
     rim: hex('#9fd0a8'),
     colors: {
       torso: hex('#40351f'),
@@ -128,7 +132,12 @@ export const LOOKS = {
   hexer: {
     plan: 'humanoid',
     helm: 'none',
+    // Dark hair worn short, and a beard: the class silhouette is a bare head
+    // in a hooded crowd, so the head has to carry it.
     hair: hex('#2b2118'),
+    hairLen: 0.18,
+    beard: hex('#261d15'),
+    beardLen: 0.85,
     torso: 'robe',
     weapon: 'staff',
     offhand: 'orb',
@@ -236,6 +245,7 @@ export const MOB_LOOKS = {
     // What is left of whatever it drowned in, hanging heavy and dark.
     skirt: { len: 18, flare: 1.7, split: 0.55, color: hex('#31403f'), light: hex('#55696a'), dark: hex('#101718') },
     hair: hex('#243036'),
+    hairLen: 0.9,
     torso: 'fur',
     weapon: 'none',
     glowEyes: hex('#6fd3d0'),
@@ -303,6 +313,12 @@ export const MOB_LOOKS = {
   }),
   raider: mob({
     helm: 'horned',
+    // Hair out from under the helm and a full beard. A bare pink egg under a
+    // horned cap was the single most doll-like head in the game.
+    hair: hex('#6b4a2a'),
+    hairLen: 0.16,
+    beard: hex('#7a5630'),
+    beardLen: 1.15,
     // A swagger. Rolls his shoulders, swings his arms wide, leans back.
     build: { sway: 0.055, armSwing: 1.25, stoop: -0.04 },
     // A kilt of hide strips — short, wide and always moving.
@@ -459,6 +475,8 @@ export const MOB_LOOKS = {
   }),
   crossbowman: mob({
     helm: 'kettle',
+    hair: hex('#3d3527'),
+    hairLen: 0.12,
     // Drilled. The only thing on the field that walks in a straight line.
     build: { bounce: 0.8, armSwing: 0.7, stoop: 0.03 },
     skirt: { len: 17, flare: 1.6, split: 0.55, color: hex('#474750'), light: hex('#757580'), dark: hex('#191920') },

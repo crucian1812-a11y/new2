@@ -1,0 +1,79 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>head turntable</title>
+<style>body{margin:0;background:#1a1d21;color:#8899aa;font:12px monospace}canvas{display:block}</style>
+</head><body>
+<canvas id="c" width="1480" height="1200"></canvas>
+<script type="module">
+// A turntable for heads. Every rig, spun through twelve headings, drawn big.
+//
+// A head is eight pixels across in the game and it is still the first thing
+// anybody looks at, so it has to survive being turned all the way round: the
+// face must not paint on the back of the skull, the hair must not slide off
+// the cranium, and the ear must be on the side the head is turned to. None of
+// that is judgeable in the actor sheet, where the head is a thumbnail.
+import { renderActor } from '../src/render/actors.js';
+import { LOOKS, MOB_LOOKS } from '../src/game/content.js';
+
+const errors = [];
+window.addEventListener('error', (e) => errors.push(String(e.message)));
+
+const all = {
+  ...Object.fromEntries(Object.entries(LOOKS).map(([k, v]) => ['player:' + k, v])),
+  ...Object.fromEntries(Object.entries(MOB_LOOKS).map(([k, v]) => ['mob:' + k, v])),
+};
+const q = new URLSearchParams(location.search);
+const only = (q.get('who') || '').split(',').filter(Boolean);
+const rigs = Object.entries(all).filter(
+  ([k, v]) => (!only.length || only.includes(k)) && (!v.plan || v.plan === 'humanoid')
+);
+const anim = q.get('anim') || 'idle';
+const speed = +(q.get('speed') || 0);
+
+const HEADINGS = 12;
+const CELL = 118;
+const c = document.getElementById('c');
+c.width = 60 + HEADINGS * CELL;
+c.height = 40 + rigs.length * CELL;
+const ctx = c.getContext('2d');
+ctx.fillStyle = '#22262c';
+ctx.fillRect(0, 0, c.width, c.height);
+
+// The rig is drawn at a scale that puts the head where the cell is, then the
+// cell is clipped around the head — cheaper and more honest than a separate
+// head-only entry point, because it shows exactly what the game draws.
+const S = 5.2;
+rigs.forEach(([name, def], row) => {
+  const cy = 30 + row * CELL + CELL * 0.5;
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '11px monospace';
+  ctx.fillText(name, 4, cy - CELL * 0.42);
+  for (let i = 0; i < HEADINGS; i++) {
+    const facing = (i / HEADINGS) * Math.PI * 2;
+    const cx = 60 + i * CELL + CELL * 0.5;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - CELL * 0.5, cy - CELL * 0.5, CELL - 2, CELL - 2);
+    ctx.clip();
+    ctx.fillStyle = '#282d34';
+    ctx.fill();
+    // The head sits at ~0.86 of full height; put it in the middle of the cell.
+    const headH = (def.build?.headH ?? 88) * S;
+    renderActor(
+      ctx,
+      def,
+      { t: 1.4, anim, animT: 0.3, facing, speed, phase: 1.1, turn: 0, seed: row * 7 },
+      cx,
+      cy + headH,
+      S,
+      null
+    );
+    ctx.restore();
+    if (row === 0) {
+      ctx.fillStyle = '#667';
+      ctx.fillText((facing * 57.3).toFixed(0) + '°', cx - 12, 20);
+    }
+  }
+});
+
+window.__stats = { errors, rigs: rigs.length };
+</script></body></html>

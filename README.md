@@ -215,8 +215,9 @@ node tools/ablate.mjs                       # which render stage costs what
 | `skills-check` | all twelve class skills and all thirteen boss abilities run in every act without throwing |
 | `audio-check` | the music, every sound effect and every act's ambient bed produce measurable signal; a sound three screens away is a fraction of one underfoot; a dying hero's mix measurably loses its high end; and muting is silent |
 | `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is actually on — a flipped sign in the SDF bake looks plausible and is wrong |
-| `gait-check` | every rig's planted foot stays on its patch of ground through a full stride: the walk cycle is driven by distance covered, and if the stride and the cycle ever disagree the feet start skating |
+| `gait-check` | every rig's planted foot stays on its patch of ground through a full stride — four-legged ones included, measured against the stride *the game* uses rather than the one the rig would like, because the two came apart once and every wolf in act I skated |
 | `pose-check` | every humanoid rig carries its own weight: pelvis and shoulders counter-rotate, the unsupported hip drops, the head rides quieter than the hips, the foot rolls heel to toe, a standing figure changes legs, a turning one banks, and in a swing the hips peak before the shoulders and the recovery settles past the mark — all things that are invisible in a still frame and unmistakable in motion |
+| `head-check` | a head turns: its features travel round the skull instead of being painted on the front of it, none of the face survives on the back, the hair is drawn at every one of twenty-four headings, and a beard is visible from the front — the angle a beard's own surface faces away from, under a camera that looks down |
 | `gl-check` | the GPU stage composites the emissive buffers the way Canvas2D does — a spark at a quarter coverage lands at a quarter strength — and brighter never comes out darker anywhere on the range, including above white where the contrast curve is not defined |
 | `bundle-check` | the whole game flattened into `spiel.html` still builds and still boots from a `file://` URL — the bundler needs every top-level name in the codebase to be unique, and nothing else in the suite would notice |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
@@ -231,7 +232,9 @@ off, and any timing it reports is about SwiftShader rather than about a phone.
 prop and character rig on one page, which is the fastest way to iterate on art.
 `tools/preview-lighting.html` relights every prop from eight bearings around
 the clock, which is the fastest way to see what the SDF bake is doing to a
-silhouette.
+silhouette. `tools/preview-heads.html` spins every head through twelve
+headings at five times size, which is where anything wrong with a face, a
+hairline or a helmet shows up first.
 
 Beyond the scripted checks, a bot plays the game the way a player would —
 walking, dodging, spending skills off cooldown, drinking, picking up loot. The
