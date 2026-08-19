@@ -183,13 +183,20 @@ through the same transform as the rig; `vis` is that point's dot with the view
 direction, which under this camera is one fixed vector. Two consequences do all
 the work:
 
-- **The silhouette of the head is always the same ellipse**, `r` by `r·√1.25`,
-  because the unit sphere's image under this projection is. And **the edge of
-  the head is exactly the great circle square to the view direction** — so
-  anything that has to be closed off along the head's own outline (hair, a
-  cowl, a helmet's rim) can take that arc from the geometry instead of guessing
-  it. `crownCap` does; guessing it dropped the hair off every head turned
-  between about 200° and 300°.
+- **The edge of the head is the great circle square to the view direction** —
+  so anything closed off along the head's own outline (hair, a cowl, a
+  helmet's rim) takes that arc from the geometry instead of guessing it.
+  `crownCap` does; guessing it dropped the hair off every head turned between
+  about 200° and 300°.
+- **The view direction is the kernel of the projection, and `hp` carries a
+  stretch.** `hp` treats the head as an ellipsoid pulled up by √1.25, so the
+  view direction is the kernel of *that* map — `(sinF, cosF, ISO_Y/√1.25)`,
+  a camera 26.6° above the horizon. This was written as its complement, 63°,
+  which looks plausible in every screenshot because the error is symmetric and
+  is out by a fifth of a radius where it matters. `head-check` now derives the
+  kernel from `hp` itself and asserts the silhouette is square to it, and
+  `tools/make_asset.py` renders the same head as a solid through the real
+  camera. Change the stretch in `hp` and the view direction must follow it.
 - **A cap's boundary must be a plane cut**, not an elevation that varies with
   heading. A plane circle is split by the silhouette into exactly one visible
   arc and one hidden one, always; a wavy ring can go over the horizon in two
@@ -258,7 +265,7 @@ The suite:
 | `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is on |
 | `gait-check` | planted feet do not skate — quadrupeds included, measured against the game's own `strideOf` (worst slip 1.3%, budget 12%) |
 | `pose-check` | counter-rotation, pelvic drop, head carriage, heel-to-toe roll, contrapposto, banking, head lead, kinetic chain, and each gait dial |
-| `head-check` | the face travels round the skull, none of it survives on the back of the head, the hair is drawn at all 24 headings, and a beard reads head-on |
+| `head-check` | the face travels round the skull, none of it survives on the back of the head, the hair is drawn at all 24 headings, a beard reads head-on, and the head's silhouette ring is square to the view |
 | `gl-check` | the shader honours emissive alpha and never goes darker for brighter input |
 | `bundle-check` | `spiel.html` builds and boots from `file://` |
 | `save-check` | a run survives reload |
@@ -273,6 +280,19 @@ Preview pages (open through the server, they are ES modules):
 `tools/preview-art.html`, `preview-actors.html`, `preview-walk.html`
 (`?who=drowned,skeleton,raider`), `preview-lighting.html`, `preview-one.html`,
 `preview-heads.html` (every head spun through twelve headings at 5x).
+
+A 3D ruler, for when the question is whether the 2D code's idea of the camera
+is right — no page drawn by that code can answer it:
+
+```bash
+apt-get install -y --no-install-recommends blender python3-numpy
+blender --background --python tools/make_asset.py   # writes tools/ref/maquette.png
+```
+
+It builds the head and the wolf as solids at the rig's own numbers. EEVEE
+needs a GL context there is none of here, so it renders on Cycles/CPU, and
+this Blender is built without OpenImageDenoise. Nothing it makes ships and
+`tools/ref/` is gitignored.
 
 Screenshots: `node tools/shot.mjs /tools/preview-actors.html out.png --w 1500
 --h 1000 --dpr 1 --wait 3000 --full`. Note that a headless browser will not

@@ -217,7 +217,7 @@ node tools/ablate.mjs                       # which render stage costs what
 | `light-check` | every baked sprite, mirrored copies included, brightens on the side the light is actually on — a flipped sign in the SDF bake looks plausible and is wrong |
 | `gait-check` | every rig's planted foot stays on its patch of ground through a full stride — four-legged ones included, measured against the stride *the game* uses rather than the one the rig would like, because the two came apart once and every wolf in act I skated |
 | `pose-check` | every humanoid rig carries its own weight: pelvis and shoulders counter-rotate, the unsupported hip drops, the head rides quieter than the hips, the foot rolls heel to toe, a standing figure changes legs, a turning one banks, and in a swing the hips peak before the shoulders and the recovery settles past the mark — all things that are invisible in a still frame and unmistakable in motion |
-| `head-check` | a head turns: its features travel round the skull instead of being painted on the front of it, none of the face survives on the back, the hair is drawn at every one of twenty-four headings, and a beard is visible from the front — the angle a beard's own surface faces away from, under a camera that looks down |
+| `head-check` | a head turns: its features travel round the skull instead of being painted on the front of it, none of the face survives on the back, the hair is drawn at every one of twenty-four headings, a beard is visible from the front, and — the one no screenshot catches — the ring of points the head treats as its own edge really is square to the view, derived from the projection rather than assumed |
 | `gl-check` | the GPU stage composites the emissive buffers the way Canvas2D does — a spark at a quarter coverage lands at a quarter strength — and brighter never comes out darker anywhere on the range, including above white where the contrast curve is not defined |
 | `bundle-check` | the whole game flattened into `spiel.html` still builds and still boots from a `file://` URL — the bundler needs every top-level name in the codebase to be unique, and nothing else in the suite would notice |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
@@ -235,6 +235,19 @@ the clock, which is the fastest way to see what the SDF bake is doing to a
 silhouette. `tools/preview-heads.html` spins every head through twelve
 headings at five times size, which is where anything wrong with a face, a
 hairline or a helmet shows up first.
+
+There is one thing none of those pages can check, because they are drawn by
+the same 2D code that is being judged: whether the rig's idea of the camera is
+the real one. `blender --background --python tools/make_asset.py` builds the
+head and the wolf as actual solids at the rig's own numbers and renders them
+through the projection derived from `ISO_Y` — an orthographic camera **26.57
+degrees above the horizon**, with the image stretched vertically by 1.118.
+That angle is the kernel of the projection, not a guess, and it is a shallow
+view rather than the steep overhead one the 0.5 squash suggests at a glance;
+the drawing code had it as the complement, 63 degrees, and every fade and cap
+edge on every head was off by a fifth of a head radius. Blender is not a
+dependency of the game or of `verify.mjs`, nothing it renders ships, and its
+output is gitignored — it is a ruler, not a pipeline.
 
 Beyond the scripted checks, a bot plays the game the way a player would —
 walking, dodging, spending skills off cooldown, drinking, picking up loot. The

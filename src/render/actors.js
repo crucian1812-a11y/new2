@@ -2189,7 +2189,7 @@ function drawEyestalks(ctx, H, r, s, t, cosF, tint, def, emis) {
  */
 const HEAD_RZ = Math.sqrt(1 + ISO_Y * ISO_Y);
 
-function headFrame(H, r, cosF, sinF) {
+export function headFrame(H, r, cosF, sinF) {
   const rz = r * HEAD_RZ;
   const hp = (a, b, c) => [
     H[0] + r * (a * cosF - b * sinF),
@@ -2199,10 +2199,33 @@ function headFrame(H, r, cosF, sinF) {
     const ct = Math.cos(theta) * shell;
     return hp(ct * Math.cos(phi), ct * Math.sin(phi), Math.sin(theta) * shell);
   };
-  // The camera looks down the world at the angle ISO_Y implies, so a surface
-  // point faces it by this much. Positive is turned towards you.
-  const k = 1 / HEAD_RZ;
-  const vis = (a, b, c) => (a * sinF + b * cosF) * ISO_Y * k + c * k;
+  // How squarely a point on the head faces the camera. Positive is turned
+  // towards you.
+  //
+  // The view ray is not a matter of taste: it is the set of directions the
+  // projection collapses to a single point, which is its kernel. Solving
+  // x = 0 and y*ISO_Y - z = 0 gives (0, 1, ISO_Y) — a camera 26.6 degrees
+  // above the horizon, a shallow view, not the steep overhead one the 0.5
+  // squash looks like at a glance.
+  //
+  // This had the two weights the other way round, which is the *complement* of
+  // the right angle: it read a point on top of the skull as facing the camera
+  // squarely and a point on the front of the face as barely facing it at all.
+  // It looked plausible, because the error is symmetric and the features still
+  // came and went in roughly the right order. It is out by a fifth of the
+  // head's radius where it matters most — `tools/make_asset.py` builds the
+  // same head as a solid and renders it through the real camera, and that is
+  // where the two stopped agreeing.
+  //
+  // `hp` treats the head as an ellipsoid stretched up by HEAD_RZ — heads are
+  // taller than they are wide — so the kernel is of *that* map, not of the
+  // bare world projection: the z weight carries the stretch with it. The two
+  // have to agree, or the ring `silhouette()` walks is not the edge of the
+  // shape `hp` draws, and every cap closed along it is closed along the wrong
+  // line.
+  const vz = ISO_Y / HEAD_RZ;
+  const vl = Math.hypot(1, vz);
+  const vis = (a, b, c) => (a * sinF + b * cosF + c * vz) / vl;
   // How much of the head's front-to-back axis survives the projection: 1 in
   // profile, ISO_Y head-on. Anything drawn flat against the side of the head —
   // an ear, a sideburn — is foreshortened by it.
@@ -2214,15 +2237,15 @@ function headFrame(H, r, cosF, sinF) {
   // silhouette solver. Anything that has to be closed off along the edge of
   // the skull walks this.
   const silhouette = () => {
-    const vx = sinF * ISO_Y * k;
-    const vy = cosF * ISO_Y * k;
-    const vz = k;
+    const vx = sinF / vl;
+    const vy = cosF / vl;
+    const vzn = vz / vl;
     // Any two perpendiculars to the view will do; this pair never degenerates,
     // because the view direction is never straight up the head's own axis.
     let e1 = [vy, -vx, 0];
     const l1 = Math.hypot(e1[0], e1[1]) || 1;
     e1 = [e1[0] / l1, e1[1] / l1, 0];
-    const e2 = [vy * e1[2] - vz * e1[1], vz * e1[0] - vx * e1[2], vx * e1[1] - vy * e1[0]];
+    const e2 = [vy * e1[2] - vzn * e1[1], vzn * e1[0] - vx * e1[2], vx * e1[1] - vy * e1[0]];
     const out = [];
     const N = 18;
     for (let i = 0; i < N; i++) {
@@ -2378,7 +2401,7 @@ function drawFace(ctx, F, r, tint, M, def) {
   const side = KEY_X < 0 ? -1 : 1; // which cheek the lamp is on
   // A feature's opacity is how squarely it faces the camera, brought up fast
   // so it holds full strength through most of its arc and is gone by the edge.
-  const fa = (a, b, c) => clamp01(F.vis(a, b, c) * 3.2);
+  const fa = (a, b, c) => clamp01(F.vis(a, b, c) * 1.7);
   // Anything drawn on the face is drawn as a stroke or an ellipse along the
   // skull, never as a polygon between projected points: straight edges between
   // three samples of a curved surface read as facets, and a facet on a face is
@@ -2439,7 +2462,7 @@ function drawFace(ctx, F, r, tint, M, def) {
     if (av <= 0.02) continue;
     const E = F.hp(a, b, c);
     // An eye turned away from you is a narrower slot, not a fainter one.
-    const w = r * 0.2 * clamp01(F.vis(a, b, c) * 1.6 + 0.34);
+    const w = r * 0.2 * clamp01(F.vis(a, b, c) * 0.85 + 0.34);
     ctx.save();
     ctx.globalAlpha = av;
     ctx.beginPath();
@@ -2557,7 +2580,7 @@ function drawHairBack(ctx, def, F, r, tint, drag) {
   for (let i = -2; i <= 2; i++) {
     const psi = -Math.PI / 2 + i * 0.5; // a quarter turn back from the brow
     const p = ringPt(HAIR_PLANE, psi, 1.06);
-    if (F.vis(p[0], p[1], p[2]) > 0.45) continue; // this one is on the crown
+    if (F.vis(p[0], p[1], p[2]) > 0.62) continue; // this one is on the crown
     const root = F.hp(p[0], p[1], p[2]);
     const fall = r * (0.8 + len * 2.6) * (1 - Math.abs(i) * 0.16);
     const wob = ((i * 0.618) % 1) * 0.5;
@@ -2669,9 +2692,9 @@ function drawBeard(ctx, def, F, r, tint, drag) {
   const len = def.beardLen ?? 1;
   // How much of the *face* is turned towards us — not how much the beard's own
   // surface is. A beard's normal points down and forward, and a camera looking
-  // down at sixty degrees reads that as turned away, which hid every beard in
-  // the game from the one angle they matter most.
-  const av = clamp01(F.vis(1, 0, 0) * 2.6 + 0.12);
+  // looking down on it reads that as turned away, which hid every beard in the
+  // game from the one angle they matter most.
+  const av = clamp01(F.vis(1, 0, 0) * 1.4 + 0.12);
   if (av <= 0.02) return;
   ctx.save();
   ctx.globalAlpha = av;
@@ -2824,7 +2847,7 @@ function drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA, dra
   // through the back of the skull as spikes. Nothing here is occluded by
   // anything else; the silhouette is one flat fill, and this is what pays for
   // that.
-  const faceOn = clamp01(F.vis(1, 0, 0) * 1.6 + 0.28);
+  const faceOn = clamp01(F.vis(1, 0, 0) * 0.85 + 0.28);
   const jawD = lerp(0.78, 1.0, faceOn);    // how far the chin drops
   const jawF = lerp(0.16, 0.46, faceOn);   // how far the jaw runs forward
   const noseF = lerp(0.9, 1.3, faceOn);    // where the tip of the nose sits
@@ -2891,7 +2914,7 @@ function drawHead(ctx, P, D, def, st, s, cosF, sinF, tint, emis, rimC, rimA, dra
 
   if (def.glowEyes) {
     for (const b of [0.4, -0.4]) {
-      const av = clamp01(F.vis(0.86, b, 0.1) * 3.2);
+      const av = clamp01(F.vis(0.86, b, 0.1) * 1.7);
       if (av <= 0.02) continue;
       const E = F.hp(0.86, b, 0.1);
       ctx.save();
@@ -3164,7 +3187,7 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M, emis, F, drag) {
     // The shadow is kept almost black and then the two things a torch would
     // still find in there — the wet of the eyes and the line of the jaw — go
     // back on top of it.
-    const front = clamp01(F.vis(1, 0, -0.1) * 2.6);
+    const front = clamp01(F.vis(1, 0, -0.1) * 1.4);
     if (front > 0.03) {
       ctx.save();
       ctx.globalAlpha = front;
@@ -3175,7 +3198,7 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M, emis, F, drag) {
       ctx.fill();
       const glint = def.glowEyes || mixc(M.skinLight || M.armsLight, [255, 250, 235], 0.3);
       for (const b of [0.34, -0.34]) {
-        const av = clamp01(F.vis(0.86, b, 0.08) * 3);
+        const av = clamp01(F.vis(0.86, b, 0.08) * 1.6);
         if (av <= 0.02) continue;
         const E = F.hp(0.8, b, 0.06);
         ctx.beginPath();
@@ -3241,7 +3264,7 @@ function drawHelm(ctx, def, H, r, s, cosF, sinF, tint, M, emis, F, drag) {
     ctx.restore();
 
     // The nasal, hanging off the band down the front of the face.
-    const nv = clamp01(F.vis(1, 0, 0) * 2.4);
+    const nv = clamp01(F.vis(1, 0, 0) * 1.3);
     if (nv > 0.03) {
       ctx.save();
       ctx.globalAlpha = nv;
@@ -4594,7 +4617,7 @@ export function drawWraith(ctx, def, st, px, py, s, emis) {
   ctx.fill();
 
   // Nothing inside it but the dark, and two lights in the dark.
-  const front = clamp01(F.vis(1, 0, -0.1) * 2.4);
+  const front = clamp01(F.vis(1, 0, -0.1) * 1.3);
   if (front > 0.03) {
     ctx.save();
     ctx.globalAlpha = front * alpha;
@@ -4605,7 +4628,7 @@ export function drawWraith(ctx, def, st, px, py, s, emis) {
     ctx.fill();
     const glow = def.glowEyes || PAL.bogfire;
     for (const b of [0.32, -0.32]) {
-      const av = clamp01(F.vis(0.86, b, 0.06) * 3);
+      const av = clamp01(F.vis(0.86, b, 0.06) * 1.6);
       if (av <= 0.02) continue;
       const E = F.hp(0.8, b, 0.04);
       ctx.beginPath();

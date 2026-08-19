@@ -32,7 +32,7 @@ await page.waitForFunction(() => document.getElementById('loader')?.classList.co
 });
 
 const out = await page.evaluate(async () => {
-  const { renderActor, poseHumanoid } = await import('/src/render/actors.js');
+  const { renderActor, poseHumanoid, headFrame } = await import('/src/render/actors.js');
   const { LOOKS } = await import('/src/game/content.js');
 
   const S = 6;
@@ -92,6 +92,11 @@ const out = await page.evaluate(async () => {
         if (isBg(x, y)) continue;
         if (near(d, i, HAIR, 70)) hair++;
         if (near(d, i, BEARD, 70)) beard++;
+        // The face is the band from the brow to the mouth. Below that is the
+        // hollow of the throat, which is dark from every angle including the
+        // back of the head — counting it as face made a head turned away look
+        // like it still had one.
+        if (y > CY + BOXH * 0.34) continue;
         const lum = d[i] * 0.3 + d[i + 1] * 0.6 + d[i + 2] * 0.1;
         // Only near-neutral darks count as face. The shadow between two locks
         // of hair is dark too, and it is bright blue here — without this the
@@ -120,6 +125,45 @@ const out = await page.evaluate(async () => {
   res.toward = scan(shot(rig, Math.PI / 2));
   res.away = scan(shot(rig, -Math.PI / 2));
   res.noBeard = scan(shot({ ...rig, beard: undefined }, Math.PI / 2));
+
+  // The head's edge, checked against the geometry rather than against the
+  // picture.
+  //
+  // The silhouette of any linear map of a sphere is the ring of points square
+  // to the directions that map collapses — its kernel. So the kernel is read
+  // straight out of `hp` by probing it with the three basis vectors, and every
+  // point `silhouette()` hands back must be perpendicular to it. Deriving the
+  // kernel rather than assuming one keeps this honest whatever scaling `hp`
+  // carries.
+  //
+  // Nothing in a screenshot catches this. The error is symmetric, so the
+  // picture stays plausible while every cap closed along that ring — hair, a
+  // cowl, a helmet's brow band — is closed along the wrong line.
+  let edgeWorst = 0;
+  for (let i = 0; i < 16; i++) {
+    const facing = (i / 16) * Math.PI * 2;
+    const F = headFrame([0, 0], 1, Math.cos(facing), Math.sin(facing));
+    const o = F.hp(0, 0, 0);
+    const col = (a, b, c) => {
+      const q = F.hp(a, b, c);
+      return [q[0] - o[0], q[1] - o[1]];
+    };
+    const m = [col(1, 0, 0), col(0, 1, 0), col(0, 0, 1)];
+    // Kernel of the 2x3 map: the cross product of its two rows.
+    const r0 = [m[0][0], m[1][0], m[2][0]];
+    const r1 = [m[0][1], m[1][1], m[2][1]];
+    const kern = [
+      r0[1] * r1[2] - r0[2] * r1[1],
+      r0[2] * r1[0] - r0[0] * r1[2],
+      r0[0] * r1[1] - r0[1] * r1[0],
+    ];
+    const kl = Math.hypot(...kern) || 1;
+    for (const n of F.silhouette()) {
+      const dot = (n[0] * kern[0] + n[1] * kern[1] + n[2] * kern[2]) / kl;
+      edgeWorst = Math.max(edgeWorst, Math.abs(dot));
+    }
+  }
+  res.edgeWorst = edgeWorst;
   return res;
 });
 
@@ -162,5 +206,12 @@ say(
   `${out.toward.beard} px of beard facing the camera, ${out.noBeard.beard} without one`
 );
 
-console.log(fails.length ? `${fails.length} head claim(s) not met` : 'the head turns, keeps its hair, and wears its beard');
+// 5. The silhouette the code walks is the head's actual outline.
+say(
+  out.edgeWorst < 0.01,
+  'the head knows where its own edge is',
+  `silhouette ring is ${(out.edgeWorst * 100).toFixed(2)}% out of square with the view, over 16 headings`
+);
+
+console.log(fails.length ? `${fails.length} head claim(s) not met` : 'the head turns, keeps its hair, and wears its edge and its beard');
 process.exit(fails.length ? 1 : 0);
