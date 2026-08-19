@@ -1381,7 +1381,11 @@ export class Renderer {
         gradeSky: amb.sky.map((v) => v / 255),
         gradeAmount: amb.gradeAmount,
         fogAmount: amb.fogAmount > 0 ? 1 : 0,
-        bloomAmount: this.quality >= 2 ? 0.6 : 0.45,
+        // The same weights the Canvas2D path composites the two buffers with,
+        // so ?nogl stays a fair comparison; the wide halo is the first thing
+        // the quality tier gives up, there as here.
+        bloomAmount: 1,
+        bloomWide: this.quality >= 2 ? 0.42 : 0,
         contrast: this.quality >= 1 ? 0.42 : 0,
         overbright: this.quality >= 1 ? 0.07 : 0,
         relief: 1.8,

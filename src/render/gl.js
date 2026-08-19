@@ -59,6 +59,7 @@ uniform float u_levels;      // colour steps per channel
 uniform float u_overbright;
 uniform float u_fogAmount;
 uniform float u_bloomAmount;
+uniform float u_bloomWide;
 uniform float u_contrast;
 uniform float u_time;
 
@@ -87,8 +88,19 @@ float bayer(vec2 p) {
 // The overlay blend the frame used to be composited over itself with: an
 // S-curve that pushes everything below mid-grey down and everything above it
 // up. It is what stops the picture sitting in the middle of the range.
-vec3 overlayCurve(vec3 b) {
-  return mix(b, mix(2.0 * b * b, 1.0 - 2.0 * (1.0 - b) * (1.0 - b), step(0.5, b)), u_contrast);
+//
+// The curve is only defined on 0..1. Canvas2D guaranteed that by clamping
+// every blend; here the frame can legitimately arrive above 1 — a torch, a
+// spell, an overbright highlight — and the upper branch turns over at 1.707
+// and dives, so a channel at 2.0 came out *dimmer* than a channel at 1.0. On
+// a white-hot spell the three channels crossed that point at different times,
+// which is how a highlight became a saturated ring of the wrong colour. So the
+// curve is applied to the part that fits in the range and the excess is
+// carried over it, which keeps the response monotonic all the way up.
+vec3 overlayCurve(vec3 c) {
+  vec3 b = min(c, vec3(1.0));
+  vec3 s = mix(b, mix(2.0 * b * b, 1.0 - 2.0 * (1.0 - b) * (1.0 - b), step(0.5, b)), u_contrast);
+  return s + max(c - 1.0, 0.0);
 }
 
 void main() {
@@ -157,11 +169,25 @@ void main() {
   vec4 fog = texture(u_fog, v_uv);
   col += fog.rgb * fog.a * light * u_fogAmount;
 
-  // Bloom: the emissive buffer sharp, and again blurred and wider.
-  col += texture(u_emis, v_uv).rgb * u_bloomAmount * 0.45;
-  col += texture(u_bloom, v_uv).rgb * u_bloomAmount;
+  // Bloom: the emissive buffer sharp, and again blurred, and once more wider.
+  //
+  // Both buffers are alpha-backed Canvas2D surfaces, and a canvas uploaded
+  // with UNPACK_PREMULTIPLY_ALPHA off arrives *un*-premultiplied: a spark
+  // painted at one tenth coverage hands over its colour at full strength with
+  // the tenth living in the alpha channel alone. Reading .rgb and ignoring .a
+  // therefore turned every soft radial dot into a flat saturated disc at full
+  // power — the flares that were drowning the lighting. Canvas2D adds these
+  // buffers with the lighter blend, which is exactly rgb*a — so does this.
+  vec4 emis = texture(u_emis, v_uv);
+  vec4 glow = texture(u_bloom, v_uv);
+  col += emis.rgb * emis.a * u_bloomAmount * 0.6;
+  col += glow.rgb * glow.a * u_bloomAmount * 0.72;
+  if (u_bloomWide > 0.0) {
+    vec4 wide = texture(u_bloom, (v_uv - 0.5) / 1.06 + 0.5);
+    col += wide.rgb * wide.a * u_bloomAmount * u_bloomWide;
+  }
 
-  col = overlayCurve(clamp(col, 0.0, 2.0));
+  col = overlayCurve(max(col, vec3(0.0)));
 
   // The zone's wash, poured from the top.
   vec3 wash = mix(mix(u_grade, u_gradeSky, 0.45), mix(u_gradeSky, u_grade, 0.3), v_uv.y);
@@ -300,6 +326,7 @@ export class GLStage {
       overbright: u('u_overbright'),
       fogAmount: u('u_fogAmount'),
       bloomAmount: u('u_bloomAmount'),
+      bloomWide: u('u_bloomWide'),
       contrast: u('u_contrast'),
       time: u('u_time'),
     };
@@ -375,7 +402,8 @@ export class GLStage {
       gl.uniform1f(this.u.levels, opts.levels ?? 26);
       gl.uniform1f(this.u.overbright, opts.overbright ?? 0.07);
       gl.uniform1f(this.u.fogAmount, opts.fogAmount ?? 1);
-      gl.uniform1f(this.u.bloomAmount, opts.bloomAmount ?? 0.72);
+      gl.uniform1f(this.u.bloomAmount, opts.bloomAmount ?? 1);
+      gl.uniform1f(this.u.bloomWide, opts.bloomWide ?? 0.42);
       gl.uniform1f(this.u.contrast, opts.contrast ?? 0.42);
       gl.uniform1f(this.u.time, opts.time ?? 0);
 
@@ -421,7 +449,7 @@ export class GLStage {
         gl.uniform3fv(this.u.ambBot, amb[1]);
         gl.uniform1f(this.u.gradeAmount, opts.gradeAmount ?? 0.2);
         gl.uniform1f(this.u.fogAmount, opts.fogAmount ?? 1);
-        gl.uniform1f(this.u.bloomAmount, opts.bloomAmount ?? 0.72);
+        gl.uniform1f(this.u.bloomAmount, opts.bloomAmount ?? 1);
         gl.uniform1f(this.u.contrast, opts.contrast ?? 0.42);
         gl.uniform1i(this.u.lightCount, n);
         gl.uniform1i(this.u.roomCount, rn);
