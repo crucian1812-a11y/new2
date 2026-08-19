@@ -147,8 +147,39 @@ const out = await page.evaluate(async () => {
       poseHumanoid({ t: 3, anim: 'idle', animT: 0, speed: 1, phase: 0, facing: 0, lookAt: a }, build)
         .headYaw;
 
+    // --- the kinetic chain --------------------------------------------------
+    // A blow starts at the ground and arrives at the hand last. The pelvis
+    // must reach its peak rotation *before* the shoulders reach theirs, and
+    // the recovery must overshoot the mark and come back rather than stopping
+    // dead on it.
+    let peakPelvis = 0;
+    let peakTwist = 0;
+    let bestP = -Infinity;
+    let bestT = -Infinity;
+    let overshoot = 0;
+    for (let i = 0; i <= 60; i++) {
+      const k = i / 60;
+      const p = poseHumanoid({ t: 3, anim: 'attack', animT: k, speed: 0, phase: 0, facing: 0 }, build);
+      // Rotation of each girdle, read off the sideways travel of its left point.
+      const tw = p.shoulderL[0] - p.chest[0];
+      const pv = p.hipL[0] - p.hip[0];
+      if (pv > bestP) {
+        bestP = pv;
+        peakPelvis = k;
+      }
+      if (tw > bestT) {
+        bestT = tw;
+        peakTwist = k;
+      }
+      // After the strike, the shoulders must cross back past neutral.
+      if (k > 0.6) overshoot = Math.min(overshoot, tw);
+    }
+
     results.push({
       name,
+      peakPelvis: +peakPelvis.toFixed(3),
+      peakTwist: +peakTwist.toFixed(3),
+      overshoot: +overshoot.toFixed(2),
       counter: +counter.toFixed(3),
       drop: +drop.toFixed(2),
       headSpan: +headSpan.toFixed(2),
@@ -165,10 +196,47 @@ const out = await page.evaluate(async () => {
       lookR: +look(-0.8).toFixed(2),
     });
   }
-  return results;
+
+  // --- the gait dials -------------------------------------------------------
+  // Each species is meant to move differently, and the difference is carried
+  // by a handful of numbers on its build. Read against synthesised builds
+  // rather than against the content, so this measures what the dials do and
+  // not what someone happened to type into a monster.
+  const cycle = (build) => {
+    const out = [];
+    for (let i = 0; i < 48; i++) {
+      out.push(poseHumanoid({ t: 3, anim: 'idle', animT: 0, speed: 1, phase: (i / 48) * Math.PI * 2, facing: 0 }, build));
+    }
+    return out;
+  };
+  const range = (ps, f) => Math.max(...ps.map(f)) - Math.min(...ps.map(f));
+  const plain = cycle({});
+  const dials = {
+    // Half the arm swing must show up as about half the hand travel.
+    armSwing: range(cycle({ armSwing: 0.4 }), (p) => p.handR[0]) / range(plain, (p) => p.handR[0]),
+    // A swagger rolls the trunk sideways; a plain walk does not at all, so
+    // this is an absolute travel rather than a ratio against zero.
+    sway: range(cycle({ sway: 0.09 }), (p) => p.chest[1]),
+    swayPlain: range(plain, (p) => p.chest[1]),
+    // A bouncier step travels further vertically.
+    bounce: range(cycle({ bounce: 1.6 }), (p) => p.hip[2]) / range(plain, (p) => p.hip[2]),
+    // A stoop is a permanent lean: the chest sits forward of the hip all cycle.
+    stoop: Math.min(...cycle({ stoop: 0.3 }).map((p) => p.chest[0])) - Math.max(...plain.map((p) => p.chest[0])),
+  };
+  // A limp is asymmetric by definition: the body falls onto one step and not
+  // the other. Read at the two mid-stances, which is where a walk is
+  // otherwise perfectly mirrored — one leg under the body, then the other.
+  const limped = cycle({ limp: 0.32 });
+  const midStance = (ps) => Math.abs(ps[12].hip[2] - ps[36].hip[2]);
+  dials.limpAsym = midStance(limped);
+  dials.plainAsym = midStance(plain);
+
+  return { results, dials };
 });
 
 await browser.close();
+
+const { results, dials } = out;
 
 let failed = 0;
 const fail = (n, msg) => {
@@ -176,7 +244,7 @@ const fail = (n, msg) => {
   console.log(`FAIL ${n}: ${msg}`);
 };
 
-for (const r of out) {
+for (const r of results) {
   // Wound against each other, not with each other. -1 is perfect opposition;
   // anything at or above zero means the girdles turn together, which is the
   // marching-toy walk this exists to prevent.
@@ -193,13 +261,35 @@ for (const r of out) {
   // Leaning into the turn: opposite signs, and neither of them nothing.
   if (!(r.bankL * r.bankR < 0 && Math.abs(r.bankL) > 0.4)) fail(r.name, `does not bank into a turn (${r.bankL} / ${r.bankR})`);
   if (!(r.lookL > 0.4 && r.lookR < -0.4)) fail(r.name, `the head does not follow what it is looking at (${r.lookL} / ${r.lookR})`);
+  // The hips get there first, and by a margin you could see.
+  if (!(r.peakPelvis < r.peakTwist - 0.04)) {
+    fail(r.name, `the shoulders do not lag the hips in a swing (${r.peakPelvis} vs ${r.peakTwist})`);
+  }
+  if (!(r.overshoot < -0.1)) fail(r.name, `the swing stops dead instead of settling past the mark (${r.overshoot})`);
 }
 
-const worstCounter = Math.max(...out.map((r) => r.counter));
-const leastDrop = Math.min(...out.map((r) => r.drop));
-const worstCarry = Math.max(...out.map((r) => r.headSpan / r.hipSpan));
-console.log(`${out.length} humanoid rigs walked through a full cycle`);
+// The gait dials, each against a plain walk.
+if (!(dials.armSwing > 0.3 && dials.armSwing < 0.55)) fail('gait', `armSwing 0.4 gave ${dials.armSwing.toFixed(2)}x the arm travel`);
+if (!(dials.sway > 1.5 && dials.swayPlain < 0.2)) {
+  fail('gait', `sway rolls the trunk ${dials.sway.toFixed(2)} units against ${dials.swayPlain.toFixed(2)} for a plain walk`);
+}
+if (!(dials.bounce > 1.3)) fail('gait', `bounce 1.6 gave ${dials.bounce.toFixed(2)}x the rise`);
+if (!(dials.stoop > 1)) fail('gait', `a stoop does not put the chest forward (${dials.stoop.toFixed(2)})`);
+if (!(dials.limpAsym > dials.plainAsym + 0.8)) {
+  fail('gait', `a limp is as even as a walk (${dials.limpAsym.toFixed(2)} vs ${dials.plainAsym.toFixed(2)})`);
+}
+
+const worstCounter = Math.max(...results.map((r) => r.counter));
+const leastDrop = Math.min(...results.map((r) => r.drop));
+const worstCarry = Math.max(...results.map((r) => r.headSpan / r.hipSpan));
+const leastLead = Math.min(...results.map((r) => r.peakTwist - r.peakPelvis));
+console.log(`${results.length} humanoid rigs walked through a full cycle`);
 console.log(`counter-rotation worst ${worstCounter} (want < -0.5)`);
 console.log(`pelvic drop least ${leastDrop} units, head carries ${(worstCarry * 100) | 0}% of the hip's rise at worst`);
+console.log(`hips lead the shoulders by ${leastLead.toFixed(2)} of the swing at least`);
+console.log(
+  `gait dials: arms ${dials.armSwing.toFixed(2)}x, sway ${dials.sway.toFixed(1)} units, ` +
+    `bounce ${dials.bounce.toFixed(2)}x, limp dip ${dials.limpAsym.toFixed(1)} units`
+);
 console.log(failed ? `${failed} posture fault(s)` : 'every rig carries its own weight');
 process.exit(failed ? 1 : 0);

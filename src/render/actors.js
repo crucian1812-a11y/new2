@@ -109,6 +109,18 @@ export function poseHumanoid(st, build = {}) {
     shin = 23,
     upperArm = 19,
     foreArm = 18,
+    // How this particular thing moves. Every figure in the game shared one
+    // walk, and a screen of six different monsters all stepping the same way
+    // reads as one animation in six paint jobs however different the bodies
+    // are. These are the handful of dials that separate a shamble from a
+    // swagger from a march, and they cost nothing: the cycle is the same, the
+    // proportions of it are not.
+    stoop = 0, // permanent forward lean — a hunched, dragging thing
+    sway = 0, // extra roll per step: a swagger, or a heavy thing rolling
+    bounce = 1, // vertical travel per step
+    armSwing = 1, // how freely the arms swing; near zero is stiff or bound
+    limp = 0, // one leg favoured: the body dips onto it and it drags
+    jitter = 0, // per-frame twitch — something held together by will alone
   } = build;
 
   const t = st.t;
@@ -138,8 +150,15 @@ export function poseHumanoid(st, build = {}) {
 
   if (walkAmt > 0.01) {
     lean += 0.16 * walkAmt;
-    bob += Math.sin(runPhase * 2) * 2.2 * walkAmt;
+    bob += Math.sin(runPhase * 2) * 2.2 * walkAmt * bounce;
     twist += Math.sin(runPhase) * 0.22 * walkAmt;
+    // A swagger, or the roll of something too heavy to keep upright over one
+    // foot: the trunk tips towards whichever leg is holding it.
+    roll += Math.sin(runPhase) * sway * walkAmt;
+    // A limp is the body falling onto the bad leg once a cycle. It is a
+    // vertical thing, not a horizontal one — the foot still lands where the
+    // ground says it must, so the drag reads without the figure skating.
+    if (limp > 0) bob -= Math.max(0, Math.sin(runPhase)) * limp * 3.4 * walkAmt;
 
     // The pelvis and the shoulders turn *against* each other. This is the
     // whole difference between a walk and a wind-up toy: the arm that swings
@@ -171,6 +190,18 @@ export function poseHumanoid(st, build = {}) {
 
   // Banking. Lean into the turn like a runner, and no further than a runner.
   roll += clamp(turn * 0.06, -0.16, 0.16) * (0.35 + walkAmt * 0.65);
+  lean += stoop;
+  // Breathing. The chest lifts and the shoulders come up with it, slower than
+  // the idle sway so the two never line up into one pulse.
+  const breath = Math.sin(t * 0.85 + seed * 1.7);
+  bob += breath * 0.35 * (1 - walkAmt * 0.6);
+  // A twitch, for things that should not be walking at all.
+  if (jitter > 0) {
+    const j = (n) => (Math.sin(t * 47 + n * 12.9898 + seed) * 43758.5453) % 1;
+    twist += j(1) * jitter;
+    lean += j(2) * jitter * 0.6;
+    bob += j(3) * jitter * 6;
+  }
 
   // --- animation overlays --------------------------------------------------
   let armSwingR = 0; // right arm forward/back in the sagittal plane
@@ -182,23 +213,56 @@ export function poseHumanoid(st, build = {}) {
   let weaponSpin = 0;
 
   if (walkAmt > 0.01) {
-    armSwingR = -Math.sin(runPhase) * 0.75 * walkAmt;
-    armSwingL = Math.sin(runPhase) * 0.75 * walkAmt;
+    armSwingR = -Math.sin(runPhase) * 0.75 * walkAmt * armSwing;
+    armSwingL = Math.sin(runPhase) * 0.75 * walkAmt * armSwing;
   } else {
     armSwingR = Math.sin(t * 1.8 + 0.4) * 0.05 - 0.1;
     armSwingL = Math.sin(t * 1.8) * 0.05 - 0.1;
   }
 
+  // The rotation the shoulders carry through a swing, as a function of time.
+  //
+  // A blow is not the arm. It starts at the ground, goes up through the hips,
+  // across the shoulders and out along the arm last of all, and each link
+  // reaches its peak a moment after the one below it — that lag is the whole
+  // reason a strike looks like it carries force instead of being waved. So
+  // the swing's rotation is a curve that can be *sampled twice*: once for the
+  // shoulders, and once slightly earlier for the pelvis, which is what puts
+  // the hips ahead of the chest.
+  //
+  // The recovery overshoots and comes back, because a body that has just
+  // thrown its whole weight one way cannot stop dead on the mark.
+  const swingCurve = (k, back, through) => {
+    if (k < 0.35) {
+      // Wind-up, which is itself the anticipation for the strike — but it
+      // opens with a small counter-move, a settle away before the coil.
+      const e = k / 0.35;
+      return back * e - back * 0.14 * Math.sin(Math.min(1, k / 0.09) * Math.PI);
+    }
+    if (k < 0.55) {
+      const e = (k - 0.35) / 0.2;
+      return lerp(back, through, e * e * (3 - 2 * e));
+    }
+    const e = (k - 0.55) / 0.45;
+    // Settle: past the mark, then back to it.
+    return through * ((1 - e) - 0.2 * Math.sin(Math.PI * e));
+  };
+  // How far ahead of the shoulders the hips run. A tenth of the animation is
+  // about a frame and a half at these speeds, which is exactly the amount you
+  // read as "he put his body into it" rather than as a mistimed pose.
+  const LEAD = 0.1;
+
   switch (anim) {
     case 'attack': {
       // 0 .. 0.35 wind up, 0.35 .. 0.55 strike, rest recover
       const k = at;
+      twist += swingCurve(k, -0.5, 0.62);
+      pelvis += swingCurve(Math.min(1, k + LEAD), -0.5, 0.62) * 0.8;
       if (k < 0.35) {
         const e = k / 0.35;
         armSwingR = lerp(armSwingR, -1.9, e);
         armLiftR = lerp(0, 0.85, e);
         elbowR = lerp(0.5, 1.5, e);
-        twist -= 0.5 * e;
         lean -= 0.1 * e;
         weaponSpin = -1.5 * e;
       } else if (k < 0.55) {
@@ -207,29 +271,35 @@ export function poseHumanoid(st, build = {}) {
         armSwingR = lerp(-1.9, 1.5, ee);
         armLiftR = lerp(0.85, -0.25, ee);
         elbowR = lerp(1.5, 0.12, ee);
-        twist = lerp(-0.5, 0.62, ee);
         lean = lerp(lean - 0.1, lean + 0.34, ee);
         weaponSpin = lerp(-1.5, 2.4, ee);
+        // The weight goes down and forward into the blow.
+        crouch += 2.6 * ee;
+        list -= 2.4 * ee;
       } else {
         const e = (k - 0.55) / 0.45;
         armSwingR = lerp(1.5, -0.1, e);
         armLiftR = lerp(-0.25, 0, e);
         elbowR = lerp(0.12, 0.5, e);
-        twist = lerp(0.62, 0, e);
         lean = lerp(lean + 0.34, lean, e);
         weaponSpin = lerp(2.4, 0, e);
+        crouch += 2.6 * (1 - e);
+        list -= 2.4 * (1 - e);
       }
       break;
     }
     case 'attack2': {
       // Reverse sweep, so consecutive swings alternate.
       const k = at;
+      // Same chain, wound the other way: the hips open first and drag the
+      // shoulders round after them.
+      twist += swingCurve(k, 0.5, -0.55);
+      pelvis += swingCurve(Math.min(1, k + LEAD), 0.5, -0.55) * 0.8;
       if (k < 0.32) {
         const e = k / 0.32;
         armSwingR = lerp(armSwingR, 1.3, e);
         armLiftR = lerp(0, -0.5, e);
         elbowR = lerp(0.5, 1.3, e);
-        twist += 0.5 * e;
         weaponSpin = 2.2 * e;
       } else if (k < 0.52) {
         const e = (k - 0.32) / 0.2;
@@ -237,37 +307,43 @@ export function poseHumanoid(st, build = {}) {
         armSwingR = lerp(1.3, -1.5, ee);
         armLiftR = lerp(-0.5, 0.7, ee);
         elbowR = lerp(1.3, 0.2, ee);
-        twist = lerp(0.5, -0.55, ee);
         lean += 0.3 * ee;
         weaponSpin = lerp(2.2, -1.9, ee);
+        crouch += 2.2 * ee;
+        list += 2.4 * ee;
       } else {
         const e = (k - 0.52) / 0.48;
         armSwingR = lerp(-1.5, -0.1, e);
         armLiftR = lerp(0.7, 0, e);
         elbowR = lerp(0.2, 0.5, e);
-        twist = lerp(-0.55, 0, e);
         weaponSpin = lerp(-1.9, 0, e);
+        crouch += 2.2 * (1 - e);
+        list += 2.4 * (1 - e);
       }
       break;
     }
     case 'thrust': {
       const k = at;
+      twist += swingCurve(k, -0.35, 0.25);
+      pelvis += swingCurve(Math.min(1, k + LEAD), -0.35, 0.25) * 0.8;
       if (k < 0.4) {
         const e = k / 0.4;
         armSwingR = lerp(armSwingR, -1.2, e);
         elbowR = lerp(0.5, 1.7, e);
-        twist -= 0.35 * e;
       } else if (k < 0.55) {
         const e = (k - 0.4) / 0.15;
         armSwingR = lerp(-1.2, 0.15, e);
         elbowR = lerp(1.7, 0.02, e);
-        twist = lerp(-0.35, 0.25, e);
+        // A lunge is the one attack whose whole point is the weight going
+        // forward and down onto the front foot.
         lean += 0.4 * e;
+        crouch += 3.4 * e;
       } else {
         const e = (k - 0.55) / 0.45;
         armSwingR = lerp(0.15, -0.1, e);
         elbowR = lerp(0.02, 0.5, e);
-        twist = lerp(0.25, 0, e);
+        lean += 0.4 * (1 - e);
+        crouch += 3.4 * (1 - e);
       }
       break;
     }
@@ -497,6 +573,12 @@ export function poseHumanoid(st, build = {}) {
       kneeA *= gait;
       liftZ *= gait;
       ankle *= gait;
+      // The bad leg never straightens and never quite clears the ground.
+      if (limp > 0 && side > 0) {
+        kneeA += limp * 0.55 * gait;
+        liftZ *= 1 - limp * 0.6;
+        ankle = lerp(ankle, -0.1, limp * 0.7);
+      }
       if (gait < 1) {
         hipA += Math.sin(t * 1.8 + side) * 0.02 * (1 - gait);
         kneeA += 0.06 * (1 - gait);
@@ -1206,7 +1288,12 @@ function drawHand(ctx, Hd, Elb, def, s, lw, tint, depth) {
   if (!Hd) return;
   const M = def.colors;
   const armoured = !!def.pauldrons;
-  const u = 3.1 * s * lw; // one hand unit: roughly a finger's width
+  // One hand unit: roughly a finger's width. It used to be 3.1, which built a
+  // hand as wide as the figure's own head — anatomically a hand is about the
+  // height of a face, and this rig draws it splayed rather than in profile, so
+  // it was reading as a boxing glove on the end of every arm. Two thirds the
+  // size puts it back in proportion and lets the fingers stay separate.
+  const u = 2.15 * s * lw;
   const contour = [8, 7, 9];
 
   // Point the hand away from the elbow.

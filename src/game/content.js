@@ -230,6 +230,9 @@ export const HIT_MATERIALS = {
 export const MOB_LOOKS = {
   drowned: mob({
     helm: 'none',
+    // Something that came out of the water and has not finished drying: it
+    // drags a leg, hangs forward, and its arms hardly swing at all.
+    build: { stoop: 0.17, limp: 0.3, bounce: 0.65, armSwing: 0.45 },
     // What is left of whatever it drowned in, hanging heavy and dark.
     skirt: { len: 18, flare: 1.7, split: 0.55, color: hex('#31403f'), light: hex('#55696a'), dark: hex('#101718') },
     hair: hex('#243036'),
@@ -277,7 +280,7 @@ export const MOB_LOOKS = {
     shellLight: hex('#d08c4e'),
     spine: hex('#e8d9b4'),
     torsoWide: 1.15,
-    build: { hipH: 30, chestH: 46, neckH: 53, headH: 60, thigh: 16, shin: 15, upperArm: 16, foreArm: 15 },
+    build: { hipH: 30, chestH: 46, neckH: 53, headH: 60, thigh: 16, shin: 15, upperArm: 16, foreArm: 15, stoop: 0.3, sway: 0.07, bounce: 1.3, armSwing: 0.6 },
     colors: {
       torso: hex('#7a4a2c'),
       torsoLight: hex('#b0724a'),
@@ -300,6 +303,8 @@ export const MOB_LOOKS = {
   }),
   raider: mob({
     helm: 'horned',
+    // A swagger. Rolls his shoulders, swings his arms wide, leans back.
+    build: { sway: 0.055, armSwing: 1.25, stoop: -0.04 },
     // A kilt of hide strips — short, wide and always moving.
     skirt: { len: 15, flare: 1.6, split: 0.8, color: hex('#4a3c2c'), light: hex('#786349'), dark: hex('#1c160f') },
     torso: 'fur',
@@ -326,6 +331,7 @@ export const MOB_LOOKS = {
   }),
   shaman: mob({
     helm: 'hood',
+    build: { stoop: 0.16, armSwing: 0.55, bounce: 0.85 },
     // Rag-hemmed robe, torn short so the shins show.
     skirt: { len: 26, flare: 1.8, split: 0.34, color: hex('#3d4a33'), light: hex('#65754f'), dark: hex('#141a10') },
     torso: 'robe',
@@ -415,6 +421,9 @@ export const MOB_LOOKS = {
   },
   skeleton: mob({
     helm: 'skull',
+    // Held together by whatever is animating it: stiff arms, a hard bounce
+    // on every step and a permanent twitch.
+    build: { bounce: 1.35, armSwing: 0.5, jitter: 0.02, sway: 0.03 },
     // A rotted mail skirt over the hips: the one thing that stops a skeleton
     // reading as a diagram of a skeleton.
     skirt: { len: 16, flare: 1.6, split: 0.6, color: hex('#43434a'), light: hex('#70707a'), dark: hex('#17171c') },
@@ -450,6 +459,8 @@ export const MOB_LOOKS = {
   }),
   crossbowman: mob({
     helm: 'kettle',
+    // Drilled. The only thing on the field that walks in a straight line.
+    build: { bounce: 0.8, armSwing: 0.7, stoop: 0.03 },
     skirt: { len: 17, flare: 1.6, split: 0.55, color: hex('#474750'), light: hex('#757580'), dark: hex('#191920') },
     torso: 'mail',
     weapon: 'bow',
@@ -479,6 +490,8 @@ export const MOB_LOOKS = {
   }),
   knightRevenant: mob({
     helm: 'greathelm',
+    // Plate is heavy and this one has been dead a long time in it.
+    build: { stoop: 0.1, bounce: 0.75, armSwing: 0.6, sway: 0.035, limp: 0.14 },
     // The Order's own surcoat, grey with grave-dirt, and the cross still on it.
     skirt: { len: 21, flare: 1.85, split: 0.6, color: hex('#5a5347'), light: hex('#8a8172'), dark: hex('#211e18'), emblem: PAL.orderBlack },
     torso: 'plate',
@@ -523,7 +536,7 @@ export const MOB_LOOKS = {
     headR: 9,
     glowEyes: PAL.amber,
     rim: PAL.amber,
-    build: { hipH: 58, chestH: 88, neckH: 100, headH: 112, shoulderW: 20, hipW: 13, thigh: 30, shin: 28, upperArm: 26, foreArm: 24 },
+    build: { hipH: 58, chestH: 88, neckH: 100, headH: 112, shoulderW: 20, hipW: 13, thigh: 30, shin: 28, upperArm: 26, foreArm: 24, sway: 0.06, bounce: 1.25, armSwing: 0.85, stoop: 0.06 },
     colors: {
       torso: hex('#54371a'),
       torsoLight: hex('#9a6c28'),
@@ -563,7 +576,7 @@ export const MOB_LOOKS = {
     capeColor: hex('#2b2140'),
     capeColorLight: hex('#4c3d70'),
     capeColorDark: hex('#100b1c'),
-    build: { hipH: 56, chestH: 86, neckH: 98, headH: 110, shoulderW: 19, hipW: 12, thigh: 29, shin: 27, upperArm: 25, foreArm: 23 },
+    build: { hipH: 56, chestH: 86, neckH: 98, headH: 110, shoulderW: 19, hipW: 12, thigh: 29, shin: 27, upperArm: 25, foreArm: 23, sway: 0.045, bounce: 1.15, armSwing: 0.8 },
     colors: {
       torso: hex('#2b2740'),
       torsoLight: hex('#584f7a'),
