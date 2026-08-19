@@ -813,7 +813,7 @@ export class Renderer {
 
   // -- bloom ---------------------------------------------------------------
 
-  renderBloom() {
+  buildBloom() {
     const a = this.blurACtx;
     const b = this.blurBCtx;
     const aw = this.blurA.width;
@@ -839,6 +839,10 @@ export class Renderer {
       a.drawImage(this.blurB, 0, 0);
     }
 
+  }
+
+  renderBloom() {
+    this.buildBloom();
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -921,8 +925,13 @@ export class Renderer {
       f.restore();
     }
 
-    // Light it. A little of the unlit sheet is left behind so haze in the far
-    // dark does not disappear altogether — real distance still washes out.
+    // On the GPU path the fog is handed over exactly like this — unlit — and
+    // the shader multiplies it by the light it computes per pixel. Only the
+    // Canvas2D path has to light it here, against the half-resolution light
+    // map, and leave a little of the unlit sheet behind so haze in the far
+    // dark does not disappear altogether.
+    if (this.glLive) return;
+
     f.globalCompositeOperation = 'multiply';
     f.globalAlpha = 0.86;
     f.drawImage(this.lightCanvas, 0, 0, fw, fh);
@@ -934,6 +943,38 @@ export class Renderer {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.fogCanvas, 0, 0, this.w, this.h);
     ctx.restore();
+  }
+
+  /** True when the GPU stage is doing the lighting and the grade. */
+  get glLive() {
+    return !!(this.gl && this.gl.ok);
+  }
+
+  /**
+   * Everything that happens to the frame after the last sprite is drawn.
+   *
+   * On the GPU path this only prepares the buffers the shader will read — the
+   * fog sheet and the blurred bloom — and the lighting, the fog's own light,
+   * the bloom, the contrast, the grade and the vignette all happen once, per
+   * pixel, in `presentWorld`. On the Canvas2D path it is the old chain of
+   * full-resolution composites, kept working because the GPU stage is allowed
+   * to fail at any moment and because ?nogl has to stay a fair comparison.
+   */
+  composite() {
+    if (this.glLive) {
+      this.drawFog();
+      this.buildBloom();
+      return;
+    }
+    this.renderLightmap();
+    this.compositeLight();
+    this.renderBloom();
+    this.drawFog();
+  }
+
+  /** The grade, on the Canvas2D path only — the shader does its own. */
+  finish() {
+    if (!this.glLive) this.drawVignetteAndGrade();
   }
 
   /**
@@ -1288,10 +1329,13 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    if (this.gl && this.gl.ok) {
-      // Hand the frame to the GPU, and leave this surface clear so the HUD
-      // draws over it. The light list is converted to world-buffer pixels
-      // here because that is the space the shader samples in.
+    if (this.glLive) {
+      // Hand the frame to the GPU, along with everything it needs to light
+      // and finish it: the unlit fog sheet, the emissive buffer sharp and
+      // blurred, the light list and the roofs in world-buffer pixels, and the
+      // zone's ambient and grade. The result is blitted onto the same 2D
+      // canvas the HUD uses — see the note by `glCanvas` for why it is never
+      // added to the page itself.
       const ls = [];
       for (const L of this.lights) {
         const r = L.r * this.cam.zoom * this.pxScale;
@@ -1300,24 +1344,72 @@ export class Renderer {
         if (x + r < 0 || y + r < 0 || x - r > this.w || y - r > this.h) continue;
         ls.push({ x, y, r, color: L.color, i: L.i });
       }
-      // Brightest first, since the shader only takes a dozen.
+      // Brightest first, since the shader only takes sixteen.
       ls.sort((a, b) => b.i - a.i);
-      const done = this.gl.present(this.world, this.sw, this.sh, ls, {
+
+      const rooms = [];
+      if (this.rooms) {
+        for (const r of this.rooms) {
+          const x0 = this.sx(r.x - r.w / 2);
+          const x1 = this.sx(r.x + r.w / 2);
+          const y0 = this.sy(r.y - r.h / 2);
+          const y1 = this.sy(r.y + r.h / 2);
+          if (x1 < 0 || y1 < 0 || x0 > this.w || y0 > this.h) continue;
+          rooms.push({ x: (x0 + x1) * 0.5, y: (y0 + y1) * 0.5, hw: (x1 - x0) * 0.5, hh: (y1 - y0) * 0.5 });
+        }
+      }
+
+      const amb = this.ambience;
+      const a0 = amb.ambient.map((v) => (v / 255) * amb.ambientStrength * 1.35);
+      const a1 = amb.ambient.map((v) => (v / 255) * amb.ambientStrength * 0.78);
+      // The shader runs at the world buffer's resolution, not the screen's.
+      // The frame is a chunky-pixel picture that gets blown up with sampling
+      // off no matter what, so shading it at device resolution is three to
+      // nine times the fragments for a result that is then thrown through a
+      // nearest-neighbour upscale anyway — and it puts the ordered dither on
+      // device pixels, where it is invisible, instead of on world pixels,
+      // where it is the whole point. It also means `renderScale` still buys
+      // what it is supposed to buy when a device is struggling: the adaptive
+      // quality tier now scales the lighting too.
+      const done = this.gl.present(this.world, this.w, this.h, ls, {
+        fog: this.fogCanvas,
+        emissive: this.emisCanvas,
+        bloom: this.blurA,
+        rooms,
+        ambient: [a0, a1],
+        grade: amb.grade.map((v) => v / 255),
+        gradeSky: amb.sky.map((v) => v / 255),
+        gradeAmount: amb.gradeAmount,
+        fogAmount: amb.fogAmount > 0 ? 1 : 0,
+        bloomAmount: this.quality >= 2 ? 0.6 : 0.45,
+        contrast: this.quality >= 1 ? 0.42 : 0,
+        overbright: this.quality >= 1 ? 0.07 : 0,
         relief: 1.8,
         levels: 26,
         time: this.time,
       });
       if (done) {
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(this.glCanvas, 0, 0, this.sw, this.sh);
+        ctx.drawImage(this.glCanvas, 0, 0, this.w, this.h, 0, 0, this.sw, this.sh);
         return;
       }
-      // The stage gave up mid-frame; fall through to the Canvas2D path so
-      // the picture never disappears.
+      // The stage gave up mid-frame; the world buffer is still unlit, so light
+      // it the slow way before it goes to the screen rather than showing a
+      // frame with no lighting in it at all.
+      this.compositeCPU();
     }
 
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.world, 0, 0, this.w, this.h, 0, 0, this.sw, this.sh);
+  }
+
+  /** The Canvas2D finishing chain, also used if the GPU stage gives up. */
+  compositeCPU() {
+    this.renderLightmap();
+    this.compositeLight();
+    this.renderBloom();
+    this.drawFog();
+    this.drawVignetteAndGrade();
   }
 
   beginFrame(dt) {

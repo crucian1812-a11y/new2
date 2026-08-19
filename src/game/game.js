@@ -2561,12 +2561,13 @@ export class Game {
     R.flushQueue();
 
     this.fx.draw(dt);
-    R.renderLightmap();
-    R.compositeLight();
-    R.renderBloom();
-    R.drawFog();
+    // Weather goes in before the light so a flake crossing a brazier is lit by
+    // it, and the whole finishing chain — light, fog, bloom, contrast, grade,
+    // vignette — happens either in one shader pass or in the Canvas2D
+    // fallback, decided inside the renderer.
     this.fx.drawWeather(dt);
-    R.drawVignetteAndGrade();
+    R.composite();
+    R.finish();
     this.fx.drawText();
     R.presentWorld();
   }

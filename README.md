@@ -101,10 +101,16 @@ The look comes from eight ideas, all in `src/render/`:
    Nothing spawns twice the same: every monster gets its own height, its own
    push towards warm or cold, and its own place in the cycle, and it falls the
    way it was struck.
-5. **A lit, graded frame** (`renderer.js`). Chunked terrain, a half-resolution
-   dynamic light map multiplied over the scene and re-added for warm
-   overbright, an emissive-only bloom buffer, parallax fog sheets, weather, and
-   a baked grade-and-vignette pass.
+5. **A frame lit on the GPU** (`gl.js`). Canvas2D paints the world *unlit* —
+   ground, decals, sprites, weather — and one shader pass does everything that
+   happens to it afterwards: the ambient sky, every torch and spell with its
+   own falloff, the roofs that take the sky away, fog multiplied by that same
+   light and added, the bloom, the contrast curve, the zone's wash, the
+   vignette, the grain, and the ordered dither. Per pixel, at the world
+   buffer's resolution rather than rasterised into a half-size light map and
+   stretched. The whole Canvas2D chain is still there behind `?nogl` and is
+   what runs if the GPU stage cannot start or dies mid-frame, so the two are
+   worth comparing on a real device.
 6. **A shore you can walk down to** (`worldgen.js`, `renderer.js`). Act I is
    named for the Frisches Haff and had no water in it. The lagoon is a single
    curve down the eastern edge — two sines at different rates, so it wanders
@@ -213,6 +219,11 @@ node tools/ablate.mjs                       # which render stage costs what
 | `bundle-check` | the whole game flattened into `spiel.html` still builds and still boots from a `file://` URL — the bundler needs every top-level name in the codebase to be unique, and nothing else in the suite would notice |
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
 | `endgame-check` | Perkūnas leads to the victory screen, and the Eternal Hunt restarts act I at a higher difficulty and keeps escalating |
+
+`?nogl` on the URL forces the Canvas2D path, which is the only way to compare
+the two lighting pipelines on a real device — a headless browser runs WebGL in
+software, where the shader is executed by the same CPU it is meant to be taken
+off, and any timing it reports is about SwiftShader rather than about a phone.
 
 `tools/preview-art.html` and `tools/preview-actors.html` render every material,
 prop and character rig on one page, which is the fastest way to iterate on art.
