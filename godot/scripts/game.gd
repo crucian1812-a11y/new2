@@ -7,7 +7,7 @@ extends Node3D
 ## and every prop placed by hand has to be placed again when the art changes.
 
 const CAMP := "res://assets/camp/Models/%s.gltf"
-const ENEMY := "res://assets/enemies/Skeleton_%s.glb"
+const ENEMY := "res://assets/enemies/Skeleton_%s_Grim.glb"
 const AXE := "res://assets/weapons/axe/demonicaxegodot.glb"
 const FX_AREA := "res://assets/BinbunVFX_Vol2/DarkMagicFX/effects/area/vfx_evil_area_01.tscn"
 const PLAYER_MESH := "res://assets/character/HumanCharacterDummy_M.fbx"
@@ -68,7 +68,7 @@ func _light() -> void:
 	# can see is what your own torch reaches.
 	var moon := DirectionalLight3D.new()
 	moon.rotation_degrees = Vector3(-40, 38, 0)
-	moon.light_energy = 0.55
+	moon.light_energy = 0.62
 	moon.light_color = Color(0.58, 0.68, 0.92)
 	moon.shadow_enabled = false
 	add_child(moon)
@@ -78,7 +78,7 @@ func _light() -> void:
 	e.background_color = Color(0.03, 0.035, 0.055)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.20, 0.24, 0.34)
-	e.ambient_light_energy = 0.62
+	e.ambient_light_energy = 0.72
 	e.fog_enabled = true
 	e.fog_light_color = Color(0.06, 0.075, 0.11)
 	e.fog_density = 0.018
@@ -121,7 +121,9 @@ func _spawn_player() -> void:
 	player.name = "Player"
 	var body := load(PLAYER_MESH)
 	if body != null:
-		player.add_child((body as PackedScene).instantiate())
+		var mesh := (body as PackedScene).instantiate()
+		player.add_child(mesh)
+		_clothe(mesh)
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.height = 1.7
@@ -131,15 +133,34 @@ func _spawn_player() -> void:
 	player.add_child(col)
 	player.position = Vector3(0, 0.2, 5.0)
 	add_child(player)
-	# A torch of his own, so he carries his light with him.
+	# A torch of his own, so he carries his light with him — held off his
+	# shoulder rather than buried in his chest. A point light inside a body
+	# lights everything except that body: every surface faces away from it, so
+	# he was the one thing in the camp standing in his own shadow.
 	var torch := OmniLight3D.new()
-	torch.position = Vector3(0, 1.5, 0)
+	torch.position = Vector3(0.30, 1.95, 0.30)
 	torch.light_color = Color(1.0, 0.72, 0.40)
 	torch.light_energy = 4.2
 	torch.omni_range = 14.0
 	torch.set_script(preload("res://scripts/flicker.gd"))
 	player.add_child(torch)
 	_give_axe()
+
+func _clothe(n: Node) -> void:
+	## The uploaded dummy ships untextured, which the renderer reads as pure
+	## white — a mannequin lit like a lamp, standing next to skeletons that
+	## were just spent an afternoon making dim. Until there is a real
+	## character here, dressing him in dark leather at least puts him in the
+	## same painting.
+	if n is MeshInstance3D:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = Color(0.32, 0.29, 0.26)
+		m.roughness = 0.88
+		m.metallic = 0.0
+		(n as MeshInstance3D).material_override = m
+	for c in n.get_children():
+		_clothe(c)
+
 
 func _give_axe() -> void:
 	var res := load(AXE)
@@ -157,13 +178,23 @@ func _spawn_enemy(kind: String, i: int) -> void:
 	if res == null:
 		return
 	var e := Enemy.new()
-	e.add_child((res as PackedScene).instantiate())
+	var model := (res as PackedScene).instantiate() as Node3D
+	# Nothing in a horde should look stamped out. The models are one mesh with
+	# one texture, so the variation has to come from the silhouette: a hand's
+	# width of height between them and a little difference in how spare they
+	# are. Scaling the model rather than the body keeps the physics shape
+	# uniform, which Godot insists on.
+	var tall := rng.randf_range(0.94, 1.14)
+	var lean := rng.randf_range(0.88, 1.02)
+	model.scale = Vector3(lean, tall, lean)
+	e.add_child(model)
+	e.ember_hue = rng.randf_range(-0.03, 0.07)
 	var col := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
-	cap.height = 1.6
-	cap.radius = 0.34
+	cap.height = 1.8
+	cap.radius = 0.28
 	col.shape = cap
-	col.position.y = 0.8
+	col.position.y = 0.9
 	e.add_child(col)
 	var a := (float(i) / WAVE.size()) * TAU + rng.randf() * 0.5
 	var r := rng.randf_range(11.0, 16.0)

@@ -32,6 +32,8 @@ Vulkan, and the target for this game is a phone browser.
 | `scripts/rig.gd` | poses the character's bones in code; there are no canned animations |
 | `scripts/player.gd` | movement, and the phase the walk is driven by |
 | `scripts/game.gd` | builds the camp from a seeded RNG |
+| `scripts/enemy.gd` | the skeletons: chase, chop, take a hit, fall |
+| `scripts/lineup.gd` | an animated model sheet — see below |
 | `assets/` | the uploaded packs, unpacked |
 
 ## Two things carried over from the JavaScript build
@@ -77,7 +79,9 @@ is worth settling before anything ships.
   abilities, real loot, saves — has been ported. This is one camp, one wave and
   one weapon.
 - No web export, so this branch does not deploy anywhere yet.
-- The KayKit enemies do not match the art direction; see above.
+- The player is still the uploaded dummy, untextured, posed in code. He is
+  dressed in flat dark leather by `game.gd` so he is not a white mannequin
+  standing next to the skeletons, but he is not a character yet.
 
 ## Playing it
 
@@ -108,5 +112,78 @@ animated — idle, walk, chop, hit, three deaths — which is why the enemies ru
 off an AnimationPlayer while the player, on the un-animated dummy, is posed in
 code.
 
-They are also chunky and cartoonish where Diablo II is gaunt and grim. That
-mismatch is the main thing standing between this and the reference.
+They are also, as they ship, chunky and cartoonish where Diablo II is gaunt
+and grim — a skull nearly as tall as the body it sits on. `tools/grim_skeletons.py`
+rebuilds them; see below.
+
+## Making them grim
+
+`tools/grim_skeletons.py` runs in Blender and writes `*_Grim.glb` beside the
+originals, which stay put because the tool reads them.
+
+```bash
+blender --background --python tools/grim_skeletons.py
+# --only Skeleton_Minion         just one, for a quicker turnaround
+# --atlas /tmp/atlas.png         write the repainted texture out on its own
+```
+
+Ninety-five animations are worth more than the models' looks, so nothing is
+re-rigged. What it does:
+
+**Reshapes the meshes in rest pose.** A skinned vertex rides whichever bones
+its groups name, so moving the vertex changes the shape and nothing else. The
+head cluster — skull, jaw, eyes — scales to 0.46 about the underside of the
+jaw, so the head shrinks without floating off the neck or sinking into the
+shoulders. Torso, arms and legs are narrowed, and everything is thinned front
+to back.
+
+**Moves two bone chains, carefully.** Proportion is the thing rest-pose
+reshaping cannot fix: shrink the head and the figure just gets shorter. So the
+legs are stretched 1.75× below the hip joint and everything above rides up by
+the same amount, and the arms are stretched 1.28× outward from the shoulder
+socket. Both are continuous monotone maps applied to bones and mesh alike, so
+no seam opens. This is safe only because the clips drive these bones almost
+entirely by rotation — the largest translation on any deforming bone is eight
+centimetres on the hips — and a rotation applied to a longer bone is exactly
+the longer stride wanted. **Verify it after changing anything here** by
+running the model sheet against both, below.
+
+**Repaints the atlas.** KayKit's palette is cream bone, tan leather and bright
+gold; Diablo II's undead are cold, dim and filthy. The remap works in HLS and
+sorts by hue *and* lightness, because there are three and a half thousand
+colours in there and because bone is painted two different ways — the limbs
+are a warm cream and the skull is a near-neutral grey. Sorting those by hue
+alone gives a charcoal head on ivory arms, which is what the first two
+attempts produced.
+
+**Drops the horned helm and the pointed hat.** Neither survives being shrunk;
+they just become a small horned bucket. A bare skull is what Diablo II puts on
+a skeleton. The Rogue keeps its hood.
+
+Two traps worth writing down, because both look like a bad colour rule:
+
+- The pack ships **custom split normals**, stored per loop, which do not
+  follow the vertices. Reshape a mesh and leave them and the shading belongs
+  to the old shape — a cloak that is now light grey renders black.
+- `Image.save()` clears the dirty flag, and for an image that is not dirty the
+  glTF exporter re-uses the **original packed bytes** rather than re-encoding.
+  Write the atlas out for inspection and the model ships with the texture you
+  just replaced.
+
+## Looking at a model
+
+A rest-pose render says nothing about a rig whose bones have moved. The model
+sheet plays a clip on all four at a size where a misplaced elbow is visible,
+and takes `--orig` so the same frame can be compared against the untouched
+pack:
+
+```bash
+xvfb-run -a LIBGL_ALWAYS_SOFTWARE=1 godot --path godot \
+  --rendering-driver opengl3 --resolution 1000x430 \
+  res://scripts/lineup.tscn -- Walking_A          # add --orig for the originals
+```
+
+It writes to `/tmp/shots/lineup-*.png`. `smoke.gd` also takes `--closeup`,
+which drops the camera in so the fight can be judged as art rather than as a
+scoreboard — at the camera the game actually uses, an enemy is forty pixels
+tall.

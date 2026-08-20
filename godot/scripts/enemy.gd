@@ -20,12 +20,38 @@ var target: Node3D
 var cd := 0.0
 var state := "idle"
 var hit_timer := 0.0
+var ember_hue := 0.0
+var ember: OmniLight3D
 
 func _ready() -> void:
 	hp = max_hp
 	anim = _find_anim(self)
 	_hide_probes(self)
+	_light_the_sockets()
 	_play("Idle")
+
+func _light_the_sockets() -> void:
+	## Two coals in an empty skull throwing a little light of their own. The
+	## model already carries the emissive material; what it cannot do is put
+	## any of that light on the ground, and a horde coming out of the dark as
+	## pairs of red points is most of why Diablo's undead are frightening.
+	##
+	## Hung off the body rather than the head bone: the skull bobs through the
+	## walk cycle by a couple of centimetres, which is far less than the
+	## radius of the pool this casts, and a bone attachment would have to
+	## guess at the bone's roll.
+	ember = OmniLight3D.new()
+	ember.light_color = Color.from_hsv(0.015 + ember_hue, 0.93, 1.0)
+	# Small and steep on purpose. Turned up far enough to see across the camp
+	# it stops being a pair of eyes and becomes a lamp, and six of them turn
+	# the whole scene red.
+	ember.light_energy = 0.5
+	ember.omni_range = 1.7
+	ember.omni_attenuation = 2.2
+	ember.shadow_enabled = false
+	ember.position = Vector3(0, 1.78, 0.10)
+	add_child(ember)
+
 
 func _find_anim(n: Node) -> AnimationPlayer:
 	if n is AnimationPlayer:
@@ -70,6 +96,9 @@ func hurt(amount: float, from: Vector3) -> void:
 	if hp <= 0.0:
 		state = "dead"
 		_play("Death_A", false)
+		if ember != null:
+			var fade := create_tween()
+			fade.tween_property(ember, "light_energy", 0.0, 1.1)
 		died.emit(global_position)
 		set_physics_process(false)
 		for c in get_children():

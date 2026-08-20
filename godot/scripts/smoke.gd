@@ -10,6 +10,21 @@ extends Node
 var t := 0.0
 var i := 0
 var shots := [[1.5, "camp"], [4.0, "approach"], [6.5, "fight"], [9.0, "after"]]
+
+## An enemy is forty pixels tall at the camera the game actually uses, which
+## is enough to judge a fight and nowhere near enough to judge a model. The
+## close-up pass drops the view height so the art can be looked at.
+var closeup := false
+func _ready() -> void:
+	closeup = "--closeup" in OS.get_cmdline_user_args()
+	if closeup:
+		shots = [[2.2, "close-idle"], [4.6, "close-walk"], [7.0, "close-fight"]]
+		await get_tree().process_frame
+		for c in get_parent().get_children():
+			if c is IsoCamera:
+				(c as IsoCamera).view_height = 3.4
+				(c as IsoCamera).size = 3.4
+
 func _process(d: float) -> void:
 	t += d
 	var g := get_parent()
@@ -24,6 +39,6 @@ func _process(d: float) -> void:
 		get_viewport().get_texture().get_image().save_png("/tmp/shots/g2-%s.png" % shots[i][1])
 		print("SHOT ", shots[i][1])
 		i += 1
-	if i >= shots.size() and t > 9.6:
+	if i >= shots.size() and t > (7.6 if closeup else 9.6):
 		print("ALLDONE")
 		get_tree().quit()
