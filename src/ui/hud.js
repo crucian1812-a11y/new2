@@ -3,11 +3,11 @@
 
 import { clamp01, TAU, fmtNum } from '../core/math.js';
 import { css, mixc, hex, PAL } from '../render/palette.js';
-import { CLASSES, SKILLS, SLOTS, xpForLevel, MAX_LEVEL } from '../game/content.js';
+import { CLASSES, LOOKS, SKILLS, SLOTS, xpForLevel, MAX_LEVEL } from '../game/content.js';
 import { formatStat, damageRange, itemScore } from '../game/loot.js';
 import { drawItemIcon } from '../render/icons.js';
 import { audio } from '../core/audio.js';
-import { renderActor } from '../render/actors.js';
+import { renderActor, setKeyLight } from '../render/actors.js';
 
 const FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
 const SERIF = 'Georgia, "Times New Roman", serif';
@@ -1216,6 +1216,39 @@ export class HUD {
       ridge(H * 0.86, H * 0.36, '#141b26', 10, 8);
       ridge(H * 1.0, H * 0.44, '#090d15', 8, 10);
 
+      // The ground itself. The ridges run to the bottom of the frame, which
+      // reads as trees all the way down and leaves anybody standing in front
+      // of them hanging in the air — so a floor goes in over them, catching a
+      // little of the moon and falling away to nothing at the front.
+      const floorY = H * 0.55;
+      const floor = g.createLinearGradient(0, floorY, 0, H);
+      floor.addColorStop(0, 'rgba(26,30,40,0.90)');
+      floor.addColorStop(0.35, 'rgba(19,22,30,0.97)');
+      floor.addColorStop(1, 'rgba(8,9,14,1)');
+      g.fillStyle = floor;
+      g.beginPath();
+      g.moveTo(-10, H + 10);
+      g.lineTo(-10, floorY + 6);
+      // A soft, uneven edge where the snow meets the treeline.
+      for (let i = 0; i <= 24; i++) {
+        const x = (i / 24) * (W + 20) - 10;
+        g.lineTo(x, floorY + Math.sin(i * 1.9) * 3 + rng.f() * 4);
+      }
+      g.lineTo(W + 10, floorY + 6);
+      g.lineTo(W + 10, H + 10);
+      g.closePath();
+      g.fill();
+      // Trodden snow: a few pale scuffs so the floor is a surface, not a wash.
+      for (let i = 0; i < 26; i++) {
+        const x = rng.f() * W;
+        const y = floorY + rng.f() * (H - floorY);
+        const w2 = (6 + rng.f() * 26) * ((y - floorY) / (H - floorY) + 0.4);
+        g.fillStyle = 'rgba(120,138,168,' + (0.02 + rng.f() * 0.045).toFixed(3) + ')';
+        g.beginPath();
+        g.ellipse(x, y, w2, w2 * 0.16, 0, 0, TAU);
+        g.fill();
+      }
+
       // Ground haze
       const haze = g.createLinearGradient(0, H * 0.6, 0, H);
       haze.addColorStop(0, 'rgba(90,110,140,0)');
@@ -1251,14 +1284,116 @@ export class HUD {
     ctx.restore();
   }
 
+  /**
+   * A campfire.
+   *
+   * The one warm thing on the title screen, and the reason the figures round it
+   * have a side to be lit on. It is drawn live rather than baked into the
+   * backdrop because a fire that does not move is a lamp: the flicker is most
+   * of what sells it, and it costs three sine waves.
+   */
+  /**
+   * The ground the fire lights, laid down before anything stands on it.
+   *
+   * It goes in as its own pass because the figures have to be able to cast a
+   * contact shadow onto it — draw the pool afterwards and it washes every
+   * shadow out, and three people float again.
+   */
+  campfireGround(ctx, cx, cy, s, t, reach) {
+    const k = this.k;
+    const X = cx * k;
+    const Y = cy * k;
+    const flick = 0.9 + Math.sin(t * 9.1) * 0.07;
+    const pool = ctx.createRadialGradient(X, Y, 0, X, Y, reach * k * flick);
+    pool.addColorStop(0, 'rgba(255,176,84,0.34)');
+    pool.addColorStop(0.35, 'rgba(206,116,44,0.16)');
+    pool.addColorStop(0.7, 'rgba(150,74,26,0.05)');
+    pool.addColorStop(1, 'rgba(120,60,20,0)');
+    ctx.save();
+    ctx.translate(X, Y);
+    ctx.scale(1, 0.3);
+    ctx.beginPath();
+    ctx.arc(0, 0, reach * k * flick, 0, TAU);
+    ctx.fillStyle = pool;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  campfire(ctx, cx, cy, s, t) {
+    const k = this.k;
+    const X = cx * k;
+    const Y = cy * k;
+    const S = s * k;
+
+    // Logs: a low stack, crossed, with the near ends catching the fire.
+    for (let i = 0; i < 3; i++) {
+      const a = -0.5 + i * 0.62;
+      const len = S * 2.5;
+      const dx = Math.cos(a) * len;
+      const dy = Math.sin(a) * len * 0.4;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(28,20,15,1)';
+      ctx.lineWidth = S * 0.62;
+      ctx.beginPath();
+      ctx.moveTo(X - dx, Y - dy + S * 0.1);
+      ctx.lineTo(X + dx, Y + dy + S * 0.1);
+      ctx.stroke();
+      // The ember-lit top edge of each log.
+      ctx.strokeStyle = 'rgba(196,86,26,0.7)';
+      ctx.lineWidth = S * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(X - dx * 0.7, Y - dy * 0.7 - S * 0.08);
+      ctx.lineTo(X + dx * 0.7, Y + dy * 0.7 - S * 0.08);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // The flame: tongues stacked hottest last, added rather than painted, so
+    // where they overlap they go white the way real fire does.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const tongue = (h, w, col, phase, alpha) => {
+      const sway = Math.sin(t * 6.3 + phase) * S * 0.24;
+      const hh = h * (0.9 + Math.sin(t * 11 + phase * 2) * 0.12);
+      ctx.beginPath();
+      ctx.moveTo(X - w, Y);
+      ctx.quadraticCurveTo(X - w * 1.1 + sway * 0.4, Y - hh * 0.55, X + sway, Y - hh);
+      ctx.quadraticCurveTo(X + w * 1.1 + sway * 0.4, Y - hh * 0.55, X + w, Y);
+      ctx.quadraticCurveTo(X, Y + S * 0.3, X - w, Y);
+      ctx.closePath();
+      ctx.fillStyle = css(col, alpha);
+      ctx.fill();
+    };
+    tongue(S * 5.4, S * 1.7, [188, 62, 12], 0, 0.5);
+    tongue(S * 4.0, S * 1.25, [236, 128, 26], 1.7, 0.6);
+    tongue(S * 2.6, S * 0.8, [255, 198, 96], 3.3, 0.75);
+    tongue(S * 1.3, S * 0.42, [255, 246, 214], 5.1, 0.9);
+
+    // Sparks, on a fixed irregular sequence so they do not march in step.
+    for (let i = 0; i < 9; i++) {
+      const seed = (i * 0.618) % 1;
+      const life = ((t * (0.5 + seed * 0.5) + seed) % 1);
+      const sx = X + Math.sin(t * 3 + i * 2.1) * S * 1.5 * life;
+      const sy = Y - life * S * 8;
+      const a = (1 - life) * 0.8;
+      ctx.beginPath();
+      ctx.arc(sx, sy, S * 0.11 * (1 - life * 0.5), 0, TAU);
+      ctx.fillStyle = css([255, 190 - seed * 60, 110], a);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   drawMenu(ctx) {
     const W = this.W;
     const H = this.H;
     const k = this.k;
+    const t = this.pulse;
 
     this.menuBackdrop(ctx);
 
-    const titleY = Math.max(40, H * 0.145);
+    const titleY = Math.max(30, H * 0.1);
     this.text(ctx, 'ПУТЬ РЫЦАРЯ', W / 2, titleY, {
       size: Math.min(34, W * 0.052),
       align: 'center',
@@ -1267,85 +1402,172 @@ export class HUD {
       weight: 700,
       strokeW: 6,
     });
-    this.text(ctx, 'Восточная Пруссия, лета Господня 1409', W / 2, titleY + 20, {
+    this.text(ctx, 'Восточная Пруссия, лета Господня 1409', W / 2, titleY + 18, {
       size: Math.min(13, W * 0.022),
       align: 'center',
       color: hex('#8e8878'),
     });
 
-    // Class cards
+    // The three of them, stood round a fire in the dark.
+    //
+    // This screen used to be three cards with an abstract sigil on each, which
+    // tells a player nothing about what he is choosing to *be*. The rigs have
+    // been drawable from any heading for a while; putting them on their own
+    // title screen, lit by one warm source with the moon behind them, costs
+    // nothing that is not already written and is the whole pitch of the game
+    // in one picture.
     const ids = Object.keys(CLASSES);
-    const cardW = Math.min(206, (W - 56) / 3);
-    const gap = 10;
-    const totalW = cardW * 3 + gap * 2;
-    const sx = (W - totalW) / 2;
-    const sy = titleY + 32;
-    const cardH = Math.max(150, Math.min(H - sy - 66, 208));
-    for (let i = 0; i < 3; i++) {
+    const groundY = H * 0.60;
+    const fireX = W / 2;
+    const fireY = groundY + H * 0.085;
+    const fireS = Math.max(8, H * 0.030);
+    const spread = Math.min(132, W * 0.163);
+    const figH = H * 0.36;
+    const scale = figH / 100;
+
+    // An arc round the fire rather than a rank: the two on the wings stand
+    // nearer the camera and turn inwards, the one in the middle stands back
+    // behind the flame. The fire goes on last, in front of all three.
+    const slots = [
+      { x: fireX - spread, y: groundY + H * 0.03, face: Math.PI / 2 - 0.6, depth: 0 },
+      { x: fireX, y: groundY - H * 0.13, face: Math.PI / 2, depth: 1 },
+      { x: fireX + spread, y: groundY + H * 0.03, face: Math.PI / 2 + 0.6, depth: 0 },
+    ];
+    this.campfireGround(ctx, fireX, fireY, fireS, t, spread * 1.5);
+
+    // Furthest first.
+    const order = [1, 0, 2];
+    for (const i of order) {
       const cls = CLASSES[ids[i]];
-      const x = sx + i * (cardW + gap);
+      const look = LOOKS[cls.look];
+      if (!look) continue;
+      const slot = slots[i];
       const chosen = i === this.menuIndex;
       const hovered = this.input.isDown('cls:' + ids[i]);
+      // The chosen one steps into the light; the others hang back in it.
+      const lift = chosen ? H * 0.02 : 0;
+      const s = scale * (slot.depth ? 0.86 : 1) * (chosen ? 1.06 : 1);
+      const px = slot.x;
+      const py = slot.y + lift;
 
-      if (chosen) {
-        // Warm bloom behind the selected card.
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        const g = ctx.createRadialGradient(
-          (x + cardW / 2) * k,
-          (sy + cardH / 2) * k,
-          0,
-          (x + cardW / 2) * k,
-          (sy + cardH / 2) * k,
-          cardW * k
-        );
-        g.addColorStop(0, 'rgba(146,116,58,0.30)');
-        g.addColorStop(1, 'rgba(146,116,58,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect((x - cardW) * k, (sy - cardH) * k, cardW * 3 * k, cardH * 3 * k);
-        ctx.restore();
+      // Lit from the fire: the key points from the figure towards the flame,
+      // so the warm side is the side facing it and the moon takes the rest.
+      setKeyLight(fireX - px, fireY - (py - figH * 0.5));
+
+      // A patch of ground to stand on. Without it three figures hang in front
+      // of a treeline like paper dolls.
+      ctx.save();
+      const sh = ctx.createRadialGradient(px * k, py * k, 0, px * k, py * k, 30 * k);
+      sh.addColorStop(0, 'rgba(4,5,8,0.85)');
+      sh.addColorStop(0.55, 'rgba(4,5,8,0.4)');
+      sh.addColorStop(1, 'rgba(4,5,8,0)');
+      ctx.translate(px * k, py * k);
+      ctx.scale(1, 0.32);
+      ctx.translate(-px * k, -py * k);
+      ctx.beginPath();
+      ctx.arc(px * k, py * k, 34 * k, 0, TAU);
+      ctx.fillStyle = sh;
+      ctx.fill();
+      ctx.restore();
+
+      // Drawn once into a scratch buffer so the firelight can be laid over the
+      // figure and nothing else. `setKeyLight` decides which side of him the
+      // shading falls on, but it cannot make that side *warm* — the rig only
+      // knows its own colours — and a row of cold figures round a fire is the
+      // one thing that would give the whole picture away.
+      const st = {
+        t: t + i * 1.7,
+        anim: 'idle',
+        animT: 0,
+        facing: slot.face,
+        speed: 0,
+        phase: 0,
+        turn: 0,
+        seed: i * 3.1,
+        flash: 0,
+        alpha: chosen || hovered ? 1 : 0.66,
+      };
+      const bw2 = Math.ceil(170 * k);
+      const bh2 = Math.ceil((figH + 60) * k);
+      if (!this._figBuf || this._figBuf.width < bw2 || this._figBuf.height < bh2) {
+        this._figBuf = document.createElement('canvas');
+        this._figBuf.width = bw2;
+        this._figBuf.height = bh2;
       }
+      const buf = this._figBuf;
+      const bx = buf.width / 2;
+      const by = buf.height - 26 * k;
+      const bc = buf.getContext('2d');
+      bc.clearRect(0, 0, buf.width, buf.height);
+      renderActor(bc, look, st, bx, by, s * k, null);
+      ctx.drawImage(buf, px * k - bx, py * k - by);
+      // The same buffer, kept only where the figure is, filled with the light
+      // the fire throws on it, and added back on top.
+      bc.save();
+      bc.globalCompositeOperation = 'source-atop';
+      const gx = bx + (fireX - px) * k;
+      const gy = by + (fireY - py) * k;
+      const fg = bc.createRadialGradient(gx, gy, 0, gx, gy, spread * 1.7 * k);
+      fg.addColorStop(0, 'rgba(255,166,78,1)');
+      fg.addColorStop(0.45, 'rgba(232,122,44,0.5)');
+      fg.addColorStop(1, 'rgba(180,80,30,0)');
+      bc.fillStyle = fg;
+      bc.fillRect(0, 0, buf.width, buf.height);
+      bc.restore();
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = chosen || hovered ? 0.8 : 0.52;
+      ctx.drawImage(buf, px * k - bx, py * k - by);
+      ctx.restore();
 
-      this.panelBg(ctx, x, sy, cardW, cardH, {
-        border: chosen || hovered ? 'rgba(240,208,136,0.95)' : 'rgba(150,132,92,0.38)',
-      });
-      this.text(ctx, cls.name, x + cardW / 2, sy + 21, {
-        size: 15,
-        align: 'center',
-        color: chosen ? hex('#f4e2b0') : hex('#c9bb96'),
-        serif: true,
-      });
-      this.text(ctx, cls.subtitle, x + cardW / 2, sy + 35, {
-        size: 9.5,
-        align: 'center',
-        color: [140, 136, 126],
-      });
+      this.rect('cls:' + ids[i], px - 52, py - figH - 10, 104, figH + 20);
+    }
 
-      const sigilY = sy + cardH * 0.42;
-      drawClassSigil(ctx, ids[i], (x + cardW / 2) * k, sigilY * k, cardH * 0.17 * k);
+    this.campfire(ctx, fireX, fireY, fireS, t);
+    // The fire warms everything standing near it, ground and figures alike.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const warm = ctx.createRadialGradient(fireX * k, fireY * k, 0, fireX * k, fireY * k, spread * 1.5 * k);
+    warm.addColorStop(0, 'rgba(196,104,36,0.30)');
+    warm.addColorStop(0.45, 'rgba(150,74,24,0.13)');
+    warm.addColorStop(1, 'rgba(120,60,20,0)');
+    ctx.fillStyle = warm;
+    ctx.fillRect(0, 0, this.r.sw, this.r.sh);
+    ctx.restore();
 
-      // The four skills this class will learn.
-      const icons = cls.skills;
-      const iw = 22;
-      const ix = x + cardW / 2 - (icons.length * iw) / 2 + iw / 2;
-      const iy = sy + cardH - 54;
-      for (let s = 0; s < icons.length; s++) {
-        const sk = SKILLS[icons[s]];
-        ctx.save();
-        ctx.globalAlpha = chosen ? 0.95 : 0.55;
-        drawSkillGlyph(ctx, sk.icon, (ix + s * iw) * k, iy * k, 8.5 * k, sk.color);
-        ctx.restore();
-      }
-
-      wrapText(this, ctx, cls.blurb, x + 11, sy + cardH - 34, cardW - 22, 11, {
-        size: 9.5,
-        color: chosen ? [188, 182, 168] : [150, 146, 138],
-      });
-      this.rect('cls:' + ids[i], x, sy, cardW, cardH);
+    // One strip for whoever is chosen, the way it reads when you click a
+    // character rather than three columns of text competing at once. Laid out
+    // across rather than down, because the screen is short and the scene above
+    // it is what the player is here to look at.
+    const cls = CLASSES[ids[this.menuIndex]];
+    const panelH = 54;
+    const panelW = Math.min(W - 48, 640);
+    const panelX = (W - panelW) / 2;
+    const panelY = H - panelH - 46;
+    this.panelBg(ctx, panelX, panelY, panelW, panelH, { border: 'rgba(240,208,136,0.6)' });
+    drawClassSigil(ctx, ids[this.menuIndex], (panelX + 30) * k, (panelY + panelH / 2) * k, 17 * k);
+    const tx = panelX + 58;
+    this.text(ctx, cls.name, tx, panelY + 17, { size: 14, color: hex('#f4e2b0'), serif: true });
+    this.text(ctx, cls.subtitle, tx, panelY + 29, { size: 9, color: [140, 136, 126] });
+    wrapText(this, ctx, cls.blurb, tx, panelY + 42, panelW - 172, 10, {
+      size: 9,
+      color: [178, 172, 158],
+    });
+    const icons = cls.skills;
+    for (let s2 = 0; s2 < icons.length; s2++) {
+      const sk = SKILLS[icons[s2]];
+      drawSkillGlyph(
+        ctx,
+        sk.icon,
+        (panelX + panelW - 24 - (icons.length - 1 - s2) * 22) * k,
+        (panelY + panelH / 2) * k,
+        8 * k,
+        sk.color
+      );
     }
 
     // Buttons
-    const by = Math.min(H - 40, sy + cardH + 12);
+    const by = H - 38;
     const bw = 132;
     const bh = 30;
     if (this.game.hasSave()) {

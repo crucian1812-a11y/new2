@@ -223,6 +223,14 @@ node tools/ablate.mjs                       # which render stage costs what
 | `save-check` | a run survives a page reload with level, gear, gold, stats and act intact |
 | `endgame-check` | Perkūnas leads to the victory screen, and the Eternal Hunt restarts act I at a higher difficulty and keeps escalating |
 
+The title screen is the three classes stood round a campfire in the snow,
+which is the one place in the game where the rigs are seen still and close
+enough to look at. It is the same `renderActor` the world uses, lit by
+`setKeyLight` aimed at the flame, with the firelight laid over each figure
+through a scratch buffer — the rig knows which side of itself the light falls
+on but not what colour it is, and three cold figures round a fire is the one
+thing that would give the picture away.
+
 `?nogl` on the URL forces the Canvas2D path, which is the only way to compare
 the two lighting pipelines on a real device — a headless browser runs WebGL in
 software, where the shader is executed by the same CPU it is meant to be taken

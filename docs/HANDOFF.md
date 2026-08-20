@@ -62,7 +62,8 @@ src/game/
   worldgen.js            436     zone, road, prop scatter, shoreline, the hall
   loot.js                269     items, affixes, stat computation
   game.js               3328     the loop: update, AI, combat, draw order
-src/ui/hud.js           1817     health globes, bag, character sheet, menus
+src/ui/hud.js           1817     health globes, bag, character sheet, menus,
+                                 and the campfire title screen (§4a)
 tools/                           node + Playwright drivers (§5)
 docs/HANDOFF.md                  this file
 ```
@@ -211,6 +212,24 @@ windings cancel where they overlap and punch a hole through the face — one tha
 appears and vanishes as the head turns. And the nose and jaw stand *outside*
 the sphere, so on the far side of the head they have to be pulled back in
 (`faceOn`), or they spike out through the back of the skull.
+
+### The title screen
+
+`drawMenu` in `hud.js` stands the three classes round a fire rather than
+showing three cards with a sigil on each. Worth knowing before touching it:
+
+- The HUD draws on the **screen** canvas, after the shader — so none of the
+  world's lighting applies. `setKeyLight` still decides which side of a figure
+  the shading falls on, but it cannot make that side warm, because the rig only
+  knows its own colours. Each figure is therefore drawn into a scratch buffer,
+  the buffer is refilled `source-atop` with the fire's gradient so the tint
+  lands on the figure and nothing else, and that is blitted back with
+  `lighter`. Skip it and you get a row of cold figures round a fire.
+- The fire is two passes with the figures between them: `campfireGround` lays
+  the lit snow down *before* they stand on it, so their contact shadows have
+  something to fall on; `campfire` puts the logs, flame and sparks in front
+  afterwards. One pass and the pool washes every shadow out.
+- The hit targets are the figures (`cls:<id>` rects), not cards.
 
 ### Drawing
 
