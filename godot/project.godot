@@ -1,0 +1,29 @@
+; Der Weg des Ritters — Godot rebuild.
+;
+; The web export is single-threaded on purpose: GitHub Pages cannot send the
+; COOP/COEP headers a threaded Godot 4 build needs for SharedArrayBuffer, and
+; this game has to stay deployable as static files.
+
+config_version=5
+
+[application]
+config/name="Der Weg des Ritters"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "GL Compatibility")
+
+[display]
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/canvas_textures/default_texture_filter=0
+
+[input]
+move_left={"deadzone":0.5,"events":[{"resource_local_to_scene":false,"type":"InputEventKey","keycode":65,"physical_keycode":0,"unicode":0,"echo":false,"script":null}]}
+move_right={"deadzone":0.5,"events":[{"resource_local_to_scene":false,"type":"InputEventKey","keycode":68,"physical_keycode":0,"unicode":0,"echo":false,"script":null}]}
+move_up={"deadzone":0.5,"events":[{"resource_local_to_scene":false,"type":"InputEventKey","keycode":87,"physical_keycode":0,"unicode":0,"echo":false,"script":null}]}
+move_down={"deadzone":0.5,"events":[{"resource_local_to_scene":false,"type":"InputEventKey","keycode":83,"physical_keycode":0,"unicode":0,"echo":false,"script":null}]}
+cast={"deadzone":0.5,"events":[{"resource_local_to_scene":false,"type":"InputEventKey","keycode":32,"physical_keycode":0,"unicode":0,"echo":false,"script":null}]}

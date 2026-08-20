@@ -1,0 +1,37 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://dsuctsdrjhlkt"
+path="res://.godot/imported/Market_Fabric.png-8609fbb192cd3f3fd46bf6ef4677955c.ctex"
+metadata={
+"vram_texture": false
+}
+generator_parameters={
+"md5": "079a53d514af3a9461c55c94fe2a77c8"
+}
+
+[deps]
+
+source_file="res://assets/market/Market_Fabric.png"
+dest_files=["res://.godot/imported/Market_Fabric.png-8609fbb192cd3f3fd46bf6ef4677955c.ctex"]
+
+[params]
+
+compress/mode=0
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=1

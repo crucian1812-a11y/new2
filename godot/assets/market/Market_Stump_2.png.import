@@ -1,0 +1,37 @@
+[remap]
+
+importer="texture"
+type="CompressedTexture2D"
+uid="uid://b201vyivop4on"
+path="res://.godot/imported/Market_Stump_2.png-d5a6217f4994c129ab40f4c0975cef09.ctex"
+metadata={
+"vram_texture": false
+}
+generator_parameters={
+"md5": "f8d06ed6b0b12706533dd4b5ac491bbe"
+}
+
+[deps]
+
+source_file="res://assets/market/Market_Stump_2.png"
+dest_files=["res://.godot/imported/Market_Stump_2.png-d5a6217f4994c129ab40f4c0975cef09.ctex"]
+
+[params]
+
+compress/mode=0
+compress/high_quality=false
+compress/lossy_quality=0.7
+compress/hdr_compression=1
+compress/normal_map=0
+compress/channel_pack=0
+mipmaps/generate=true
+mipmaps/limit=-1
+roughness/mode=0
+roughness/src_normal=""
+process/fix_alpha_border=true
+process/premult_alpha=false
+process/normal_map_invert_y=false
+process/hdr_as_srgb=false
+process/hdr_clamp_exposure=false
+process/size_limit=0
+detect_3d/compress_to=1
