@@ -74,4 +74,39 @@ is worth settling before anything ships.
   but ships only its bind pose, which is why `rig.gd` poses it in code. Attack,
   hit and death still need writing.
 - None of the game's actual content — five acts, twelve skills, thirteen boss
-  abilities, loot, saves — has been ported. This is a camp, a walk and a spell.
+  abilities, real loot, saves — has been ported. This is one camp, one wave and
+  one weapon.
+- No web export, so this branch does not deploy anywhere yet.
+- The KayKit enemies do not match the art direction; see above.
+
+## Playing it
+
+WASD to walk, left mouse or space to swing. Six skeletons close in; the health
+globe is bottom left and the count top right.
+
+## Verifying it without a GPU
+
+There is no GPU in the container this was built in, so every screenshot came
+out of a smoke run:
+
+```bash
+xvfb-run -a LIBGL_ALWAYS_SOFTWARE=1 godot --path godot \
+  --rendering-driver opengl3 --resolution 900x506 -- --shot
+```
+
+`scripts/smoke.gd` walks the player into the fight, swings, and writes four
+frames to `/tmp/shots/`. It prints `ALLDONE` when it gets to the end — if it
+does not, something threw.
+
+## Where the enemies came from
+
+The uploaded packs contain no enemy model and no animation of any kind, so the
+skeletons are **KayKit Character Pack: Skeletons**, CC0, taken from the
+author's GitHub mirror (itch.io is unreachable from this container). Their
+licence sits beside them in `assets/enemies/LICENSE-KayKit.txt`. They are
+animated — idle, walk, chop, hit, three deaths — which is why the enemies run
+off an AnimationPlayer while the player, on the un-animated dummy, is posed in
+code.
+
+They are also chunky and cartoonish where Diablo II is gaunt and grim. That
+mismatch is the main thing standing between this and the reference.

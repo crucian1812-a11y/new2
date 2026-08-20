@@ -105,3 +105,44 @@ func pose(phase: float, gait: float, t: float) -> void:
 	_bend("spine", sin(phase) * 0.05 * gait, Vector3(0, 1, 0))
 	_bend("chest", -sin(phase) * 0.09 * gait, Vector3(0, 1, 0))
 	_bend("head", sin(phase) * 0.04 * gait, Vector3(0, 1, 0))
+
+
+## A swing, sampled twice.
+##
+## A blow starts at the ground and goes up through the hips, across the
+## shoulders and out along the arm last of all, and each link peaks a moment
+## after the one below it. That lag is the whole reason a strike reads as
+## carrying force rather than being waved, so the curve is sampled once for the
+## shoulders and once slightly earlier for the pelvis.
+func _swing_curve(k: float, back: float, through: float) -> float:
+	if k < 0.35:
+		return back * (k / 0.35)
+	if k < 0.55:
+		var e := (k - 0.35) / 0.2
+		return lerp(back, through, e * e * (3.0 - 2.0 * e))
+	var e2 := (k - 0.55) / 0.45
+	# Past the mark, then back to it: a body that has thrown its weight one way
+	# cannot stop dead on it.
+	return through * ((1.0 - e2) - 0.2 * sin(PI * e2))
+
+func pose_swing(k: float) -> void:
+	if skel == null:
+		return
+	k = clampf(k, 0.0, 1.0)
+	var shoulder := _swing_curve(k, -0.9, 1.5)
+	var hips := _swing_curve(minf(1.0, k + 0.1), -0.5, 0.8)
+	_bend("armR", shoulder)
+	_bend("foreR", -absf(shoulder) * 0.35 - 0.2)
+	_bend("chest", hips * 0.5, Vector3(0, 1, 0))
+	_bend("spine", hips * 0.3, Vector3(0, 1, 0))
+
+func pose_dead(k: float) -> void:
+	if skel == null:
+		return
+	k = clampf(k, 0.0, 1.0)
+	_bend("spine", k * 1.2)
+	_bend("chest", k * 0.5)
+	_bend("thighL", -k * 0.9)
+	_bend("thighR", -k * 0.7)
+	_bend("shinL", k * 1.2)
+	_bend("shinR", k * 1.0)
