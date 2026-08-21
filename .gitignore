@@ -1,4 +1,14 @@
 node_modules/
-*.png
+build/
 .DS_Store
-tools/ref/
+
+# Screenshots and Blender reference renders, which are working files. This
+# was `*.png` for one commit, which silently swallowed all eighty-seven
+# textures of the Godot project — their `.import` files stayed tracked, so a
+# fresh checkout looked complete and built a game with no textures in it.
+/*.png
+/tools/*.png
+/tools/ref/
+
+# Godot's import cache: derived from the assets, rebuilt by `--import`.
+godot/.godot/

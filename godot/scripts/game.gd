@@ -8,7 +8,7 @@ extends Node3D
 
 const CAMP := "res://assets/camp/Models/%s.gltf"
 const ENEMY := "res://assets/enemies/Skeleton_%s_Grim.glb"
-const AXE := "res://assets/weapons/axe/demonicaxegodot.glb"
+const AXE := "res://assets/weapons/demonic weapons pack/axe/demonicaxegodot.glb"
 const FX_AREA := "res://assets/BinbunVFX_Vol2/DarkMagicFX/effects/area/vfx_evil_area_01.tscn"
 const PLAYER_MESH := "res://assets/character/HumanCharacterDummy_M.fbx"
 
@@ -163,8 +163,15 @@ func _clothe(n: Node) -> void:
 
 
 func _give_axe() -> void:
+	# Loudly, because this was silently doing nothing: the path was wrong, the
+	# `load` returned null, the early return swallowed it, and the player
+	# fought six skeletons bare-handed for a week without anyone noticing.
 	var res := load(AXE)
-	if res == null or player.rig == null or not player.rig.idx.has("propR"):
+	if res == null:
+		push_error("no axe at %s" % AXE)
+		return
+	if player.rig == null or not player.rig.idx.has("propR"):
+		push_error("no propR bone to hang the axe on")
 		return
 	var att := BoneAttachment3D.new()
 	att.bone_idx = player.rig.idx["propR"]

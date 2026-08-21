@@ -78,10 +78,53 @@ is worth settling before anything ships.
 - None of the game's actual content — five acts, twelve skills, thirteen boss
   abilities, real loot, saves — has been ported. This is one camp, one wave and
   one weapon.
-- No web export, so this branch does not deploy anywhere yet.
 - The player is still the uploaded dummy, untextured, posed in code. He is
   dressed in flat dark leather by `game.gd` so he is not a white mannequin
   standing next to the skeletons, but he is not a character yet.
+
+## The web build
+
+```bash
+godot --headless --path godot --import      # a cold checkout has no .godot/
+godot --headless --path godot --export-release "Web" ../build/web/index.html
+node tools/web-check.mjs build/web /tmp/shots/web.png
+```
+
+`.github/workflows/godot-pages.yml` does exactly that on every push to this
+branch and publishes to **gh-pages under `godot/`** — a subdirectory, and the
+job clones what gh-pages already holds before replacing it, so publishing this
+never takes the JavaScript build down. It pushes a single orphan commit each
+time; a Godot web build is forty megabytes and keeping every one would make
+the repository unclonable within a month.
+
+Three things about the export are load-bearing rather than taste:
+
+- **No thread support.** A threaded Godot 4 web build needs SharedArrayBuffer,
+  which needs COOP/COEP response headers, which GitHub Pages does not send.
+  Threaded builds refuse to start there and the page just stays black.
+- **No VRAM texture compression.** Turning it on makes the export fail with
+  `configuration errors` and no further detail, because the matching project
+  setting (`import_etc2_astc` / `import_s3tc_bptc`) is off. It costs some
+  memory on the device and saves an afternoon.
+- **`exclude_filter` drops the originals.** The un-reproportioned skeletons
+  stay in the repository because `tools/grim_skeletons.py` reads them;
+  shipping both sets doubles the download for nothing.
+
+What that comes to, and what a phone actually pays:
+
+| file | on disk | over the wire |
+|---|---|---|
+| `index.wasm` | 33.7 MB | 7.6 MB — Pages gzips it |
+| `index.pck` | 6.7 MB | 6.5 MB — already compressed inside |
+
+The `.pck` is small because the enemies ship **21 of the pack's 95 clips**;
+see `KEEP_CLIPS` in the tool. Widening that list is one line and one re-run.
+
+`tools/web-check.mjs` serves the build, opens it in Chromium and waits for the
+engine to report itself running. "It exported" and "it runs" are different
+claims: a missing MIME type, a threaded template, or no WebGL2 all fail the
+same way from outside — a black page — and none of them show up in the export
+log.
 
 ## Playing it
 

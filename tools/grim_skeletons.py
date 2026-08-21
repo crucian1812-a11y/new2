@@ -37,6 +37,25 @@ OUT = os.path.join(HERE, "..", "godot", "assets", "enemies")
 
 MODELS = ["Skeleton_Minion", "Skeleton_Rogue", "Skeleton_Warrior", "Skeleton_Mage"]
 
+# The pack ships ninety-five clips — sitting on chairs, reloading a crossbow,
+# strafing — and each model carries the whole library. That is five megabytes
+# apiece, and this game has to load in a phone browser. So the export keeps a
+# working set: what the fight uses today, plus the ones the next few rounds of
+# content will obviously want (a village needs Interact and PickUp, a level
+# needs skeletons climbing out of the ground). The originals stay in the
+# repository, so widening this list is one line and one re-run.
+#
+# Matched exactly, not by prefix: `Death_A` and `Death_A_Pose` are different
+# clips and the game looks its animations up by substring.
+KEEP_CLIPS = {
+    "Idle", "Idle_Combat", "Walking_A", "Running_A",
+    "1H_Melee_Attack_Chop", "1H_Melee_Attack_Stab", "2H_Melee_Attack_Chop",
+    "Unarmed_Melee_Attack_Punch_A", "Spellcast_Raise", "Spellcast_Shoot",
+    "Hit_A", "Hit_B", "Death_A", "Death_B", "Death_C_Skeletons",
+    "Skeletons_Awaken_Standing", "Skeletons_Awaken_Floor",
+    "Taunt", "PickUp", "Interact", "Block",
+}
+
 # Optional: --atlas <path> writes the repainted texture out on its own, which
 # is the only way to tell a bad colour rule from a bad UV.
 _a = sys.argv.index("--atlas") if "--atlas" in sys.argv else -1
@@ -64,6 +83,11 @@ JAW_BOTTOM_Z = 1.19
 LEG_TOP_Z = 0.519
 LEG_STRETCH = 1.75
 RISE = LEG_TOP_Z * (LEG_STRETCH - 1.0)
+
+# The atlas is a grid of flat colour blocks — a palette, not a painting — so
+# a thousand pixels across buys nothing but download. Each model embeds its
+# own copy, so this is four times whatever it saves.
+ATLAS_MAX = 512
 
 TORSO_PARTS = {"Body", "Cloak", "Cape"}
 TORSO_X = 0.78          # narrower across the shoulders and hips
@@ -320,6 +344,8 @@ def convert(name):
                 # rather than re-encoding — so the model would ship with the
                 # texture we just spent all this effort replacing.
                 img.pixels.foreach_set(buf)
+            if img.size[0] > ATLAS_MAX:
+                img.scale(ATLAS_MAX, ATLAS_MAX)
 
     for m in bpy.data.materials:
         if not m.use_nodes:
@@ -338,6 +364,20 @@ def convert(name):
                 node.inputs["Roughness"].default_value = 0.86
                 node.inputs["Metallic"].default_value = 0.0
 
+    kept = []
+    for a in list(bpy.data.actions):
+        # Blender names the imported action after the action *and* its object,
+        # so `Walking_A` arrives as `Walking_A_Rig`; the exporter writes back
+        # the bare name.
+        bare = a.name[:-4] if a.name.endswith("_Rig") else a.name
+        if bare in KEEP_CLIPS:
+            kept.append(bare)
+        else:
+            bpy.data.actions.remove(a)
+    missing = KEEP_CLIPS - set(kept)
+    if missing:
+        print("[grim] %s: no such clip: %s" % (name, ", ".join(sorted(missing))))
+
     path = os.path.join(OUT, name + "_Grim.glb")
     bpy.ops.export_scene.gltf(
         filepath=path,
@@ -352,7 +392,7 @@ def convert(name):
     n = 0
     with open(path, "rb") as f:
         n = len(f.read())
-    print(f"[grim] {name}: {n/1024:.0f} KB, {len(bpy.data.actions)} actions in")
+    print(f"[grim] {name}: {n/1024:.0f} KB, {len(bpy.data.actions)} clips kept")
 
 
 for m in MODELS:

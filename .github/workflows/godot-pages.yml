@@ -1,0 +1,79 @@
+# Publishes the Godot build to GitHub Pages, alongside the JavaScript one.
+#
+# It goes to a `godot/` subdirectory rather than the root, and the job clones
+# whatever gh-pages already holds before replacing that one directory, so
+# publishing this build never takes the other one down.
+#
+# History is not kept: each run pushes a single orphan commit. A Godot web
+# build is forty megabytes, and keeping every one of them forever would make
+# the repository unclonable within a month.
+name: Pages (Godot)
+
+on:
+  push:
+    branches: [claude/godot-rebuild-w23o4j]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Shared with the JavaScript workflow so the two never push to gh-pages at
+# the same time.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  GODOT_VERSION: 4.3-stable
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch Godot and its export templates
+        run: |
+          base=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}
+          name=Godot_v${GODOT_VERSION}_linux.x86_64
+          curl -sSLf --retry 3 -o godot.zip "$base/${name}.zip"
+          curl -sSLf --retry 3 -o templates.tpz "$base/Godot_v${GODOT_VERSION}_export_templates.tpz"
+          unzip -q godot.zip && chmod +x "$name"
+          echo "GODOT=$PWD/$name" >> "$GITHUB_ENV"
+          unzip -q templates.tpz
+          # Godot looks the templates up by the version string in version.txt,
+          # not by the name of the file they arrived in.
+          mkdir -p "$HOME/.local/share/godot/export_templates"
+          mv templates "$HOME/.local/share/godot/export_templates/$(cat templates/version.txt)"
+
+      - name: Import the project
+        # Importing is a separate pass on purpose: a cold checkout has no
+        # .godot/, and exporting without it silently ships a project with no
+        # resources in it.
+        run: $GODOT --headless --path godot --import
+
+      - name: Export the web build
+        run: |
+          mkdir -p build/web
+          $GODOT --headless --path godot --export-release "Web" ../build/web/index.html
+          test -s build/web/index.wasm
+          test -s build/web/index.pck
+
+      - name: Publish to gh-pages/godot
+        run: |
+          git clone -q --depth 1 --branch gh-pages \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" site \
+            || { mkdir site && git -C site init -q -b gh-pages; }
+          rm -rf site/godot
+          mkdir -p site/godot
+          cp build/web/* site/godot/
+          touch site/.nojekyll
+          cd site
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q --orphan fresh
+          git add -A
+          git commit -q -m "Publish Godot build ${GITHUB_SHA::7}"
+          git push -q --force \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" \
+            fresh:gh-pages
