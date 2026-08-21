@@ -21,6 +21,12 @@ const OUT = process.argv[3] || '/tmp/shots/web.png';
 // first build that went up could be hit by tapping but could not be walked,
 // so it looked like the game was broken rather than the controls missing.
 const TOUCH = process.argv.includes('--touch');
+// --vp WxH overrides the emulated screen. Frame rate here is measured on a
+// software rasteriser with no GPU behind it, so the absolute number means
+// little; how it scales with pixel count is what says whether the cost is
+// fill rate (which a real phone GPU eats) or geometry (which it does not).
+const VP = (process.argv.find((a) => a.startsWith('--vp=')) || '').slice(5);
+const [VPW, VPH] = VP ? VP.split('x').map(Number) : [880, 420];
 const TYPES = {
   '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm',
   '.pck': 'application/octet-stream', '.png': 'image/png', '.json': 'application/json',
@@ -44,7 +50,7 @@ const browser = await chromium.launch({
 const page = await (
   await browser.newContext(
     TOUCH
-      ? { viewport: { width: 880, height: 420 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 }
+      ? { viewport: { width: VPW, height: VPH }, hasTouch: true, isMobile: true, deviceScaleFactor: 1 }
       : { viewport: { width: 900, height: 506 } }
   )
 ).newPage();
@@ -78,6 +84,26 @@ await page.waitForTimeout(6000);
 // What the game says about itself, through the `?probe` window.
 const probe = () => page.evaluate(() => window.__weg || null);
 
+// Frame rate, counted from the browser rather than asked of the game. Godot's
+// web build drives its loop from requestAnimationFrame, so counting callbacks
+// measures the real thing — and it works on any build, including one already
+// deployed that knows nothing about being measured.
+const framerate = (ms) =>
+  page.evaluate(
+    (d) =>
+      new Promise((res) => {
+        let n = 0;
+        const t0 = performance.now();
+        const tick = () => {
+          n++;
+          if (performance.now() - t0 < d) requestAnimationFrame(tick);
+          else res((n * 1000) / (performance.now() - t0));
+        };
+        requestAnimationFrame(tick);
+      }),
+    ms
+  );
+
 let walked = null;
 if (TOUCH) {
   const box = await page.locator('canvas').boundingBox();
@@ -96,10 +122,16 @@ if (TOUCH) {
   await page.waitForTimeout(4500);
   const right = await probe();
 
+  // Frame rate, sampled over a second at the busiest moment — six skeletons
+  // on screen, the fire lit, shadows on. A phone is the target and this is
+  // the only number that says whether the world just built is affordable.
+  const measured = await framerate(3000);
   walked = {
     drift,
     reach: left && right ? Math.hypot(right.x - left.x, right.z - left.z) : -1,
     hp: right ? right.hp : -1,
+    fps: measured,
+    tris: right && right.tris ? right.tris : -1,
   };
 }
 
@@ -117,11 +149,12 @@ const bad = logs.filter((l) => /pageerror|404\?|\[error\]/.test(l));
 for (const l of logs.slice(-25)) console.log(l);
 console.log(`canvas ${painted ? `${painted.w}x${painted.h}` : 'MISSING'}, engine started: ${ok}`);
 if (walked) {
-  const { drift, reach, hp } = walked;
+  const { drift, reach, hp, fps, tris } = walked;
   console.log(
     `tap-to-walk: he covers ${reach.toFixed(1)} units between opposite taps, ` +
       `${drift.toFixed(1)} when untouched; ${hp.toFixed(0)} hp left`
   );
+  console.log(`frame rate: ${fps.toFixed(1)} fps, ${tris > 0 ? (tris / 1000).toFixed(0) + 'k primitives' : 'primitives unknown'}`);
   if (!(reach > 3.0 && reach > drift * 2.5)) {
     console.log('tapping the ground does not move him — the game is unplayable on a phone');
     process.exit(1);

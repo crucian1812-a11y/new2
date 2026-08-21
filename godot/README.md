@@ -36,6 +36,51 @@ Vulkan, and the target for this game is a phone browser.
 | `scripts/lineup.gd` | an animated model sheet — see below |
 | `assets/` | the uploaded packs, unpacked |
 
+## The world
+
+The camp is built in code from a seeded RNG, and three of its parts are worth
+knowing about.
+
+**The ground is a mesh, not a plane.** It was one flat quad of
+`Color(0.10, 0.11, 0.10)` — no texture, no relief, no variation — and since
+the ground is seventy per cent of every frame in an isometric game, that one
+line was most of why the whole build read as props floating in a void. It is
+now a heightfield with vertex colours: wet dark mud in the hollows, dry pale
+earth on the rises, dead moss in patches, and a tiled noise for grain. The
+relief is real geometry rather than a normal map, because with the moon low,
+real bumps throw real shadow.
+
+**Godot's front faces are clockwise.** The first version of that mesh wound
+its triangles counter-clockwise, so every one of them was a back face and
+every one was culled. The ground was not dark, it was *not being drawn* — and
+an hour went into the lighting, the normals and the material of a mesh that
+was never on screen. What settled it was setting the albedo to pure red: no
+red anywhere meant the problem was not brightness. Reach for that first.
+
+**Repeated props go through a MultiMesh.** Ninety barrels, crates and bottles
+were ninety draw calls and ninety more in the shadow pass, which halved the
+frame rate the moment the camp got dense enough to look like one. `_instance_all`
+takes a prop name and a list of transforms, pulls the mesh out of the prop's
+scene — folding in the whole transform chain down to it — and draws each kind
+in one call.
+
+## Frame rate
+
+There is no GPU in the container this is built in, so every frame-rate number
+here comes from a software rasteriser and none of them mean anything in
+absolute terms. Only the ratios do:
+
+| build | fps, software, 880×420 | primitives |
+|---|---|---|
+| flat plane, no shadows | 5.7 | — |
+| the world above, first cut | 2.7 | 308k |
+| after batching and trimming | 3.3 | 186k |
+
+So the world costs something like forty per cent more than the empty plane did.
+Whether that matters is a question about a real device, which is why the HUD
+carries a small `fps` readout in the corner: it is the only route by which the
+number from the machine that actually matters gets back here.
+
 ## Two things carried over from the JavaScript build
 
 **The camera is not a taste decision.** That renderer projects `(x, y, z)` to

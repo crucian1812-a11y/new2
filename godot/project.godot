@@ -17,6 +17,12 @@ window/size/viewport_height=720
 window/stretch/mode="canvas_items"
 
 [rendering]
+
+; A four-thousand-pixel shadow map is a desktop default and this game opens in
+; a phone browser. At the distance the camera can actually see, two thousand
+; is indistinguishable.
+lights_and_shadows/directional_shadow/size=2048
+lights_and_shadows/directional_shadow/size.mobile=1024
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/canvas_textures/default_texture_filter=0

@@ -37,9 +37,15 @@ func set_counts(k: int, r: int) -> void:
 	remaining = r
 	panel.queue_redraw()
 
+var _tick := 0.0
+
 func _process(delta: float) -> void:
 	if flash > 0.0:
 		flash = maxf(0.0, flash - delta)
+	# The readout would otherwise only refresh when something else did.
+	_tick += delta
+	if _tick > 0.4:
+		_tick = 0.0
 		panel.queue_redraw()
 
 func _draw_hud() -> void:
@@ -74,6 +80,12 @@ func _draw_hud() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.62, 0.58, 0.50))
 	panel.draw_string(f, Vector2(20, 30), hint,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.60, 0.58, 0.52))
+	# Small, dim, and always on. There is no GPU in the machine this is built
+	# on, so every frame-rate number I have is from a software rasteriser and
+	# says nothing about a real phone. This is the only way the number from
+	# the device that matters ever reaches me.
+	panel.draw_string(f, Vector2(vp.x - 190, vp.y - 16), "%d fps" % Engine.get_frames_per_second(),
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.42, 0.44, 0.40))
 
 	if flash > 0.0:
 		panel.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.7, 0.05, 0.05, flash * 0.5))
