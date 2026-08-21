@@ -10,6 +10,7 @@
 // engine to say it is running. It fails loudly rather than saving a black
 // screenshot and calling it a deployment.
 import { chromium } from 'playwright';
+import { report } from './budget.mjs';
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname } from 'node:path';
@@ -132,6 +133,7 @@ if (TOUCH) {
     hp: right ? right.hp : -1,
     fps: measured,
     tris: right && right.tris ? right.tris : -1,
+    frame: right || null,
   };
 }
 
@@ -149,12 +151,22 @@ const bad = logs.filter((l) => /pageerror|404\?|\[error\]/.test(l));
 for (const l of logs.slice(-25)) console.log(l);
 console.log(`canvas ${painted ? `${painted.w}x${painted.h}` : 'MISSING'}, engine started: ${ok}`);
 if (walked) {
-  const { drift, reach, hp, fps, tris } = walked;
+  const { drift, reach, hp, fps } = walked;
   console.log(
     `tap-to-walk: he covers ${reach.toFixed(1)} units between opposite taps, ` +
       `${drift.toFixed(1)} when untouched; ${hp.toFixed(0)} hp left`
   );
-  console.log(`frame rate: ${fps.toFixed(1)} fps, ${tris > 0 ? (tris / 1000).toFixed(0) + 'k primitives' : 'primitives unknown'}`);
+  console.log(
+    `frame rate: ${fps.toFixed(1)} fps — on a software rasteriser, so this is ` +
+      `useful only against another run of the same kind`
+  );
+  if (walked.frame && walked.frame.draws !== undefined) {
+    console.log('cost of a frame, which does not depend on the hardware:');
+    if (report(walked.frame) > 0) {
+      console.log('over budget — ask the device that matters before shipping this');
+      process.exit(1);
+    }
+  }
   if (!(reach > 3.0 && reach > drift * 2.5)) {
     console.log('tapping the ground does not move him — the game is unplayable on a phone');
     process.exit(1);

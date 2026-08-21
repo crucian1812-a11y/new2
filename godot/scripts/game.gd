@@ -743,8 +743,14 @@ func _probe_setup() -> void:
 func _process(_d: float) -> void:
 	_refresh_counts()
 	if _probe and player != null:
-		JavaScriptBridge.eval("window.__weg={x:%f,z:%f,hp:%f,kills:%d,alive:%d,fps:%d,tris:%d}" % [
+		var info := func(k: int) -> int: return RenderingServer.get_rendering_info(k)
+		JavaScriptBridge.eval(("window.__weg={x:%f,z:%f,hp:%f,kills:%d,alive:%d,fps:%d," +
+			"tris:%d,draws:%d,objects:%d,texmem:%d,bufmem:%d}") % [
 			player.global_position.x, player.global_position.z,
 			player.hp, kills, enemies.size(),
 			Engine.get_frames_per_second(),
-			RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)], true)
+			info.call(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME),
+			info.call(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
+			info.call(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME),
+			info.call(RenderingServer.RENDERING_INFO_TEXTURE_MEM_USED),
+			info.call(RenderingServer.RENDERING_INFO_BUFFER_MEM_USED)], true)

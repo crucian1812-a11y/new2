@@ -64,22 +64,42 @@ takes a prop name and a list of transforms, pulls the mesh out of the prop's
 scene — folding in the whole transform chain down to it — and draws each kind
 in one call.
 
-## Frame rate
+## Frame rate, without a GPU
 
-There is no GPU in the container this is built in, so every frame-rate number
-here comes from a software rasteriser and none of them mean anything in
-absolute terms. Only the ratios do:
+There is no GPU in the container this is built in — no `/dev/dri`, no PCI
+display device, four CPU cores. Every frame-rate number available here comes
+from a software rasteriser, and no amount of measuring harder changes that:
+the machine cannot answer the question. Only ratios between runs of the same
+kind mean anything.
 
-| build | fps, software, 880×420 | primitives |
-|---|---|---|
-| flat plane, no shadows | 5.7 | — |
-| the world above, first cut | 2.7 | 308k |
-| after batching and trimming | 3.3 | 186k |
+| build | fps, software, 880×420 |
+|---|---|
+| flat plane, no shadows | 5.7 |
+| the world, first cut | 2.7 |
+| after batching and trimming | 3.3 |
 
-So the world costs something like forty per cent more than the empty plane did.
-Whether that matters is a question about a real device, which is why the HUD
-carries a small `fps` readout in the corner: it is the only route by which the
-number from the machine that actually matters gets back here.
+What the machine *can* answer exactly is what a frame **costs**, and on a
+mobile tile-based GPU the cost that bites first is not triangles — it is draw
+calls, each one a pipeline state change the tiler cannot batch away. Those
+counters are hardware-independent: the same scene submits the same number of
+draws whether it renders in one millisecond or four hundred. So
+`tools/budget.mjs` holds the build to a budget instead of to a stopwatch, and
+`web-check.mjs --touch` fails when it goes over.
+
+The budget is a judgement, not a measurement — roughly what a mid-range phone
+from around 2020 handles comfortably in WebGL2, deliberately conservative.
+Going over does not prove the game is slow; it proves it has stopped being
+obviously safe, which is when the number from a real device has to be asked
+for. That is what the small `fps` readout in the HUD corner is for: it is the
+only route by which a real device's number gets back here.
+
+It earned its keep immediately. The camp came in at **179 draw calls** against
+a budget of 170, and the reason was the enemies: KayKit splits each figure
+into nine objects — skull, jaw, cloak, two arms, two legs, body, eyes — and
+eight of them carry the same material. Eight wasted draw calls per skeleton,
+eight more in the shadow pass, six skeletons on screen. `weld()` in
+`tools/grim_skeletons.py` joins them, which preserves vertex groups so the
+armature still drives every vertex. **179 → 93.**
 
 ## Two things carried over from the JavaScript build
 

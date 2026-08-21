@@ -311,6 +311,33 @@ def repaint(img):
     return buf
 
 
+def weld(name):
+    """Join every part that shares the skeleton material into one mesh.
+
+    The pack splits each figure into nine objects — skull, jaw, cloak, two
+    arms, two legs, body, eyes — and eight of them carry the same material.
+    That is eight draw calls per skeleton where one would do, and eight more
+    in the shadow pass; with six of them on screen it was a quarter of the
+    frame's draw calls spent on nothing. Joining preserves vertex groups, so
+    the armature keeps driving every vertex exactly as before.
+
+    The eyes stay out of it: they are the one part with its own material, and
+    merging them would only produce a second surface on the same object.
+    """
+    parts = [
+        o for o in bpy.data.objects
+        if o.type == "MESH" and o.name.split("_")[-1] != "Eyes"
+    ]
+    if len(parts) < 2:
+        return
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in parts:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = parts[0]
+    bpy.ops.object.join()
+    bpy.context.view_layer.objects.active.name = name + "_Body"
+
+
 def convert(name):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=os.path.join(SRC, name + ".glb"))
@@ -331,6 +358,8 @@ def convert(name):
     for o in bpy.data.objects:
         if o.type == "MESH":
             reshape(o)
+
+    weld(name)
 
     for img in bpy.data.images:
         if img.size[0] > 1:
