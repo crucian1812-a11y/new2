@@ -38,6 +38,7 @@ func _ready() -> void:
 	_camera()
 	_hud()
 	fx_scene = load(FX_AREA)
+	_probe_setup()
 	for i in WAVE.size():
 		_spawn_enemy(WAVE[i], i)
 	_refresh_counts()
@@ -66,9 +67,13 @@ func _ground() -> void:
 func _light() -> void:
 	# Cold moon, and almost nothing else. Diablo's world is dark and what you
 	# can see is what your own torch reaches.
+	# Lifted well past what looked right on a desktop monitor in a dark room.
+	# The first build on a phone, outdoors, was an unreadable brown smear: the
+	# bonfire was doing nearly all the lighting and everything outside its
+	# pool was black. The moon has to carry the camp.
 	var moon := DirectionalLight3D.new()
 	moon.rotation_degrees = Vector3(-40, 38, 0)
-	moon.light_energy = 0.62
+	moon.light_energy = 0.95
 	moon.light_color = Color(0.58, 0.68, 0.92)
 	moon.shadow_enabled = false
 	add_child(moon)
@@ -77,14 +82,14 @@ func _light() -> void:
 	e.background_mode = Environment.BG_COLOR
 	e.background_color = Color(0.03, 0.035, 0.055)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(0.20, 0.24, 0.34)
-	e.ambient_light_energy = 0.72
+	e.ambient_light_color = Color(0.26, 0.30, 0.40)
+	e.ambient_light_energy = 1.05
 	e.fog_enabled = true
 	e.fog_light_color = Color(0.06, 0.075, 0.11)
-	e.fog_density = 0.018
+	e.fog_density = 0.008
 	e.adjustment_enabled = true
-	e.adjustment_contrast = 1.18
-	e.adjustment_saturation = 0.88
+	e.adjustment_contrast = 1.06
+	e.adjustment_saturation = 0.92
 	env.environment = e
 	add_child(env)
 
@@ -111,7 +116,7 @@ func _bonfire() -> void:
 	var glow := OmniLight3D.new()
 	glow.position = Vector3(0, 1.1, 0)
 	glow.light_color = Color(1.0, 0.60, 0.24)
-	glow.light_energy = 5.0
+	glow.light_energy = 4.0
 	glow.omni_range = 16.0
 	glow.set_script(preload("res://scripts/flicker.gd"))
 	add_child(glow)
@@ -154,7 +159,7 @@ func _clothe(n: Node) -> void:
 	## same painting.
 	if n is MeshInstance3D:
 		var m := StandardMaterial3D.new()
-		m.albedo_color = Color(0.32, 0.29, 0.26)
+		m.albedo_color = Color(0.46, 0.42, 0.37)
 		m.roughness = 0.88
 		m.metallic = 0.0
 		(n as MeshInstance3D).material_override = m
@@ -242,7 +247,7 @@ func _refresh_counts() -> void:
 func _camera() -> void:
 	var cam := IsoCamera.new()
 	cam.target = player
-	cam.view_height = 11.0
+	cam.view_height = 8.5
 	add_child(cam)
 
 func _hud() -> void:
@@ -252,13 +257,80 @@ func _hud() -> void:
 	player.died.connect(func() -> void: hud.dead = true)
 	hud.set_health(player.hp, player.max_hp)
 
+var pointer_held := false
+
 func _unhandled_input(e: InputEvent) -> void:
 	if player == null or player.dead:
 		return
-	if e.is_action_pressed("cast") or (e is InputEventMouseButton and e.pressed \
-			and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT):
+	# Space still swings on the spot, for a keyboard.
+	if e.is_action_pressed("cast"):
 		player.try_attack(enemies)
-		_refresh_counts()
+		return
+
+	# Touch is read through the emulated mouse events Godot already sends for
+	# it, so one path covers a finger and a mouse. Handling both raw touch and
+	# the emulation would act on every tap twice.
+	var at := Vector2.INF
+	if e is InputEventMouseButton and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		pointer_held = (e as InputEventMouseButton).pressed
+		if pointer_held:
+			at = (e as InputEventMouseButton).position
+	elif e is InputEventMouseMotion and pointer_held:
+		at = (e as InputEventMouseMotion).position
+	if at == Vector2.INF:
+		return
+
+	var ground := _ground_under(at)
+	if ground == Vector3.INF:
+		return
+	# Pointing at a monster means going for it; pointing at the floor means
+	# walking there. The tolerance is generous because a fingertip is about
+	# forty pixels wide and the enemies are forty pixels tall.
+	var near := _enemy_near(ground, 1.6)
+	if near != null:
+		player.order_attack(near)
+	else:
+		player.order_move(ground)
+
+func _ground_under(at: Vector2) -> Vector3:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return Vector3.INF
+	var o := cam.project_ray_origin(at)
+	var d := cam.project_ray_normal(at)
+	if absf(d.y) < 0.0001:
+		return Vector3.INF
+	return o + d * (-o.y / d.y)
+
+func _enemy_near(where: Vector3, radius: float) -> Node3D:
+	var best: Node3D = null
+	var best_d := radius
+	for e in enemies:
+		if not is_instance_valid(e) or e.state == "dead":
+			continue
+		var d := Vector2(e.global_position.x - where.x, e.global_position.z - where.z).length()
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+## A window a test can look through, opened only by `?probe` in the URL.
+##
+## Checking a web build by looking at the picture does not work here. The
+## camera keeps the player dead centre and his own torch is the brightest
+## thing in the frame, so "where the light is" is the middle of the screen no
+## matter where he walks — a whole afternoon of pixel metrics measuring the
+## campfire flickering. This reports the facts instead.
+var _probe := false
+
+func _probe_setup() -> void:
+	if not OS.has_feature("web"):
+		return
+	_probe = bool(JavaScriptBridge.eval("location.search.indexOf('probe') >= 0", true))
 
 func _process(_d: float) -> void:
 	_refresh_counts()
+	if _probe and player != null:
+		JavaScriptBridge.eval("window.__weg={x:%f,z:%f,hp:%f,kills:%d,alive:%d}" % [
+			player.global_position.x, player.global_position.z,
+			player.hp, kills, enemies.size()], true)

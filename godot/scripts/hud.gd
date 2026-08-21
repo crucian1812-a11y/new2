@@ -12,6 +12,7 @@ var remaining := 0
 var flash := 0.0
 var dead := false
 var panel: Control
+var hint := ""
 
 func _ready() -> void:
 	panel = Control.new()
@@ -19,6 +20,10 @@ func _ready() -> void:
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.draw.connect(_draw_hud)
 	add_child(panel)
+	# Telling a phone about WASD is worse than telling it nothing.
+	hint = "Тапни, куда идти  ·  тапни по врагу — бить" \
+		if DisplayServer.is_touchscreen_available() \
+		else "Клик — идти  ·  клик по врагу — бить  ·  WASD, пробел"
 
 func set_health(cur: float, maxv: float) -> void:
 	if maxv > 0.0 and cur < hp * hp_max:
@@ -67,8 +72,8 @@ func _draw_hud() -> void:
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.85, 0.80, 0.68))
 	panel.draw_string(f, Vector2(vp.x - 190, 58), "Убито: %d" % kills,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.62, 0.58, 0.50))
-	panel.draw_string(f, Vector2(20, 30), "WASD — идти    ЛКМ / пробел — удар",
-		HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.55, 0.53, 0.48))
+	panel.draw_string(f, Vector2(20, 30), hint,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.60, 0.58, 0.52))
 
 	if flash > 0.0:
 		panel.draw_rect(Rect2(Vector2.ZERO, vp), Color(0.7, 0.05, 0.05, flash * 0.5))

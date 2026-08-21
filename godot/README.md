@@ -121,15 +121,35 @@ The `.pck` is small because the enemies ship **21 of the pack's 95 clips**;
 see `KEEP_CLIPS` in the tool. Widening that list is one line and one re-run.
 
 `tools/web-check.mjs` serves the build, opens it in Chromium and waits for the
-engine to report itself running. "It exported" and "it runs" are different
+engine to report itself running. With `--touch` it emulates a phone and checks
+the game can be *played* with a finger, not merely started.
+
+That check reads the game's own state rather than its picture, through a
+window `game.gd` opens only when the URL carries `?probe`. Measuring the
+picture does not work here: the camera keeps the player dead centre and his
+torch is the brightest thing in the frame, so "where the light is" is the
+middle of the screen no matter where he walks. An afternoon of pixel metrics
+went into measuring the campfire flickering. "It exported" and "it runs" are different
 claims: a missing MIME type, a threaded template, or no WebGL2 all fail the
 same way from outside — a black page — and none of them show up in the export
 log.
 
 ## Playing it
 
-WASD to walk, left mouse or space to swing. Six skeletons close in; the health
-globe is bottom left and the count top right.
+**Point at the ground to walk there; point at a skeleton to go and kill it.**
+WASD and space still work. That is Diablo's own scheme, and it is the only one
+that survives a phone: there is no WASD on a touch screen, and a virtual
+thumbstick sits under a thumb covering the quarter of a small screen you most
+need to see. Pointing needs no on-screen furniture at all.
+
+The first build that went up could be *hit* by tapping but not *walked* —
+`_unhandled_input` only ever called `try_attack` — so on a phone it looked
+like a broken game rather than a game with no controls. `tools/web-check.mjs
+--touch` now emulates a phone, taps the two sides of the screen and asserts he
+actually covered ground.
+
+Six skeletons close in; the health globe is bottom left and the count top
+right.
 
 ## Verifying it without a GPU
 

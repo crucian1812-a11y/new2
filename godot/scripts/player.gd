@@ -26,6 +26,18 @@ var swing := -1.0            ## -1 idle, otherwise 0..1 through the blow
 var hurt_flash := 0.0
 var dead := false
 
+## Where he was told to go, and what he was told to hit.
+##
+## Diablo is played by pointing at the ground, and that turns out to be the
+## only scheme that works on a phone as well: there is no WASD on a touch
+## screen, and a virtual thumbstick under a thumb covers the quarter of a
+## small screen you most need to see. Pointing needs no on-screen furniture
+## at all.
+var move_to := Vector3.ZERO
+var has_move := false
+var foe: Node3D = null
+const ARRIVE := 0.28
+
 func _ready() -> void:
 	hp = max_hp
 	rig = Rig.new()
@@ -74,6 +86,13 @@ func _physics_process(delta: float) -> void:
 	var wish := Vector3(input.x, 0, input.y)
 	if wish.length() > 1.0:
 		wish = wish.normalized()
+	# The keys win while they are held, so a keyboard player is never fighting
+	# a destination he set with the mouse three seconds ago.
+	if wish.length() > 0.01:
+		has_move = false
+		foe = null
+	else:
+		wish = _pointed_wish()
 	# A body committed to a blow does not stroll through it.
 	if swing >= 0.0:
 		wish *= 0.25
@@ -97,6 +116,42 @@ func _physics_process(delta: float) -> void:
 		rig.pose(phase, gait, t)
 		if swing >= 0.0:
 			rig.pose_swing(swing)
+
+func order_move(where: Vector3) -> void:
+	move_to = where
+	has_move = true
+	foe = null
+
+func order_attack(e: Node3D) -> void:
+	## Walk in and keep swinging until it stops being a target — the whole of
+	## what a click on a monster means.
+	foe = e
+	has_move = false
+
+func _pointed_wish() -> Vector3:
+	if is_instance_valid(foe) and foe.get("state") != "dead":
+		var to: Vector3 = foe.global_position - global_position
+		to.y = 0.0
+		# Stop a little inside reach: walking to exactly `attack_range` leaves
+		# him dithering on the boundary as the target shuffles.
+		if to.length() > attack_range - 0.45:
+			return to.normalized()
+		if swing < 0.0:
+			try_attack([foe])
+		return Vector3.ZERO
+	foe = null
+
+	if not has_move:
+		return Vector3.ZERO
+	var d := move_to - global_position
+	d.y = 0.0
+	if d.length() <= ARRIVE:
+		has_move = false
+		return Vector3.ZERO
+	# Ease off over the last stride so he settles instead of jittering across
+	# the spot he was sent to.
+	return d.normalized() * clampf(d.length() / 0.9, 0.35, 1.0)
+
 
 func try_attack(enemies: Array) -> void:
 	if dead or swing >= 0.0:
