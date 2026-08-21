@@ -24,6 +24,7 @@ const WAVE := ["Warrior", "Minion", "Rogue", "Warrior", "Minion", "Warrior"]
 var player: Player
 var hud: HUD
 var controls: TouchControls
+var ground_at: Callable = func(_x: float, _z: float) -> float: return 0.0
 var enemies: Array = []
 var rng := RandomNumberGenerator.new()
 var fx_scene: PackedScene
@@ -75,7 +76,7 @@ func _ground() -> void:
 
 	const HALF := 34.0
 	const CELLS := 56
-	const RELIEF := 0.30
+	const RELIEF := 0.26
 	var step := HALF * 2.0 / CELLS
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
@@ -90,6 +91,9 @@ func _ground() -> void:
 
 	var h := func(x: float, z: float) -> float:
 		return n.get_noise_2d(x, z) * RELIEF
+	# Kept so the game can be asked, at any point, how high its own ground is
+	# there. A figure standing lower than that is a figure buried in it.
+	ground_at = h
 
 	for j in CELLS + 1:
 		for i in CELLS + 1:
@@ -167,14 +171,31 @@ func _ground() -> void:
 	mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mesh)
 
-	# The collision stays flat. The relief is under a tenth of a stride and a
-	# heightmap body would cost more than the difference is worth.
+	# The collision follows the relief, and this is not an optimisation to
+	# skip.
+	#
+	# It was a flat box, on the reasoning that the bumps were "under a tenth of
+	# a stride". They are not: the relief runs plus and minus three tenths of a
+	# metre against a figure one metre eighty tall. Everything walks at y=0
+	# while the ground in front of it rises, so a body gets cut off at the shin
+	# by earth standing in front of it — which, on a small screen, reads as the
+	# figures being see-through. Hero and monsters alike, because they all
+	# stand on the same lie.
 	var body := StaticBody3D.new()
 	var col := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(HALF * 2.0, 0.4, HALF * 2.0)
-	col.shape = box
-	col.position.y = -0.2
+	var hm := HeightMapShape3D.new()
+	# HeightMapShape3D's cells are one unit across and it centres itself on
+	# its origin, so the point count is the span plus one.
+	var n_pts := int(HALF * 2.0) + 1
+	hm.map_width = n_pts
+	hm.map_depth = n_pts
+	var data := PackedFloat32Array()
+	data.resize(n_pts * n_pts)
+	for j in n_pts:
+		for i in n_pts:
+			data[j * n_pts + i] = float(h.call(-HALF + i, -HALF + j))
+	hm.map_data = data
+	col.shape = hm
 	body.add_child(col)
 	add_child(body)
 
@@ -865,7 +886,7 @@ func _process(_d: float) -> void:
 		var info := func(k: int) -> int: return RenderingServer.get_rendering_info(k)
 		JavaScriptBridge.eval(("window.__weg={x:%f,z:%f,hp:%f,kills:%d,alive:%d,fps:%d," +
 			"tris:%d,draws:%d,objects:%d,texmem:%d,bufmem:%d,cd:[%.2f,%.2f,%.2f,%.2f]," +
-			"vw:%d,vh:%d,sx:%.3f,sy:%.3f}") % [
+			"vw:%d,vh:%d,sx:%.3f,sy:%.3f,y:%.3f,gy:%.3f}") % [
 			player.global_position.x, player.global_position.z,
 			player.hp, kills, enemies.size(),
 			Engine.get_frames_per_second(),
@@ -878,4 +899,6 @@ func _process(_d: float) -> void:
 			player.cooldowns[2], player.cooldowns[3],
 			get_viewport().get_visible_rect().size.x,
 			get_viewport().get_visible_rect().size.y,
-			player.stick.x, player.stick.y], true)
+			player.stick.x, player.stick.y,
+			player.global_position.y,
+			float(ground_at.call(player.global_position.x, player.global_position.z))], true)

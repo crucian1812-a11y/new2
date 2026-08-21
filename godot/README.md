@@ -50,6 +50,15 @@ earth on the rises, dead moss in patches, and a tiled noise for grain. The
 relief is real geometry rather than a normal map, because with the moon low,
 real bumps throw real shadow.
 
+**Relief in the mesh means relief in the collision.** The first version drew a
+heightfield and kept a flat collision box under it, on the reasoning that the
+bumps were "under a tenth of a stride". They are not — the relief runs ±0.26 m
+against a figure 1.8 m tall — so everything walked at zero while the earth
+rose around it and got cut off at the shin. `HeightMapShape3D` samples the
+same height function, and `web-check.mjs --touch` now asserts the gap between
+a figure's feet and the ground it is standing on: 0.069 m before, 0.001 m
+after.
+
 **Godot's front faces are clockwise.** The first version of that mesh wound
 its triangles counter-clockwise, so every one of them was a back face and
 every one was culled. The ground was not dark, it was *not being drawn* — and

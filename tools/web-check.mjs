@@ -241,6 +241,14 @@ if (TOUCH) {
     from: a0,
     left,
     right,
+    // How far the player's feet are from the ground he is standing on. The
+    // relief was drawn into the mesh and left out of the collision, so
+    // everything walked at zero while the earth rose around it and got cut
+    // off at the shin — which on a small screen reads as the figures being
+    // see-through.
+    sink: [a0, left, right, b1]
+      .filter((p) => p && p.gy !== undefined)
+      .reduce((w, p) => Math.max(w, Math.abs(p.y - p.gy)), 0),
   };
 }
 
@@ -265,6 +273,13 @@ if (walked) {
       ` (stick read ${walked.tilt.toFixed(2)} at full hold; ` +
       `x went ${walked.left.x.toFixed(1)} then ${walked.right.x.toFixed(1)})`
   );
+  console.log(
+    `feet against the ground: worst gap ${walked.sink.toFixed(3)} m over the walk`
+  );
+  if (!(walked.sink < 0.16)) {
+    console.log('the figures are standing in the earth rather than on it');
+    process.exit(1);
+  }
   console.log(
     `ability button under a second finger: ` +
       `${walked_button && walked_button.fired ? 'fires' : 'DID NOT FIRE'}, ` +

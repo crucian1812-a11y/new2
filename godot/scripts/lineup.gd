@@ -32,7 +32,10 @@ func _ready() -> void:
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
 	e.background_mode = Environment.BG_COLOR
-	e.background_color = Color(0.045, 0.05, 0.065)
+	# Bright on purpose when asked. A half-transparent figure against a near
+	# black background merely looks darker, which is how a first pass at this
+	# check declared solid what was not.
+	e.background_color = Color(1.0, 0.0, 1.0) if "--loud" in args else Color(0.045, 0.05, 0.065)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.30, 0.34, 0.44)
 	e.ambient_light_energy = 0.9
