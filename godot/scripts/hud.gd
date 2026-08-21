@@ -21,9 +21,9 @@ func _ready() -> void:
 	panel.draw.connect(_draw_hud)
 	add_child(panel)
 	# Telling a phone about WASD is worse than telling it nothing.
-	hint = "Тапни, куда идти  ·  тапни по врагу — бить" \
+	hint = "Слева — вести  ·  справа — бить и колдовать" \
 		if DisplayServer.is_touchscreen_available() \
-		else "Клик — идти  ·  клик по врагу — бить  ·  WASD, пробел"
+		else "Клик — идти  ·  клик по врагу — бить  ·  WASD, пробел, 1-4"
 
 func set_health(cur: float, maxv: float) -> void:
 	if maxv > 0.0 and cur < hp * hp_max:

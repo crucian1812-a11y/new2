@@ -80,10 +80,66 @@ try {
 } catch {}
 
 // Let a few frames land so the shot is of the game, not of frame zero.
-await page.waitForTimeout(6000);
+await page.waitForTimeout(TOUCH ? 1500 : 6000);
 
 // What the game says about itself, through the `?probe` window.
 const probe = () => page.evaluate(() => window.__weg || null);
+
+// A real touch sequence, dispatched as DOM events on the canvas.
+//
+// Playwright's touchscreen can tap and nothing else, and a thumbstick is
+// entirely about the drag. These are genuine TouchEvents with a real
+// identifier, which is the only way to test two fingers at once — and two
+// fingers at once is the whole reason the controls exist: steering while
+// swinging is what an action game is.
+const touchSeq = (steps) =>
+  page.evaluate(async (steps) => {
+    const c = document.querySelector('canvas');
+    const r = c.getBoundingClientRect();
+    const live = new Map();
+    const fire = (type, ids) => {
+      const list = ids.map((id) => {
+        const p = live.get(id);
+        return new Touch({
+          identifier: id,
+          target: c,
+          clientX: r.left + p.x,
+          clientY: r.top + p.y,
+          pageX: r.left + p.x,
+          pageY: r.top + p.y,
+        });
+      });
+      const all = [...live.keys()].map((id) => {
+        const p = live.get(id);
+        return new Touch({
+          identifier: id,
+          target: c,
+          clientX: r.left + p.x,
+          clientY: r.top + p.y,
+          pageX: r.left + p.x,
+          pageY: r.top + p.y,
+        });
+      });
+      c.dispatchEvent(
+        new TouchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          changedTouches: list,
+          touches: type === 'touchend' ? all.filter((t) => ids.indexOf(t.identifier) < 0) : all,
+          targetTouches: type === 'touchend' ? all.filter((t) => ids.indexOf(t.identifier) < 0) : all,
+        })
+      );
+    };
+    for (const s of steps) {
+      if (s.wait) {
+        await new Promise((r2) => setTimeout(r2, s.wait));
+        continue;
+      }
+      live.set(s.id, { x: s.x, y: s.y });
+      fire(s.type, [s.id]);
+      if (s.type === 'touchend') live.delete(s.id);
+    }
+  }, steps);
 
 // Frame rate, counted from the browser rather than asked of the game. Godot's
 // web build drives its loop from requestAnimationFrame, so counting callbacks
@@ -106,34 +162,85 @@ const framerate = (ms) =>
   );
 
 let walked = null;
+let walked_button = null;
 if (TOUCH) {
   const box = await page.locator('canvas').boundingBox();
-  const mid = box.y + box.height * 0.55;
-  // Untouched first: he must not wander off on his own, or "he moved" proves
-  // nothing about the tap.
+
+  // Positions come from the game's own viewport, mapped back to CSS pixels.
+  // Guessing them from the canvas size is how the first version of this test
+  // pressed empty screen and reported the controls broken.
+  const v0 = await probe();
+  const sx = box.width / (v0 && v0.vw ? v0.vw : box.width);
+  const sy = box.height / (v0 && v0.vh ? v0.vh : box.height);
+  const W = (v0 && v0.vw ? v0.vw : box.width) * sx;
+  const H = (v0 && v0.vh ? v0.vh : box.height) * sy;
+
+  // The stick is tested first, before the skeletons arrive. They spawn eleven
+  // metres out and take about five seconds to close, and once six of them are
+  // pressed against him he cannot move whatever the thumb says — which is
+  // correct behaviour and made the first version of this test report the
+  // controls broken.
+  const ox = W * 0.22;
+  const oy = H * 0.62;
+  const hold = (dx) => {
+    const out = [{ type: 'touchstart', id: 1, x: ox, y: oy }];
+    for (let i = 1; i <= 6; i++)
+      out.push({ type: 'touchmove', id: 1, x: ox + (dx * i) / 6, y: oy }, { wait: 30 });
+    return out;
+  };
+
   const a0 = await probe();
-  await page.waitForTimeout(3500);
-  const a1 = await probe();
-  const drift = a0 && a1 ? Math.hypot(a1.x - a0.x, a1.z - a0.z) : -1;
-
-  await page.touchscreen.tap(box.x + box.width * 0.12, mid);
-  await page.waitForTimeout(4000);
+  await touchSeq(hold(-150));
+  await page.waitForTimeout(1600);
   const left = await probe();
-  await page.touchscreen.tap(box.x + box.width * 0.88, mid);
-  await page.waitForTimeout(4500);
-  const right = await probe();
+  await touchSeq([{ type: 'touchend', id: 1, x: ox - 150, y: oy }]);
 
-  // Frame rate, sampled over a second at the busiest moment — six skeletons
-  // on screen, the fire lit, shadows on. A phone is the target and this is
-  // the only number that says whether the world just built is affordable.
+  await touchSeq(hold(150));
+  await page.waitForTimeout(1600);
+  const right = await probe();
+  await touchSeq([{ type: 'touchend', id: 1, x: ox + 150, y: oy }]);
+
+  // Untouched, for comparison: he must not wander off on his own, or "he
+  // moved" proves nothing about the thumb.
+  const b0 = await probe();
+  await page.waitForTimeout(1600);
+  const b1 = await probe();
+  const drift = b0 && b1 ? Math.hypot(b1.x - b0.x, b1.z - b0.z) : -1;
+
+  // And an ability button pressed by a second finger while the stick is still
+  // down: the case single-pointer mouse emulation cannot serve at all.
+  const cx = W - 92 * sx;
+  const cy = H - 88 * sy;
+  const before = await probe();
+  await touchSeq([
+    { type: 'touchstart', id: 1, x: ox, y: oy },
+    { wait: 120 },
+    { type: 'touchmove', id: 1, x: ox - 90, y: oy },
+    { wait: 120 },
+    { type: 'touchstart', id: 2, x: cx - 116 * sx, y: cy - 20 * sy },
+    { wait: 250 },
+    { type: 'touchend', id: 2, x: cx - 116 * sx, y: cy - 20 * sy },
+    { wait: 350 },
+  ]);
+  const after = await probe();
+  await touchSeq([{ type: 'touchend', id: 1, x: ox - 90, y: oy }]);
+  walked_button = {
+    fired: after && before ? after.cd[1] > 0.1 && before.cd[1] <= 0.1 : false,
+    stillSteering: after ? Math.hypot(after.sx || 0, after.sy || 0) > 0.3 : false,
+  };
+
   const measured = await framerate(3000);
   walked = {
     drift,
     reach: left && right ? Math.hypot(right.x - left.x, right.z - left.z) : -1,
     hp: right ? right.hp : -1,
+    tilt: left ? Math.hypot(left.sx || 0, left.sy || 0) : 0,
     fps: measured,
     tris: right && right.tris ? right.tris : -1,
     frame: right || null,
+    from: a0,
+    left,
+    right,
   };
 }
 
@@ -153,23 +260,34 @@ console.log(`canvas ${painted ? `${painted.w}x${painted.h}` : 'MISSING'}, engine
 if (walked) {
   const { drift, reach, hp, fps } = walked;
   console.log(
-    `tap-to-walk: he covers ${reach.toFixed(1)} units between opposite taps, ` +
-      `${drift.toFixed(1)} when untouched; ${hp.toFixed(0)} hp left`
+    `thumbstick: he covers ${reach.toFixed(1)} units between opposite holds, ` +
+      `${drift.toFixed(1)} when untouched; ${hp.toFixed(0)} hp left` +
+      ` (stick read ${walked.tilt.toFixed(2)} at full hold; ` +
+      `x went ${walked.left.x.toFixed(1)} then ${walked.right.x.toFixed(1)})`
+  );
+  console.log(
+    `ability button under a second finger: ` +
+      `${walked_button && walked_button.fired ? 'fires' : 'DID NOT FIRE'}, ` +
+      `and the stick ${walked_button && walked_button.stillSteering ? 'keeps steering' : 'WAS DROPPED'}`
   );
   console.log(
     `frame rate: ${fps.toFixed(1)} fps — on a software rasteriser, so this is ` +
       `useful only against another run of the same kind`
   );
+  if (!(reach > 3.0 && reach > drift * 2.5)) {
+    console.log('the thumbstick does not steer him — the game is unplayable on a phone');
+    process.exit(1);
+  }
+  if (!(walked_button && walked_button.fired && walked_button.stillSteering)) {
+    console.log('a second finger cannot use an ability while the stick is held — one thumb or the other');
+    process.exit(1);
+  }
   if (walked.frame && walked.frame.draws !== undefined) {
     console.log('cost of a frame, which does not depend on the hardware:');
     if (report(walked.frame) > 0) {
       console.log('over budget — ask the device that matters before shipping this');
       process.exit(1);
     }
-  }
-  if (!(reach > 3.0 && reach > drift * 2.5)) {
-    console.log('tapping the ground does not move him — the game is unplayable on a phone');
-    process.exit(1);
   }
 }
 if (!ok || !painted) {

@@ -9,6 +9,8 @@ class_name Player
 
 signal health_changed(cur: float, maxv: float)
 signal died()
+signal cast_bolt(from: Vector3, dir: Vector3, damage: float, reach: float)
+signal cast_nova(at: Vector3, radius: float, damage: float)
 
 @export var speed := 3.6
 @export var turn_rate := 10.0
@@ -16,6 +18,22 @@ signal died()
 @export var damage := 18.0
 @export var attack_range := 2.3
 @export var attack_time := 0.55
+
+## What the four buttons do.
+##
+## `arc` is the dot product a target has to clear to be in front of him: 0.25
+## is the sixty-degree wedge an axe covers, and a negative number is a swing
+## that comes round far enough to catch what is beside him.
+const ABILITIES := [
+	{"name": "Удар", "cd": 0.0, "time": 0.52, "dmg": 18.0, "reach": 2.3,
+		"arc": 0.25, "kind": "melee", "wind": -0.9, "through": 1.5},
+	{"name": "Мах", "cd": 3.2, "time": 0.86, "dmg": 34.0, "reach": 3.1,
+		"arc": -0.45, "kind": "melee", "wind": -1.7, "through": 2.3},
+	{"name": "Залп", "cd": 2.2, "time": 0.62, "dmg": 26.0, "reach": 13.0,
+		"arc": 0.0, "kind": "bolt", "wind": 0.0, "through": 0.0},
+	{"name": "Круг", "cd": 10.0, "time": 0.95, "dmg": 30.0, "reach": 4.6,
+		"arc": -1.0, "kind": "nova", "wind": 0.0, "through": 0.0},
+]
 
 var rig: Rig
 var phase := 0.0
@@ -37,6 +55,13 @@ var move_to := Vector3.ZERO
 var has_move := false
 var foe: Node3D = null
 const ARRIVE := 0.28
+
+## The thumbstick, in screen axes, fed in by the controls each frame. Screen
+## right is world +X and screen down is world +Z at this camera, so it drops
+## straight into a wish vector with no conversion.
+var stick := Vector2.ZERO
+var cooldowns := [0.0, 0.0, 0.0, 0.0]
+var slot := 0
 
 func _ready() -> void:
 	hp = max_hp
@@ -75,8 +100,10 @@ func _physics_process(delta: float) -> void:
 			rig.pose_dead(minf(1.0, (t - 0.0)))
 		return
 
+	for i in cooldowns.size():
+		cooldowns[i] = maxf(0.0, cooldowns[i] - delta)
 	if swing >= 0.0:
-		swing += delta / attack_time
+		swing += delta / float(ABILITIES[slot]["time"])
 		if swing >= 1.0:
 			swing = -1.0
 
@@ -86,6 +113,12 @@ func _physics_process(delta: float) -> void:
 	var wish := Vector3(input.x, 0, input.y)
 	if wish.length() > 1.0:
 		wish = wish.normalized()
+	# The stick outranks everything: a thumb on it is a live instruction, and
+	# it should never be arguing with somewhere he was sent a moment ago.
+	if stick.length() > 0.01:
+		wish = Vector3(stick.x, 0, stick.y)
+		if wish.length() > 1.0:
+			wish = wish.normalized()
 	# The keys win while they are held, so a keyboard player is never fighting
 	# a destination he set with the mouse three seconds ago.
 	if wish.length() > 0.01:
@@ -115,7 +148,11 @@ func _physics_process(delta: float) -> void:
 	if rig != null:
 		rig.pose(phase, gait, t)
 		if swing >= 0.0:
-			rig.pose_swing(swing)
+			var a: Dictionary = ABILITIES[slot]
+			if a["kind"] == "melee":
+				rig.pose_swing(swing, a["wind"], a["through"])
+			else:
+				rig.pose_cast(swing)
 
 func order_move(where: Vector3) -> void:
 	move_to = where
@@ -154,19 +191,45 @@ func _pointed_wish() -> Vector3:
 
 
 func try_attack(enemies: Array) -> void:
-	if dead or swing >= 0.0:
+	use(0, enemies)
+
+
+func use(which: int, enemies: Array) -> void:
+	if dead or swing >= 0.0 or which < 0 or which >= ABILITIES.size():
 		return
+	if cooldowns[which] > 0.0:
+		return
+	var a: Dictionary = ABILITIES[which]
+	slot = which
 	swing = 0.0
-	await get_tree().create_timer(attack_time * 0.45).timeout
-	# The blow lands mid-arc. Everything in front of him inside reach takes it.
-	for e in enemies:
-		if not is_instance_valid(e) or e.state == "dead":
-			continue
-		var to: Vector3 = e.global_position - global_position
-		to.y = 0
-		if to.length() > attack_range:
-			continue
-		var facing := -global_transform.basis.z
-		if facing.dot(to.normalized()) < 0.25:
-			continue
-		e.hurt(damage, global_position)
+	cooldowns[which] = a["cd"]
+	# Everything lands mid-action rather than on the press, so the blow has
+	# visibly travelled before anything falls over.
+	await get_tree().create_timer(float(a["time"]) * 0.45).timeout
+	if dead:
+		return
+	var facing := -global_transform.basis.z
+	match a["kind"]:
+		"bolt":
+			cast_bolt.emit(global_position + Vector3(0, 1.15, 0) + facing * 0.6,
+				facing, a["dmg"], a["reach"])
+		"nova":
+			cast_nova.emit(global_position, a["reach"], a["dmg"])
+			for e in enemies:
+				if not is_instance_valid(e) or e.state == "dead":
+					continue
+				var d: Vector3 = e.global_position - global_position
+				d.y = 0
+				if d.length() <= float(a["reach"]):
+					e.hurt(a["dmg"], global_position)
+		_:
+			for e in enemies:
+				if not is_instance_valid(e) or e.state == "dead":
+					continue
+				var to: Vector3 = e.global_position - global_position
+				to.y = 0
+				if to.length() > float(a["reach"]):
+					continue
+				if facing.dot(to.normalized()) < float(a["arc"]):
+					continue
+				e.hurt(a["dmg"], global_position)

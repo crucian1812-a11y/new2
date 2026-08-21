@@ -15,10 +15,32 @@ var shots := [[1.5, "camp"], [4.0, "approach"], [6.5, "fight"], [9.0, "after"]]
 ## is enough to judge a fight and nowhere near enough to judge a model. The
 ## close-up pass drops the view height so the art can be looked at.
 var closeup := false
+
+## Fires every ability in turn, so the spells can be looked at. A button that
+## is drawn is not a spell that works, and the difference is invisible in a
+## screenshot of the camp.
+var spells := false
+var _fired := {}
+
+func _cast_at(when: float, slot: int, g: Node) -> void:
+	if t < when or _fired.has(slot) or g.player == null:
+		return
+	_fired[slot] = true
+	# Straight past the cooldown: this is a look at the animation and the
+	# effect, not a test of the timer.
+	g.player.cooldowns[slot] = 0.0
+	g.player.use(slot, g.enemies)
+
+
 func _ready() -> void:
 	closeup = "--closeup" in OS.get_cmdline_user_args()
-	if closeup:
-		shots = [[2.2, "close-idle"], [4.6, "close-walk"], [7.0, "close-fight"]]
+	spells = "--spells" in OS.get_cmdline_user_args()
+	if spells:
+		shots = [[2.9, "spell-cleave"], [5.1, "spell-bolt"], [7.3, "spell-nova"]]
+	if closeup or spells:
+		# Both want the camera in close; only one of them wants these frames.
+		if not spells:
+			shots = [[2.2, "close-idle"], [4.6, "close-walk"], [7.0, "close-fight"]]
 		await get_tree().process_frame
 		for c in get_parent().get_children():
 			if c is IsoCamera:
@@ -28,6 +50,19 @@ func _ready() -> void:
 func _process(d: float) -> void:
 	t += d
 	var g := get_parent()
+	if spells:
+		_cast_at(2.5, 1, g)
+		_cast_at(4.7, 2, g)
+		_cast_at(6.9, 3, g)
+		if i < shots.size() and t >= shots[i][0]:
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png("/tmp/shots/g2-%s.png" % shots[i][1])
+			print("SHOT ", shots[i][1])
+			i += 1
+		if i >= shots.size() and t > 8.2:
+			print("ALLDONE")
+			get_tree().quit()
+		return
 	if t > 1.6 and t < 5.0:
 		Input.action_press("move_up")
 	elif t >= 5.0:

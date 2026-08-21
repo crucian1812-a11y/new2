@@ -15,6 +15,12 @@ config/features=PackedStringArray("4.3", "GL Compatibility")
 window/size/viewport_width=1280
 window/size/viewport_height=720
 window/stretch/mode="canvas_items"
+; Expand, not keep. With "keep" the viewport holds the 1280x720 shape and a
+; phone in landscape gets black bars down both sides — which is exactly what
+; the first build on a real device looked like. Expanding fills the screen and
+; anchors the health globe and the ability buttons to the true corners, which
+; is where a thumb actually is.
+window/stretch/aspect="expand"
 
 [rendering]
 
@@ -26,6 +32,14 @@ lights_and_shadows/directional_shadow/size.mobile=1024
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/canvas_textures/default_texture_filter=0
+
+[input_devices]
+
+; Off, and load-bearing. Godot can synthesise mouse events from touch, but
+; that emulation is single-pointer: with it on you can steer or you can swing,
+; never both, which on an action game is the whole thing. Touch is read
+; directly in touch_controls.gd and the mouse is handled on its own.
+pointing/emulate_mouse_from_touch=false
 
 [input]
 move_left={"deadzone":0.5,"events":[{"resource_local_to_scene":false,"type":"InputEventKey","keycode":65,"physical_keycode":0,"unicode":0,"echo":false,"script":null}]}

@@ -125,16 +125,44 @@ func _swing_curve(k: float, back: float, through: float) -> float:
 	# cannot stop dead on it.
 	return through * ((1.0 - e2) - 0.2 * sin(PI * e2))
 
-func pose_swing(k: float) -> void:
+func pose_swing(k: float, back := -0.9, through := 1.5) -> void:
+	## `back` and `through` are how far the blow winds up and how far it
+	## carries. A quick chop is a short wind and a short follow-through; a
+	## two-handed cleave is both of them doubled, which is what makes one look
+	## fast and the other look heavy without changing a line of the timing.
 	if skel == null:
 		return
 	k = clampf(k, 0.0, 1.0)
-	var shoulder := _swing_curve(k, -0.9, 1.5)
-	var hips := _swing_curve(minf(1.0, k + 0.1), -0.5, 0.8)
+	var shoulder := _swing_curve(k, back, through)
+	var hips := _swing_curve(minf(1.0, k + 0.1), back * 0.55, through * 0.53)
 	_bend("armR", shoulder)
 	_bend("foreR", -absf(shoulder) * 0.35 - 0.2)
+	_bend("armL", -shoulder * 0.35 + 0.2)
 	_bend("chest", hips * 0.5, Vector3(0, 1, 0))
 	_bend("spine", hips * 0.3, Vector3(0, 1, 0))
+
+
+func pose_cast(k: float) -> void:
+	## Both arms up, a beat held at the top, then thrown forward. A spell that
+	## used the same arc as an axe reads as hitting the air with a stick.
+	if skel == null:
+		return
+	k = clampf(k, 0.0, 1.0)
+	var raise := 0.0
+	if k < 0.42:
+		var e := k / 0.42
+		raise = e * e * (3.0 - 2.0 * e)
+	elif k < 0.58:
+		raise = 1.0
+	else:
+		raise = 1.0 - (k - 0.58) / 0.42
+	var out := 0.0 if k < 0.55 else sin(minf(1.0, (k - 0.55) / 0.45) * PI)
+	for side in ["L", "R"]:
+		_bend("arm" + side, -1.55 * raise - 0.7 * out)
+		_bend("fore" + side, -0.25 - 0.9 * raise + 0.7 * out)
+	_bend("chest", -0.22 * raise + 0.30 * out)
+	_bend("spine", -0.12 * raise + 0.18 * out)
+	_bend("head", -0.25 * raise)
 
 func pose_dead(k: float) -> void:
 	if skel == null:

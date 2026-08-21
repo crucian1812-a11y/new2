@@ -23,6 +23,7 @@ const WAVE := ["Warrior", "Minion", "Rogue", "Warrior", "Minion", "Warrior"]
 
 var player: Player
 var hud: HUD
+var controls: TouchControls
 var enemies: Array = []
 var rng := RandomNumberGenerator.new()
 var fx_scene: PackedScene
@@ -37,6 +38,7 @@ func _ready() -> void:
 	_spawn_player()
 	_camera()
 	_hud()
+	_controls()
 	fx_scene = load(FX_AREA)
 	_probe_setup()
 	for i in WAVE.size():
@@ -602,6 +604,21 @@ func _spawn_enemy(kind: String, i: int) -> void:
 	if res == null:
 		return
 	var e := Enemy.new()
+	# Not all the same. A wave of identical health is a wave with one tactic,
+	# and it makes any area spell either useless or absolute.
+	match kind:
+		"Warrior":
+			e.max_hp = 46.0
+			e.speed = 1.85
+			e.damage = 9.0
+		"Rogue":
+			e.max_hp = 30.0
+			e.speed = 2.55
+			e.damage = 6.0
+		_:
+			e.max_hp = 24.0
+			e.speed = 2.15
+			e.damage = 5.0
 	var model := (res as PackedScene).instantiate() as Node3D
 	# Nothing in a horde should look stamped out. The models are one mesh with
 	# one texture, so the variation has to come from the silhouette: a hand's
@@ -662,6 +679,98 @@ func _camera() -> void:
 	cam.view_height = 11.0
 	add_child(cam)
 
+func _controls() -> void:
+	controls = TouchControls.new()
+	controls.labels = Player.ABILITIES
+	controls.cooldowns = player.cooldowns
+	controls.used.connect(func(slot: int) -> void:
+		player.use(slot, enemies)
+		_refresh_counts())
+	add_child(controls)
+	player.cast_bolt.connect(_bolt)
+	player.cast_nova.connect(_nova)
+
+
+func _bolt(from: Vector3, dir: Vector3, dmg: float, reach: float) -> void:
+	## A dart of dark light that travels. Damage on the button press would be
+	## indistinguishable from a melee hit at range; the flight is the whole
+	## difference between a spell and a very long arm.
+	var head := MeshInstance3D.new()
+	var sph := SphereMesh.new()
+	sph.radius = 0.26
+	sph.height = 0.52
+	sph.radial_segments = 8
+	sph.rings = 5
+	head.mesh = sph
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.85, 0.30, 1.0)
+	m.emission_enabled = true
+	m.emission = Color(0.62, 0.18, 1.0)
+	m.emission_energy_multiplier = 4.0
+	head.material_override = m
+	head.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var lamp := OmniLight3D.new()
+	lamp.light_color = Color(0.66, 0.30, 1.0)
+	lamp.light_energy = 3.2
+	lamp.omni_range = 6.5
+	lamp.shadow_enabled = false
+	head.add_child(lamp)
+	head.position = from
+	add_child(head)
+
+	var travelled := 0.0
+	var step := 13.0
+	while travelled < reach and is_instance_valid(head):
+		var d: float = get_process_delta_time() * step
+		head.position += dir * d
+		travelled += d
+		var hit := _enemy_near(head.position, 1.0)
+		if hit != null:
+			hit.hurt(dmg, head.position)
+			break
+		await get_tree().process_frame
+	if is_instance_valid(head):
+		head.queue_free()
+	_refresh_counts()
+
+
+func _nova(at: Vector3, radius: float, _dmg: float) -> void:
+	## The pack's own area effect where it loads, and a ring of light where it
+	## does not — the spell must be visible either way, because a blow nobody
+	## can see is a bug report.
+	if fx_scene != null:
+		var fx := fx_scene.instantiate() as Node3D
+		add_child(fx)
+		fx.position = at
+		fx.scale = Vector3.ONE * (radius * 0.5)
+		get_tree().create_timer(2.5).timeout.connect(func() -> void:
+			if is_instance_valid(fx):
+				fx.queue_free())
+	var ring := MeshInstance3D.new()
+	var tor := TorusMesh.new()
+	tor.inner_radius = radius * 0.86
+	tor.outer_radius = radius
+	tor.rings = 24
+	tor.ring_segments = 6
+	ring.mesh = tor
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.albedo_color = Color(1.0, 0.62, 0.20, 0.85)
+	ring.material_override = m
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ring.position = at + Vector3(0, 0.12, 0)
+	ring.scale = Vector3(0.15, 1.0, 0.15)
+	add_child(ring)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(ring, "scale", Vector3(1.15, 1.0, 1.15), 0.5)
+	tw.tween_property(m, "albedo_color:a", 0.0, 0.6)
+	tw.chain().tween_callback(ring.queue_free)
+
+
 func _hud() -> void:
 	hud = HUD.new()
 	add_child(hud)
@@ -674,10 +783,17 @@ var pointer_held := false
 func _unhandled_input(e: InputEvent) -> void:
 	if player == null or player.dead:
 		return
-	# Space still swings on the spot, for a keyboard.
+	# Space still swings on the spot, for a keyboard, and the number row runs
+	# the abilities — the HUD promises that, so it has to be true.
 	if e.is_action_pressed("cast"):
-		player.try_attack(enemies)
+		player.use(0, enemies)
 		return
+	if e is InputEventKey and (e as InputEventKey).pressed and not (e as InputEventKey).echo:
+		var slot := (e as InputEventKey).keycode - KEY_1
+		if slot >= 0 and slot < Player.ABILITIES.size():
+			player.use(slot, enemies)
+			_refresh_counts()
+			return
 
 	# Touch is read through the emulated mouse events Godot already sends for
 	# it, so one path covers a finger and a mouse. Handling both raw touch and
@@ -742,10 +858,14 @@ func _probe_setup() -> void:
 
 func _process(_d: float) -> void:
 	_refresh_counts()
+	if controls != null and player != null:
+		player.stick = controls.stick
+		controls.cooldowns = player.cooldowns
 	if _probe and player != null:
 		var info := func(k: int) -> int: return RenderingServer.get_rendering_info(k)
 		JavaScriptBridge.eval(("window.__weg={x:%f,z:%f,hp:%f,kills:%d,alive:%d,fps:%d," +
-			"tris:%d,draws:%d,objects:%d,texmem:%d,bufmem:%d}") % [
+			"tris:%d,draws:%d,objects:%d,texmem:%d,bufmem:%d,cd:[%.2f,%.2f,%.2f,%.2f]," +
+			"vw:%d,vh:%d,sx:%.3f,sy:%.3f}") % [
 			player.global_position.x, player.global_position.z,
 			player.hp, kills, enemies.size(),
 			Engine.get_frames_per_second(),
@@ -753,4 +873,9 @@ func _process(_d: float) -> void:
 			info.call(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME),
 			info.call(RenderingServer.RENDERING_INFO_TOTAL_OBJECTS_IN_FRAME),
 			info.call(RenderingServer.RENDERING_INFO_TEXTURE_MEM_USED),
-			info.call(RenderingServer.RENDERING_INFO_BUFFER_MEM_USED)], true)
+			info.call(RenderingServer.RENDERING_INFO_BUFFER_MEM_USED),
+			player.cooldowns[0], player.cooldowns[1],
+			player.cooldowns[2], player.cooldowns[3],
+			get_viewport().get_visible_rect().size.x,
+			get_viewport().get_visible_rect().size.y,
+			player.stick.x, player.stick.y], true)

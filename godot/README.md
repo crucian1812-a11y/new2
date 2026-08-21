@@ -201,20 +201,42 @@ log.
 
 ## Playing it
 
-**Point at the ground to walk there; point at a skeleton to go and kill it.**
-WASD and space still work. That is Diablo's own scheme, and it is the only one
-that survives a phone: there is no WASD on a touch screen, and a virtual
-thumbstick sits under a thumb covering the quarter of a small screen you most
-need to see. Pointing needs no on-screen furniture at all.
+**On a phone: left thumb steers, right thumb fights.** The stick *floats* — it
+appears wherever the left thumb lands rather than sitting in a fixed corner, so
+it never covers anything the player was already watching and never has to be
+found by looking. Four ability buttons arc out of the bottom-right corner:
+Удар, Мах, Залп, Круг, with the cooldown draining as a wedge.
 
-The first build that went up could be *hit* by tapping but not *walked* —
-`_unhandled_input` only ever called `try_attack` — so on a phone it looked
-like a broken game rather than a game with no controls. `tools/web-check.mjs
---touch` now emulates a phone, taps the two sides of the screen and asserts he
-actually covered ground.
+**On a desktop:** point at the ground to walk there, point at a skeleton to go
+and kill it; WASD, space, and the number row 1–4 for the abilities.
 
-Six skeletons close in; the health globe is bottom left and the count top
-right.
+Two things in `touch_controls.gd` are load-bearing:
+
+- It reads **real touch events**, not the mouse events Godot can synthesise
+  from them. That emulation is single-pointer, so with it on you can steer or
+  you can swing, never both — which on an action game is the whole thing.
+  `pointing/emulate_mouse_from_touch` is off in `project.godot` for exactly
+  this reason.
+- `window/stretch/aspect` is **`expand`**, not the default `keep`. With `keep`
+  the viewport holds its 1280×720 shape and a phone in landscape gets black
+  bars down both sides — which is what the first real device saw. Expanding
+  also puts the globe and the buttons in the true corners, which is where a
+  thumb actually is.
+
+`web-check.mjs --touch` dispatches genuine `TouchEvent`s with real
+identifiers, because Playwright's touchscreen can tap and nothing else and a
+thumbstick is entirely about the drag. It holds the stick left and then right
+and asserts he covered ground, and then presses an ability with a **second
+finger while the stick is still down** — the case the mouse emulation cannot
+serve at all.
+
+One trap it walked into first: the stick test ran after the fight had closed,
+and six skeletons pressed against a man will stop him moving whatever his
+thumb says. That is correct behaviour, and it made the test report working
+controls as broken. It now measures in the first seconds, before they arrive.
+
+Six skeletons close in; the health globe is bottom left, the count top right,
+and a small fps readout sits in the corner.
 
 ## Verifying it without a GPU
 
