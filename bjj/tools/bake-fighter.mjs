@@ -195,6 +195,29 @@ function widthAt(P, y0, y1) {
   return hi - lo;
 }
 
+// The ankle-to-toe direction of one foot: take the geometry below the ankle on
+// that side and look at where its front third sits relative to its middle.
+function footDirection(P, ankleY, side) {
+  const pts = [];
+  for (let i = 0; i < P.length; i += 3) {
+    if (P[i + 1] > ankleY + 0.05) continue;
+    if (Math.sign(P[i]) !== side) continue;
+    pts.push([P[i], P[i + 1], P[i + 2]]);
+  }
+  if (pts.length < 20) return null;
+  pts.sort((a, b) => a[2] - b[2]);
+  const front = pts.slice(Math.floor(pts.length * 0.85));
+  const mid = pts.slice(Math.floor(pts.length * 0.3), Math.floor(pts.length * 0.6));
+  const avg = (list) => list.reduce(
+    (acc, p) => [acc[0] + p[0] / list.length, acc[1] + p[1] / list.length, acc[2] + p[2] / list.length],
+    [0, 0, 0]
+  );
+  const a = avg(mid), b = avg(front);
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const l = Math.hypot(d[0], d[1], d[2]) || 1;
+  return [d[0] / l, d[1] / l, d[2] / l];
+}
+
 function measure(P, H, target) {
   const step = H / 110;
   // Width profile: the two peaks in it are the shoulders and the hips, and
@@ -229,6 +252,12 @@ function measure(P, H, target) {
     elbL: at(elbowY, 1), elbR: at(elbowY, -1),
     shL: at(shoulderY, 1, H * 0.09), shR: at(shoulderY, -1, H * 0.09),
     footL: at(ankleY, 1, H * 0.09), footR: at(ankleY, -1, H * 0.09),
+    // Which way each foot points, from the mesh. Without this the toe joint
+    // has to be invented, and an invented toe is how the feet became flippers:
+    // the fabricated bone came out 9.9 cm against the rig's 16, so the warp
+    // scaled everything weighted to the foot by 1.6.
+    toeDirL: footDirection(P, ankleY, 1),
+    toeDirR: footDirection(P, ankleY, -1),
     kneeL: at(kneeY, 1, H * 0.08), kneeR: at(kneeY, -1, H * 0.08),
     shoulderY, elbowY, wristY, ankleY, kneeY,
   };
@@ -291,8 +320,20 @@ function fitSource(m, target) {
   J.clavR = [J.clavR[0], J.clavR[1], J.armR[2]];
   J.handLTip = [J.handL[0], target.handLTip[1], J.handL[2]];
   J.handRTip = [J.handR[0], target.handRTip[1], J.handR[2]];
-  J.toeL = [J.footL[0], target.toeL[1], J.footL[2] + H * 0.05];
-  J.toeR = [J.footR[0], target.toeR[1], J.footR[2] + H * 0.05];
+  // The toe goes along the measured foot, at exactly the length this rig's own
+  // foot bone has. Matching the length is the point: it makes the warp's scale
+  // factor for the foot 1.0, so the foot is carried to the rig's ankle without
+  // being resized. A foot is not a proportion worth transferring anyway — it is
+  // a foot.
+  const footLen = Math.hypot(
+    target.toeL[0] - target.footL[0], target.toeL[1] - target.footL[1], target.toeL[2] - target.footL[2]
+  );
+  const toe = (foot, dir, fallbackZ) => {
+    const d = dir || [0, -0.34, 0.94];
+    return [foot[0] + d[0] * footLen, foot[1] + d[1] * footLen, foot[2] + d[2] * footLen + fallbackZ * 0];
+  };
+  J.toeL = toe(J.footL, m.toeDirL, 0);
+  J.toeR = toe(J.footR, m.toeDirR, 0);
   return J;
 }
 
@@ -580,7 +621,17 @@ function warpToRig(P, segs, source, target, bone, wt) {
     const ta = target[s.name], tb = target[childName];
     const sl = Math.hypot(sb[0] - sa[0], sb[1] - sa[1], sb[2] - sa[2]) || 1e-6;
     const tl = Math.hypot(tb[0] - ta[0], tb[1] - ta[1], tb[2] - ta[2]) || 1e-6;
-    return { i: s.i, sa, ta, s: tl / sl };
+    // Clamped, and deliberately narrow. The fit is only ever correcting a
+    // stance — a wider set of feet, hands further off the hips — and no part of
+    // one adult human is 30% longer than the same part of another. A scale
+    // outside this range is a measurement that went wrong, and left unchecked
+    // it does not fail loudly: it quietly inflates whatever the bone owns.
+    const raw = tl / sl;
+    const clamped = Math.max(0.86, Math.min(1.16, raw));
+    if (Math.abs(raw - clamped) > 1e-6) {
+      console.log(`  warp: ${s.name} wanted x${raw.toFixed(2)}, clamped to x${clamped.toFixed(2)}`);
+    }
+    return { i: s.i, sa, ta, s: clamped };
   });
   const byBone = new Map(T.map((t) => [t.i, t]));
   const out = new Float64Array(P.length);
@@ -1214,6 +1265,28 @@ if (REPORT) {
       `  ${name.padEnd(8)} ${s.map((v) => v.toFixed(3).padStart(7)).join(' ')}  ->  ` +
       `${t.map((v) => v.toFixed(3).padStart(7)).join(' ')}   moved ${(d * 100).toFixed(1)}cm`
     );
+  }
+}
+
+// What the warp is about to do to each bone, before it does it. The scale is
+// targetLength/sourceLength, so anything far from 1 means geometry is being
+// inflated or crushed by the fit rather than merely moved.
+{
+  const rows = [];
+  for (let i = 0; i < BONE_COUNT; i++) {
+    const name = BONES[i][0];
+    let kid = null;
+    for (let k = i + 1; k < BONE_COUNT; k++) if (BONES[k][1] === i) { kid = BONES[k][0]; break; }
+    if (!kid) continue;
+    const len = (J, a, b) => Math.hypot(J[b][0] - J[a][0], J[b][1] - J[a][1], J[b][2] - J[a][2]);
+    const sl = len(source, name, kid), tl = len(target, name, kid);
+    rows.push([name, sl, tl, tl / Math.max(sl, 1e-6)]);
+  }
+  rows.sort((a, b) => Math.abs(Math.log(b[3])) - Math.abs(Math.log(a[3])));
+  console.log('\nwarp scale per bone (target/source length):');
+  for (const [n, sl, tl, r] of rows.slice(0, 8)) {
+    const flag = r > 1.15 || r < 0.87 ? '  <-- distorts' : '';
+    console.log(`  ${n.padEnd(9)} ${(sl * 100).toFixed(1).padStart(6)}cm -> ${(tl * 100).toFixed(1).padStart(6)}cm  x${r.toFixed(2)}${flag}`);
   }
 }
 

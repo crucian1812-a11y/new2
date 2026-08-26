@@ -103,6 +103,25 @@ if (rigged) {
   check(allRoot, 'a static prop rides the root bone rigidly');
 }
 
+// Feet, specifically. The fit invents nothing it can measure, but the toe joint
+// was invented once and came out 9.9 cm against the rig's 16, so the warp scaled
+// everything weighted to the foot by 1.6 and the fighter grew flippers. It did
+// not fail any check, because nothing was checking the size of a foot.
+{
+  const feet = [[], []];
+  for (let i = 0; i < n; i++) {
+    if (m.pos[i * 3 + 1] > lo[1] + 0.16) continue;
+    feet[m.pos[i * 3] > 0 ? 0 : 1].push(m.pos[i * 3 + 2]);
+  }
+  const lengths = feet.filter((f) => f.length > 30).map((f) => Math.max(...f) - Math.min(...f));
+  const worst = lengths.length ? Math.max(...lengths) : 0;
+  check(
+    lengths.length === 2 && worst > 0.17 && worst < 0.34,
+    'the feet are foot-sized',
+    `${lengths.map((l) => (l * 100).toFixed(0) + 'cm').join(' / ') || 'not found'}`
+  );
+}
+
 const mats = new Set(m.mat);
 check(mats.has(0) && mats.has(1), 'the fighter has both skin and cloth on it',
   `materials present: ${[...mats].sort().join(',')}`);
