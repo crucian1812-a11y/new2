@@ -102,9 +102,12 @@ export function buildArena(rand = mulberry(20260826)) {
 
   // Barrier hoardings around the mat: the dark band every broadcast frame has
   // between the athletes and the crowd.
+  // Material 7 and not 2: these are the lit sponsor boards, and they are the
+  // only ring of colour between a white mat and a black crowd. Without them
+  // the hall has no horizon and the whole frame reads as two men in a void.
   for (const side of [-1, 1]) {
-    s.box(0, 0.45, side * (half + 1.4), half * 2 + 2.8, 0.9, 0.25, 2);
-    s.box(side * (half + 1.4), 0.45, 0, 0.25, 0.9, half * 2 + 2.8, 2);
+    s.box(0, 0.45, side * (half + 1.4), half * 2 + 2.8, 0.9, 0.25, 7);
+    s.box(side * (half + 1.4), 0.45, 0, 0.25, 0.9, half * 2 + 2.8, 7);
   }
 
   // Tiered stands. Boxes, deliberately — at this distance and this light level

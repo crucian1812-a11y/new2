@@ -268,6 +268,7 @@ void main() {
   int m = int(v_mat + 0.5);
   vec3 N = normalize(v_nrm);
   vec3 albedo; float rough = 0.9; float spec = 0.05; float ao = 1.0;
+  vec3 emis = vec3(0.0);
 
   if (m == 0) {
     // The mat. The competition square and its safety border are one mesh; the
@@ -292,16 +293,53 @@ void main() {
     // The crowd. Barely lit, tinted all over the place, and the variation is
     // driven off world position so it is stable frame to frame.
     float h = fract(sin(dot(floor(v_world.xz * 2.0), vec2(12.9898, 78.233))) * 43758.5453);
-    albedo = mix(vec3(0.030, 0.028, 0.034), vec3(0.052, 0.044, 0.046), h);
+    albedo = mix(vec3(0.052, 0.049, 0.058), vec3(0.086, 0.074, 0.076), h);
     // The far stands fall away entirely, which is what puts the mat in a pool
     // of light instead of in a lit box.
     albedo *= 0.5 + 0.5 * h;
-    albedo *= smoothstep(26.0, 9.0, max(abs(v_world.x), abs(v_world.z)));
-    rough = 1.0; spec = 0.0; ao = 0.22;
+    albedo *= smoothstep(28.0, 9.0, max(abs(v_world.x), abs(v_world.z)));
+    rough = 1.0; spec = 0.0; ao = 0.26;
+
+    // Catchlights. A dark crowd with nothing in it is a black wall; a dark
+    // crowd with a hundred phone screens in it is four thousand people. The
+    // cell is finer than a body so each one is a screen and not a whole torso,
+    // and the hash is on world position so they do not crawl with the camera.
+    vec3 cell = floor(v_world * 17.0);
+    float sp = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float lit = smoothstep(0.9955, 0.9995, sp);
+    float warm = fract(sp * 91.7);
+    vec3 spark = mix(vec3(0.42, 0.52, 0.95), vec3(1.0, 0.78, 0.42), warm);
+    // They breathe slightly, at their own rates, so the stands are not a still
+    // photograph behind a moving fight.
+    lit *= 0.65 + 0.35 * sin(u_time * (0.8 + warm * 2.2) + sp * 40.0);
+    emis += spark * lit * 3.4 * smoothstep(34.0, 10.0, max(abs(v_world.x), abs(v_world.z)));
   } else if (m == 5) {
     // Lamp housings: emissive, and the only thing in frame allowed to blow out.
     outColor = vec4(vec3(2.6, 2.45, 2.2), 1.0);
     return;
+  } else if (m == 7) {
+    // The sponsor boards around the mat: internally lit panels, a new one every
+    // two and a half metres, each a flat colour with a pale block across the
+    // middle where the lettering would be. Read at this distance it is a ring
+    // of colour separating a white mat from a black crowd, and that ring is
+    // what makes the hall a hall.
+    float run = abs(v_world.x) > abs(v_world.z) ? v_world.z : v_world.x;
+    float board = floor(run / 2.5);
+    float k = fract(sin(board * 91.7 + 3.1) * 43758.5453);
+    vec3 face = k < 0.3 ? vec3(0.22, 0.055, 0.07)
+              : k < 0.55 ? vec3(0.045, 0.10, 0.24)
+              : k < 0.78 ? vec3(0.05, 0.15, 0.11)
+              : vec3(0.19, 0.14, 0.03);
+    // The lettering band, and a thin gap between one board and the next.
+    float band = smoothstep(0.38, 0.44, fract(v_world.y / 0.9)) *
+                 (1.0 - smoothstep(0.62, 0.68, fract(v_world.y / 0.9)));
+    float seam = smoothstep(0.0, 0.03, fract(run / 2.5)) *
+                 (1.0 - smoothstep(0.97, 1.0, fract(run / 2.5)));
+    vec3 c = mix(face, face * 0.35 + vec3(0.55), band * 0.8) * seam;
+    // Lit from inside, so it holds up when the key light is not on it. Only
+    // the top face of the board takes the room's shading.
+    emis += c * 0.8;
+    albedo = c * 0.25; rough = 0.55; spec = 0.2; ao = 0.7;
   } else {
     // The jumbotron's screens. Bright enough to read as a display and to feed
     // the bloom, dim enough that they are not a second key light.
@@ -309,7 +347,7 @@ void main() {
     outColor = vec4(vec3(0.20, 0.34, 0.62) * (1.35 + band * 0.25), 1.0);
     return;
   }
-  outColor = vec4(shade(v_world, N, albedo, rough, spec, 0.15, ao), 1.0);
+  outColor = vec4(shade(v_world, N, albedo, rough, spec, 0.15, ao) + emis, 1.0);
 }`;
 
 const SHADOW_VS_SKIN = COMMON + `
