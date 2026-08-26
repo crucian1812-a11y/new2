@@ -28,6 +28,7 @@ import { POSES } from '../src/game/poses.js';
 import { GRIP_POINTS } from '../src/render/body.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
+import { intentCost } from '../src/game/intent.js';
 
 const WRITE = process.argv.includes('--write');
 const ONLY = process.argv.filter((a) => !a.startsWith('-') && POSES[a]);
@@ -70,6 +71,11 @@ function cost(id) {
 
   const pen = penetration(A, B);
   let c = pen.sum * 60;
+
+  // What the position is. Weighted well above the collision term, because a
+  // mount that is not a mount is a worse failure than a mount with a knee in
+  // a rib, and the search will take the easy way out if it is allowed to.
+  c += intentCost(rig.skel, POSES[id].hold) * 400;
 
   // Under the mat.
   for (const sk of [A, B]) {

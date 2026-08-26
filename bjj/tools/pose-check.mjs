@@ -13,6 +13,7 @@ import { PairRig } from '../src/game/rig.js';
 import { POSES } from '../src/game/poses.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
+import { violations } from '../src/game/intent.js';
 
 const MAT_Y = 0.05;
 const rig = new PairRig();
@@ -83,6 +84,13 @@ for (const id of Object.keys(POSES)) {
   info.overlap = ov.deepest;
   if (ov.deepest > 0.08) {
     info.notes.push(`${(ov.deepest * 100).toFixed(0)}cm of ${ov.where} — a limb is inside a body`);
+  }
+
+  // Is it still the position it says it is? See intent.js — this catches the
+  // failure the overlap number cannot, which is a pose that fixed its
+  // collisions by quietly becoming a different position.
+  for (const v of violations(rig.skel, POSES[id].hold, 0.04)) {
+    info.notes.push(`not ${id} any more — ${v.why}`);
   }
 
   info.closest = closest;

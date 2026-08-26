@@ -13,13 +13,26 @@
 
 import { v3, v3set, v3lerp, lerp } from '../core/m4.js';
 
+// Framing is done with the lens, not the tripod.
+//
+// The obvious way to get closer is to move the camera in, and on the ground it
+// does not work: the pair is a metre and a half wide and a camera at mat height
+// two metres out is already inside somebody's legs. Pulling in to 2.05 put the
+// near fighter through the near plane, which is how this was learned.
+//
+// So the tripod stays where it can see, and the shot is framed with a longer
+// lens. A fifty degree field at two and a half metres covers two and a half
+// metres of mat, and two people lying in it fill a quarter of the frame — the
+// look of a security camera. Thirty-four degrees covers a metre and a half,
+// which is the pair and a hand's breadth around them, and a long lens is what
+// a broadcast camera at the edge of a mat actually has on it.
 const SHOTS = {
   // The title card: low, close and off the shoulder, the way a promo still is
   // framed. Nothing is happening yet, so the shot has to do the work.
-  hero: { dist: 2.75, height: 1.05, aimY: 0.98, fov: 38 },
-  stand: { dist: 3.9, height: 1.6, aimY: 1.02, fov: 50 },
-  ground: { dist: 2.6, height: 0.92, aimY: 0.42, fov: 50 },
-  sub: { dist: 2.1, height: 0.7, aimY: 0.36, fov: 44 },
+  hero: { dist: 2.75, height: 1.02, aimY: 0.96, fov: 32 },
+  stand: { dist: 4.1, height: 1.52, aimY: 1.06, fov: 36 },
+  ground: { dist: 2.6, height: 1.0, aimY: 0.44, fov: 34 },
+  sub: { dist: 2.35, height: 0.82, aimY: 0.38, fov: 30 },
 };
 
 export class Camera {
@@ -63,10 +76,11 @@ export class Camera {
     this.orbit = lerp(this.orbit, this.targetOrbit, 1 - Math.pow(0.02, dt));
 
     const k = 1 - Math.pow(0.004, dt);
-    this.dist = lerp(this.dist, s.dist - intensity * 0.35, k);
+    this.dist = lerp(this.dist, s.dist - intensity * 0.18, k);
     this.height = lerp(this.height, s.height, k);
     this.aimY = lerp(this.aimY, s.aimY, k);
-    this.fovDeg = lerp(this.fovDeg, s.fov, k);
+    // Push in on effort: a couple of degrees of lens, not a lurch forward.
+    this.fovDeg = lerp(this.fovDeg, s.fov - intensity * 2.5, k);
 
     v3lerp(this._focus, this._focus, focus, 1 - Math.pow(0.001, dt));
 
