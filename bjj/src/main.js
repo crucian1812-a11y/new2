@@ -3,6 +3,7 @@
 
 import { Renderer } from './render/renderer.js';
 import { buildFighterMesh } from './render/body.js';
+import { loadFighter } from './render/asset.js';
 import { PairRig } from './game/rig.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { AI } from './game/ai.js';
@@ -33,9 +34,25 @@ try {
 }
 
 const rig = new PairRig();
-const meshes = buildFighterMesh(rig.skel.A);
-const gpuA = renderer.makeFighterGPU(meshes);
-const gpuB = renderer.makeFighterGPU(meshes);
+
+// The fighters come from a baked sculpt when one is present, and from the
+// procedural body builder when it is not. The two produce the same vertex
+// format on the same skeleton, so nothing past this point can tell them apart —
+// and the game still runs, and still looks like itself, with the assets folder
+// deleted.
+let meshes = buildFighterMesh(rig.skel.A);
+let gpuA = renderer.makeFighterGPU(meshes);
+let gpuB = gpuA;
+let bodySource = 'procedural';
+
+try {
+  const baked = await loadFighter(new URL('../assets/fighter.bin', import.meta.url).href);
+  gpuA = renderer.makeFighterGPU([baked]);
+  gpuB = gpuA;
+  bodySource = `baked (${(baked.count / 3) | 0} tris)`;
+} catch (e) {
+  console.info('using the procedural body:', e.message);
+}
 
 const input = new Input(uiCanvas);
 const hud = new HUD(uiCanvas);
@@ -225,6 +242,7 @@ function frame(now) {
     quality: +state.quality.toFixed(2),
     position: match.position,
     state: match.state,
+    body: bodySource,
     score: [match.f[0].points, match.f[1].points],
     time: Math.round(match.time),
   };

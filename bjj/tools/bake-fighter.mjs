@@ -1,0 +1,772 @@
+// Turn a generated sculpt into a rigged fighter this engine can pose.
+//
+//   node bjj/tools/bake-fighter.mjs bjj/art/judo-study-montage.glb --component 1
+//
+// The input is what an AI mesh generator gives you: one triangle soup, positions
+// only. No skeleton, no weights, no normals, no UVs, no materials, and several
+// people welded into the same buffer. Everything below is the work of turning
+// that into something a skinning shader can drive.
+//
+// The one decision worth explaining is which way the fitting runs. The obvious
+// move is to fit a skeleton to the mesh. That is wrong here: fifteen paired
+// poses are authored against *this* skeleton's proportions, and a skeleton with
+// different limb lengths silently invalidates every one of them. So the fit
+// runs the other way — measure the sculpt's own joints, then warp the sculpt so
+// its joints land on the canonical skeleton's. The rig stays canonical, the
+// pose library stays valid, and the character is the only thing that changed.
+
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
+import { Skeleton, BONE_COUNT, BONES } from '../src/render/skeleton.js';
+
+/* ------------------------------------------------------------------- args */
+
+const argv = process.argv.slice(2);
+const src = argv[0];
+const flag = (n, d) => {
+  const i = argv.indexOf('--' + n);
+  return i >= 0 ? argv[i + 1] : d;
+};
+if (!src) {
+  console.error('usage: bake-fighter.mjs <file.glb> [--component 1] [--out path] [--report]');
+  process.exit(2);
+}
+const COMPONENT = +flag('component', 1);
+const OUT = flag('out', 'bjj/assets/fighter.bin');
+const REPORT = argv.includes('--report');
+
+/* -------------------------------------------------------------- glb parse */
+
+function readGLB(path) {
+  const buf = readFileSync(path);
+  if (buf.readUInt32LE(0) !== 0x46546c67) throw new Error('not a glb');
+  let off = 12, json = null, bin = null;
+  while (off + 8 <= buf.length) {
+    const len = buf.readUInt32LE(off);
+    const type = buf.readUInt32LE(off + 4);
+    const data = buf.subarray(off + 8, off + 8 + len);
+    if (type === 0x4e4f534a) json = JSON.parse(new TextDecoder().decode(data));
+    else if (type === 0x004e4942) bin = data;
+    off += 8 + len;
+    off += (4 - (off % 4)) % 4;
+  }
+  return { json, bin };
+}
+
+const CT = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
+const NC = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+
+function accessor(json, bin, i) {
+  const a = json.accessors[i];
+  const bv = json.bufferViews[a.bufferView];
+  const start = (bv.byteOffset || 0) + (a.byteOffset || 0);
+  const Type = CT[a.componentType];
+  const n = a.count * NC[a.type];
+  // The bin chunk is a view into a Buffer and is not guaranteed to be aligned
+  // for the wider types, so copy rather than alias.
+  const bytes = bin.buffer.slice(bin.byteOffset + start, bin.byteOffset + start + n * Type.BYTES_PER_ELEMENT);
+  return new Type(bytes);
+}
+
+/* ------------------------------------------------- weld + split into people */
+
+// Meshy emits a seam-duplicated soup: naive connectivity sees one person as
+// hundreds of shards. Weld on a 0.5 mm grid first.
+function weld(pos, idx) {
+  const map = new Map();
+  const remap = new Int32Array(pos.length / 3);
+  const out = [];
+  for (let i = 0; i < pos.length / 3; i++) {
+    const k = `${Math.round(pos[i * 3] * 2000)},${Math.round(pos[i * 3 + 1] * 2000)},${Math.round(pos[i * 3 + 2] * 2000)}`;
+    let v = map.get(k);
+    if (v === undefined) {
+      v = out.length / 3;
+      map.set(k, v);
+      out.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+    }
+    remap[i] = v;
+  }
+  const tri = new Int32Array(idx.length);
+  for (let i = 0; i < idx.length; i++) tri[i] = remap[idx[i]];
+  return { pos: new Float64Array(out), idx: tri };
+}
+
+function components(pos, idx) {
+  const n = pos.length / 3;
+  const parent = new Int32Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
+  const find = (a) => {
+    while (parent[a] !== a) {
+      parent[a] = parent[parent[a]];
+      a = parent[a];
+    }
+    return a;
+  };
+  for (let t = 0; t < idx.length; t += 3) {
+    for (const [a, b] of [[idx[t], idx[t + 1]], [idx[t + 1], idx[t + 2]], [idx[t + 2], idx[t]]]) {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent[ra] = rb;
+    }
+  }
+  const groups = new Map();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    let g = groups.get(r);
+    if (!g) groups.set(r, (g = []));
+    g.push(i);
+  }
+  return [...groups.values()].sort((a, b) => b.length - a.length);
+}
+
+function extract(pos, idx, verts) {
+  const keep = new Int32Array(pos.length / 3).fill(-1);
+  verts.forEach((v, i) => (keep[v] = i));
+  const P = new Float64Array(verts.length * 3);
+  verts.forEach((v, i) => {
+    P[i * 3] = pos[v * 3];
+    P[i * 3 + 1] = pos[v * 3 + 1];
+    P[i * 3 + 2] = pos[v * 3 + 2];
+  });
+  const tris = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    if (keep[idx[t]] < 0) continue;
+    tris.push(keep[idx[t]], keep[idx[t + 1]], keep[idx[t + 2]]);
+  }
+  return { pos: P, idx: new Int32Array(tris) };
+}
+
+/* ------------------------------------------------------------- measurement */
+
+// The first version of this tried to find limbs by slicing the body and looking
+// for the slice to break into separate blobs. That works on a naked mesh and
+// fails completely on a gi: judo trousers are wide enough that the legs touch
+// all the way to the ankle, and a sleeve hangs against the ribs, so the whole
+// body reads as one blob from the collar to the floor.
+//
+// What survives contact with a kimono is the silhouette. Two facts do all the
+// work here: with the arms hanging, the outermost points at any height between
+// the shoulder and the wrist belong to an arm; and the feet are always apart.
+// Everything else comes from the rig's own proportions, which is legitimate
+// because both bodies are ordinary adult humans normalised to the same height —
+// the mismatch that actually matters is width, not length.
+
+function slab(P, y0, y1) {
+  const out = [];
+  for (let i = 0; i < P.length; i += 3) {
+    const y = P[i + 1];
+    if (y >= y0 && y < y1) out.push(i);
+  }
+  return out;
+}
+
+// Centroid of the outermost band on one side — the arm, or the foot.
+function outerCentroid(P, ids, side, band) {
+  let ext = -1e9;
+  for (const i of ids) {
+    const x = P[i] * side;
+    if (x > ext) ext = x;
+  }
+  let sx = 0, sz = 0, n = 0;
+  for (const i of ids) {
+    if (P[i] * side < ext - band) continue;
+    sx += P[i];
+    sz += P[i + 2];
+    n++;
+  }
+  return n ? { x: sx / n, z: sz / n, ext: ext * side, n } : null;
+}
+
+function widthAt(P, y0, y1) {
+  let lo = 1e9, hi = -1e9;
+  for (let i = 0; i < P.length; i += 3) {
+    const y = P[i + 1];
+    if (y < y0 || y >= y1) continue;
+    if (P[i] < lo) lo = P[i];
+    if (P[i] > hi) hi = P[i];
+  }
+  return hi - lo;
+}
+
+function measure(P, H, target) {
+  const step = H / 110;
+  // Width profile: the two peaks in it are the shoulders and the hips, and
+  // those are the only two vertical landmarks a clothed body reliably gives.
+  const prof = [];
+  for (let y = 0; y < H; y += step) prof.push({ y: y + step / 2, w: widthAt(P, y, y + step) });
+  const peak = (lo, hi) => {
+    let best = null;
+    for (const r of prof) {
+      if (r.y < lo * H || r.y > hi * H) continue;
+      if (!best || r.w > best.w) best = r;
+    }
+    return best;
+  };
+  const shoulder = peak(0.66, 0.94);
+  const hip = peak(0.42, 0.64);
+
+  const band = H * 0.055;
+  const at = (y, side, w = H * 0.06) => outerCentroid(P, slab(P, y - band / 2, y + band / 2), side, w);
+
+  const wristY = target.handL[1];
+  const shoulderY = target.armL[1];
+  const elbowY = target.foreL[1];
+  const ankleY = target.footL[1];
+  const kneeY = target.shinL[1];
+
+  return {
+    H, prof,
+    shoulderPeak: shoulder ? shoulder.y : shoulderY,
+    hipPeak: hip ? hip.y : target.hips[1],
+    handL: at(wristY, 1), handR: at(wristY, -1),
+    elbL: at(elbowY, 1), elbR: at(elbowY, -1),
+    shL: at(shoulderY, 1, H * 0.09), shR: at(shoulderY, -1, H * 0.09),
+    footL: at(ankleY, 1, H * 0.09), footR: at(ankleY, -1, H * 0.09),
+    kneeL: at(kneeY, 1, H * 0.08), kneeR: at(kneeY, -1, H * 0.08),
+    shoulderY, elbowY, wristY, ankleY, kneeY,
+  };
+}
+
+/* ------------------------------------------------------- the source rig fit */
+
+// Where each canonical bone's head sits on the *sculpt*. Heights come from the
+// rig; the lateral placement is measured. An arm bone that runs down the middle
+// of the torso instead of down the middle of the sleeve is the one error that
+// really shows — the sleeve then swings around a pivot inside the ribcage.
+function fitSource(m, target) {
+  const H = m.H;
+  const J = {};
+  for (const [name, off] of Object.entries(target)) J[name] = [off[0], off[1], off[2]];
+
+  // An X-histogram of the sculpt at each height says which of these joints
+  // actually need moving, and the answer is fewer than you would guess. The
+  // shoulder and the elbow already sit within a centimetre of the rig's, because
+  // both bodies are ordinary adults at the same height — anatomy does the work.
+  // What differs is the stance: the sculpt stands with its feet twice as far
+  // apart as the rig and its hands further off the hips. Those two, and only
+  // those two, get measured.
+  //
+  // Leaving the shoulder alone matters more than it sounds. An earlier version
+  // measured it as well, got a centroid pulled inboard by the chest it could not
+  // separate from the sleeve, and warped the joint outward into the deltoid. The
+  // arm then pivoted around a point buried in the trapezius, and every pose grew
+  // enormous inflated shoulder pads.
+  const place = (name, meas, side, inset) => {
+    if (!meas) return null;
+    const x = meas.x - side * inset;
+    J[name] = [x, J[name][1], meas.z];
+    return x;
+  };
+
+  const handLX = place('handL', m.handL, 1, H * 0.012);
+  const handRX = place('handR', m.handR, -1, H * 0.012);
+
+  // Keep the arm a straight chain between an untouched shoulder and a measured
+  // hand, so no elbow ends up outside the sleeve it lives in.
+  const chain = (sh, el, hand, handX) => {
+    if (handX === null) return;
+    const t = (J[sh][1] - J[el][1]) / Math.max(J[sh][1] - J[hand][1], 1e-6);
+    J[el] = [J[sh][0] + (handX - J[sh][0]) * t, J[el][1], J[sh][2] + (J[hand][2] - J[sh][2]) * t];
+  };
+  chain('armL', 'foreL', 'handL', handLX);
+  chain('armR', 'foreR', 'handR', handRX);
+
+  place('footL', m.footL, 1, H * 0.012);
+  place('footR', m.footR, -1, H * 0.012);
+  place('shinL', m.kneeL, 1, H * 0.022);
+  place('shinR', m.kneeR, -1, H * 0.022);
+  // The hip joint stays under the pelvis; only the knee and the foot move out,
+  // which is what a wide stance actually is.
+  J.thighL = [J.thighL[0] + (J.shinL[0] - target.shinL[0]) * 0.35, J.thighL[1], J.thighL[2]];
+  J.thighR = [J.thighR[0] + (J.shinR[0] - target.shinR[0]) * 0.35, J.thighR[1], J.thighR[2]];
+
+  J.clavL = [J.clavL[0], J.clavL[1], J.armL[2]];
+  J.clavR = [J.clavR[0], J.clavR[1], J.armR[2]];
+  J.handLTip = [J.handL[0], target.handLTip[1], J.handL[2]];
+  J.handRTip = [J.handR[0], target.handRTip[1], J.handR[2]];
+  J.toeL = [J.footL[0], target.toeL[1], J.footL[2] + H * 0.05];
+  J.toeR = [J.footR[0], target.toeR[1], J.footR[2] + H * 0.05];
+  return J;
+}
+
+/* ---------------------------------------------------------------- skinning */
+
+// Segment list in the order the weights want them: a bone owns the segment
+// running from its own head to its first child's head.
+function segments(joints) {
+  const segs = [];
+  for (let i = 0; i < BONE_COUNT; i++) {
+    const name = BONES[i][0];
+    let childName = null;
+    for (let j = i + 1; j < BONE_COUNT; j++) {
+      if (BONES[j][1] === i) {
+        childName = BONES[j][0];
+        break;
+      }
+    }
+    if (!childName) continue;
+    segs.push({ i, name, a: joints[name], b: joints[childName] });
+  }
+  return segs;
+}
+
+function distToSeg(p, a, b) {
+  const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+  const apx = p[0] - a[0], apy = p[1] - a[1], apz = p[2] - a[2];
+  const l2 = abx * abx + aby * aby + abz * abz || 1e-9;
+  let t = (apx * abx + apy * aby + apz * abz) / l2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const dx = apx - abx * t, dy = apy - aby * t, dz = apz - abz * t;
+  return { d: Math.hypot(dx, dy, dz), t };
+}
+
+// Which side of the body a bone belongs to, so an inner-thigh vertex is not
+// captured by the far leg — the classic failure of nearest-bone weighting.
+function sideOf(name) {
+  if (name.endsWith('L')) return 1;
+  if (name.endsWith('R')) return -1;
+  return 0;
+}
+
+// How far each bone reaches for vertices, relative to plain distance. Nearest
+// bone alone is not enough: a hand hangs a few centimetres from the hip, so the
+// skirt of the jacket binds to the fingers and then flies off with them. Thin
+// bones are made to reach less and fat ones more, which is the same correction
+// a rigger paints by hand.
+const REACH = {
+  hips: 0.75, spine: 0.8, chest: 0.8, neck: 1.15, head: 1.0,
+  clavL: 1.15, clavR: 1.15,
+  armL: 1.05, armR: 1.05, foreL: 1.3, foreR: 1.3, handL: 1.9, handR: 1.9,
+  thighL: 0.92, thighR: 0.92, shinL: 1.05, shinR: 1.05, footL: 1.45, footR: 1.45,
+};
+
+function skinWeights(P, segs) {
+  const n = P.length / 3;
+  const bone = new Uint8Array(n * 2);
+  const wt = new Float32Array(n * 2);
+  const tAlong = new Float32Array(n);
+  const p = [0, 0, 0];
+  for (let v = 0; v < n; v++) {
+    p[0] = P[v * 3];
+    p[1] = P[v * 3 + 1];
+    p[2] = P[v * 3 + 2];
+    let b0 = 0, d0 = 1e9, t0 = 0, b1 = 0, d1 = 1e9;
+    for (const s of segs) {
+      const { d, t } = distToSeg(p, s.a, s.b);
+      const side = sideOf(s.name);
+      // A limb only competes for vertices on its own side, and only mildly for
+      // the ones near the midline.
+      const penalty = side !== 0 && Math.sign(p[0]) !== side ? 1 + Math.abs(p[0]) * 6 : 1;
+      const dd = d * penalty * (REACH[s.name] ?? 1);
+      if (dd < d0) {
+        d1 = d0; b1 = b0;
+        d0 = dd; b0 = s.i; t0 = t;
+      } else if (dd < d1) {
+        d1 = dd; b1 = s.i;
+      }
+    }
+    // The second bone only gets a share when it is genuinely nearly as close,
+    // which is what happens across a joint and nowhere else.
+    const r = d0 / Math.max(d1, 1e-6);
+    const w1 = Math.max(0, (r - 0.55) / 0.45) * 0.5;
+    bone[v * 2] = b0;
+    bone[v * 2 + 1] = b1;
+    wt[v * 2] = 1 - w1;
+    wt[v * 2 + 1] = w1;
+    tAlong[v] = t0;
+  }
+  return { bone, wt, tAlong };
+}
+
+/* ------------------------------------------------------------------- warp */
+
+// Move the sculpt onto the canonical skeleton. Each bone contributes a
+// translate-scale-translate that carries its own segment from where the sculpt
+// has it to where the rig wants it; the vertex takes the weighted blend, which
+// is smooth across joints for the same reason skinning is.
+function warpToRig(P, segs, source, target, bone, wt) {
+  const n = P.length / 3;
+  const T = segs.map((s) => {
+    const childName = BONES.find((b, j) => BONES[j][1] === s.i && j > s.i)?.[0];
+    const sa = source[s.name], sb = source[childName];
+    const ta = target[s.name], tb = target[childName];
+    const sl = Math.hypot(sb[0] - sa[0], sb[1] - sa[1], sb[2] - sa[2]) || 1e-6;
+    const tl = Math.hypot(tb[0] - ta[0], tb[1] - ta[1], tb[2] - ta[2]) || 1e-6;
+    return { i: s.i, sa, ta, s: tl / sl };
+  });
+  const byBone = new Map(T.map((t) => [t.i, t]));
+  const out = new Float64Array(P.length);
+  for (let v = 0; v < n; v++) {
+    let x = 0, y = 0, z = 0, wsum = 0;
+    for (let k = 0; k < 2; k++) {
+      const w = wt[v * 2 + k];
+      if (w <= 0) continue;
+      const t = byBone.get(bone[v * 2 + k]);
+      if (!t) continue;
+      x += w * (t.ta[0] + (P[v * 3] - t.sa[0]) * t.s);
+      y += w * (t.ta[1] + (P[v * 3 + 1] - t.sa[1]) * t.s);
+      z += w * (t.ta[2] + (P[v * 3 + 2] - t.sa[2]) * t.s);
+      wsum += w;
+    }
+    if (wsum < 1e-6) {
+      out[v * 3] = P[v * 3];
+      out[v * 3 + 1] = P[v * 3 + 1];
+      out[v * 3 + 2] = P[v * 3 + 2];
+    } else {
+      out[v * 3] = x / wsum;
+      out[v * 3 + 1] = y / wsum;
+      out[v * 3 + 2] = z / wsum;
+    }
+  }
+  return out;
+}
+
+/* -------------------------------------------------- normals, uvs, materials */
+
+// Make the winding consistent before anything reads a normal off it.
+//
+// A generated sculpt is not guaranteed to have coherently wound triangles, and
+// on this one about a fifth of them faced inwards. The symptom is not a hole —
+// nothing here culls backfaces — it is worse: patches of the gi lit from the
+// wrong side, which read as bleached blotches scattered over the cloth and look
+// like a texture bug rather than a geometry one.
+//
+// Walk the dual graph. Two triangles sharing an edge agree only if they
+// traverse that edge in opposite directions; where they do not, flip the
+// neighbour. Then check the whole shell's signed volume and flip everything if
+// the surface came out inside-out.
+function orient(P, idx) {
+  const triCount = idx.length / 3;
+  const edges = new Map();
+  const key = (a, b) => (a < b ? a * 4294967296 + b : b * 4294967296 + a);
+  for (let t = 0; t < triCount; t++) {
+    for (let e = 0; e < 3; e++) {
+      const a = idx[t * 3 + e], b = idx[t * 3 + ((e + 1) % 3)];
+      const k = key(a, b);
+      let list = edges.get(k);
+      if (!list) edges.set(k, (list = []));
+      list.push(t);
+    }
+  }
+  const seen = new Uint8Array(triCount);
+  let flipped = 0;
+  const flip = (t) => {
+    const tmp = idx[t * 3 + 1];
+    idx[t * 3 + 1] = idx[t * 3 + 2];
+    idx[t * 3 + 2] = tmp;
+    flipped++;
+  };
+  for (let start = 0; start < triCount; start++) {
+    if (seen[start]) continue;
+    seen[start] = 1;
+    const stack = [start];
+    while (stack.length) {
+      const t = stack.pop();
+      for (let e = 0; e < 3; e++) {
+        const a = idx[t * 3 + e], b = idx[t * 3 + ((e + 1) % 3)];
+        for (const n of edges.get(key(a, b))) {
+          if (n === t || seen[n]) continue;
+          // Does the neighbour walk this same edge the same way round?
+          let same = false;
+          for (let f = 0; f < 3; f++) {
+            if (idx[n * 3 + f] === a && idx[n * 3 + ((f + 1) % 3)] === b) same = true;
+          }
+          if (same) flip(n);
+          seen[n] = 1;
+          stack.push(n);
+        }
+      }
+    }
+  }
+  // Signed volume of the closed shell: negative means the whole thing is
+  // inside-out and every triangle needs turning.
+  let vol = 0;
+  for (let t = 0; t < triCount; t++) {
+    const a = idx[t * 3] * 3, b = idx[t * 3 + 1] * 3, c = idx[t * 3 + 2] * 3;
+    vol += (
+      P[a] * (P[b + 1] * P[c + 2] - P[b + 2] * P[c + 1]) -
+      P[a + 1] * (P[b] * P[c + 2] - P[b + 2] * P[c]) +
+      P[a + 2] * (P[b] * P[c + 1] - P[b + 1] * P[c])
+    ) / 6;
+  }
+  if (vol < 0) {
+    for (let t = 0; t < triCount; t++) flip(t);
+  }
+  return { flipped, volume: vol };
+}
+
+function normals(P, idx) {
+  const N = new Float64Array(P.length);
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    // Not normalised: the cross product's length is twice the triangle area,
+    // which is the weighting a smooth normal wants anyway.
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    for (const o of [a, b, c]) {
+      N[o] += nx;
+      N[o + 1] += ny;
+      N[o + 2] += nz;
+    }
+  }
+  for (let i = 0; i < N.length; i += 3) {
+    const l = Math.hypot(N[i], N[i + 1], N[i + 2]) || 1;
+    N[i] /= l;
+    N[i + 1] /= l;
+    N[i + 2] /= l;
+  }
+  return N;
+}
+
+// Cylindrical around the owning bone — the same convention the procedural body
+// uses, so the cloth and skin textures already in the game apply unchanged.
+function uvs(P, segs, bone, tAlong, target) {
+  const n = P.length / 3;
+  const UV = new Float32Array(n * 2);
+  const byBone = new Map(segs.map((s) => [s.i, s]));
+  for (let v = 0; v < n; v++) {
+    const s = byBone.get(bone[v * 2]);
+    if (!s) continue;
+    const ax = s.b[0] - s.a[0], ay = s.b[1] - s.a[1], az = s.b[2] - s.a[2];
+    const len = Math.hypot(ax, ay, az) || 1e-6;
+    const dx = ax / len, dy = ay / len, dz = az / len;
+    // Any two vectors perpendicular to the bone will do; the seam they create
+    // is hidden by the fact that both textures are noise, not a picture.
+    let ux = 0, uy = 1, uz = 0;
+    if (Math.abs(dy) > 0.9) { ux = 1; uy = 0; }
+    let sx = uy * dz - uz * dy, sy = uz * dx - ux * dz, sz = ux * dy - uy * dx;
+    const sl = Math.hypot(sx, sy, sz) || 1;
+    sx /= sl; sy /= sl; sz /= sl;
+    const tx = dy * sz - dz * sy, ty = dz * sx - dx * sz, tz = dx * sy - dy * sx;
+    const px = P[v * 3] - s.a[0], py = P[v * 3 + 1] - s.a[1], pz = P[v * 3 + 2] - s.a[2];
+    const a = Math.atan2(px * tx + py * ty + pz * tz, px * sx + py * sy + pz * sz);
+    UV[v * 2] = (a / Math.PI) * 1.1;
+    UV[v * 2 + 1] = tAlong[v] * len * 8;
+  }
+  return UV;
+}
+
+// 0 skin · 1 jacket · 2 pants · 3 belt · 4 lapel · 5 hair.
+// Derived from which bone owns the vertex and how far along it sits, which is
+// exactly where a gi's hems are: mid-forearm, mid-shin, the collar, the belt.
+// 0 skin · 1 jacket · 2 pants · 3 belt · 4 lapel · 5 hair.
+//
+// Cut by height in the bind pose rather than by distance along a bone. In the
+// bind pose the arms hang and the legs are straight, so every hem on a gi — the
+// sleeve, the trouser cuff, the collar — is a horizontal plane, and a plane
+// gives a clean edge. Parameter-along-the-bone does not: it jumps wherever the
+// nearest-bone assignment flips, and the sleeve ends up with a torn edge that
+// looks like damage rather than tailoring.
+function materials(P, bone, target, H) {
+  const n = P.length / 3;
+  const M = new Uint8Array(n);
+  const nameOf = BONES.map((b) => b[0]);
+  const beltY = target.hips[1] + 0.05;
+  const SLEEVE_Y = target.handL[1] + 0.045; // the cuff sits just above the wrist
+  const CUFF_Y = target.footL[1] + 0.05;   // the trouser hem, just above the ankle
+  const COLLAR_Y = target.neck[1] + 0.035;
+  const headZ = target.head[2];
+  const headY = target.head[1];
+
+  for (let v = 0; v < n; v++) {
+    const name = nameOf[bone[v * 2]];
+    const x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+    let m = 1;
+
+    if (name === 'head' || name === 'headTop') {
+      // Hair is the crown and the back of the skull. The face keeps its skin,
+      // and the boundary runs where a hairline runs.
+      const above = y - headY;
+      m = above > 0.075 || (z < headZ - 0.015 && above > 0.0) ? 5 : 0;
+    } else if (name === 'neck') {
+      m = y > COLLAR_Y ? 0 : 1;
+    } else if (name === 'handL' || name === 'handR' || name === 'handLTip' || name === 'handRTip') {
+      m = 0;
+    } else if (name === 'foreL' || name === 'foreR') {
+      m = y < SLEEVE_Y ? 0 : 1;
+    } else if (name === 'footL' || name === 'footR' || name === 'toeL' || name === 'toeR') {
+      m = 0;
+    } else if (name === 'shinL' || name === 'shinR') {
+      m = y < CUFF_Y ? 0 : 2;
+    } else if (name === 'thighL' || name === 'thighR') {
+      m = 2;
+    } else if (name === 'hips') {
+      m = y < beltY - 0.045 ? 2 : 1;
+    }
+
+    if (m === 1 || m === 2) {
+      // The belt is a band around the middle, and it has to be every vertex in
+      // that band — restricting it to the two spine bones left the parts bound
+      // to the upper thigh out of it, which tore ragged notches along the edge.
+      if (Math.abs(y - beltY) < 0.05 && Math.hypot(x, z) < 0.3) m = 3;
+      // The crossed lapels: two narrow strips running from the collarbones down
+      // to the knot, which is where a gi is actually gripped.
+      else if (z > 0.05 && y > beltY + 0.05 && y < COLLAR_Y) {
+        const t = (COLLAR_Y - y) / Math.max(COLLAR_Y - (beltY + 0.05), 1e-6);
+        const centre = 0.085 * (1 - t);   // they cross at the sternum
+        if (Math.abs(Math.abs(x) - centre) < 0.032) m = 4;
+      }
+    }
+    M[v] = m;
+  }
+  return M;
+}
+
+/* ------------------------------------------------------------------ output */
+
+function encode(P, N, UV, bone, wt, mat, idx) {
+  const n = P.length / 3;
+  let minX = 1e9, minY = 1e9, minZ = 1e9, maxX = -1e9, maxY = -1e9, maxZ = -1e9;
+  for (let i = 0; i < n; i++) {
+    minX = Math.min(minX, P[i * 3]); maxX = Math.max(maxX, P[i * 3]);
+    minY = Math.min(minY, P[i * 3 + 1]); maxY = Math.max(maxY, P[i * 3 + 1]);
+    minZ = Math.min(minZ, P[i * 3 + 2]); maxZ = Math.max(maxZ, P[i * 3 + 2]);
+  }
+  let uvMax = 0;
+  for (let i = 0; i < UV.length; i++) uvMax = Math.max(uvMax, Math.abs(UV[i]));
+
+  const HEAD = 48;
+  const bytes = HEAD + n * (6 + 3 + 4 + 2 + 1 + 1) + idx.length * 2;
+  const buf = Buffer.alloc(bytes + 8);
+  let o = 0;
+  buf.write('BJJF', o); o += 4;
+  buf.writeUInt16LE(1, o); o += 2;          // version
+  buf.writeUInt16LE(0, o); o += 2;          // flags
+  buf.writeUInt32LE(n, o); o += 4;
+  buf.writeUInt32LE(idx.length, o); o += 4;
+  for (const v of [minX, minY, minZ, maxX, maxY, maxZ, uvMax, 0]) {
+    buf.writeFloatLE(v, o); o += 4;
+  }
+  const sx = 65535 / Math.max(maxX - minX, 1e-6);
+  const sy = 65535 / Math.max(maxY - minY, 1e-6);
+  const sz = 65535 / Math.max(maxZ - minZ, 1e-6);
+  for (let i = 0; i < n; i++) {
+    buf.writeUInt16LE(Math.round((P[i * 3] - minX) * sx), o); o += 2;
+    buf.writeUInt16LE(Math.round((P[i * 3 + 1] - minY) * sy), o); o += 2;
+    buf.writeUInt16LE(Math.round((P[i * 3 + 2] - minZ) * sz), o); o += 2;
+  }
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 3; k++) {
+      buf.writeInt8(Math.max(-127, Math.min(127, Math.round(N[i * 3 + k] * 127))), o);
+      o += 1;
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    buf.writeInt16LE(Math.round((UV[i * 2] / uvMax) * 32767), o); o += 2;
+    buf.writeInt16LE(Math.round((UV[i * 2 + 1] / uvMax) * 32767), o); o += 2;
+  }
+  for (let i = 0; i < n; i++) {
+    buf.writeUInt8(bone[i * 2], o); o += 1;
+    buf.writeUInt8(bone[i * 2 + 1], o); o += 1;
+  }
+  for (let i = 0; i < n; i++) {
+    buf.writeUInt8(Math.round(wt[i * 2] * 255), o); o += 1;
+  }
+  for (let i = 0; i < n; i++) {
+    buf.writeUInt8(mat[i], o); o += 1;
+  }
+  for (let i = 0; i < idx.length; i++) {
+    buf.writeUInt16LE(idx[i], o); o += 2;
+  }
+  return buf.subarray(0, o);
+}
+
+/* -------------------------------------------------------------------- main */
+
+const { json, bin } = readGLB(src);
+const prim = json.meshes[0].primitives[0];
+const rawPos = accessor(json, bin, prim.attributes.POSITION);
+const rawIdx = accessor(json, bin, prim.indices);
+const welded = weld(rawPos, rawIdx);
+const comps = components(welded.pos, welded.idx);
+console.log(`${rawPos.length / 3} verts -> ${welded.pos.length / 3} welded, ${comps.length} components`);
+comps.slice(0, 8).forEach((c, i) => {
+  let lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+  for (const v of c) for (let k = 0; k < 3; k++) {
+    lo[k] = Math.min(lo[k], welded.pos[v * 3 + k]);
+    hi[k] = Math.max(hi[k], welded.pos[v * 3 + k]);
+  }
+  console.log(`  [${i}] ${c.length} verts  size ${hi.map((h, k) => (h - lo[k]).toFixed(3)).join(' x ')}`);
+});
+
+const one = extract(welded.pos, welded.idx, comps[COMPONENT]);
+if (one.idx.length / 3 > 65535 || one.pos.length / 3 > 65535) {
+  console.warn('warning: component exceeds 16-bit index range');
+}
+
+// Canonical skeleton: this is the target the sculpt is warped onto.
+const sk = new Skeleton();
+sk.pose();
+const target = {};
+for (let i = 0; i < BONE_COUNT; i++) {
+  const m = sk.world[i];
+  target[BONES[i][0]] = [m[12], m[13], m[14]];
+}
+const TARGET_H = target.headTop[1];
+
+// Normalise the sculpt: feet on the floor, centred, scaled to the rig's height.
+{
+  let lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+  for (let i = 0; i < one.pos.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], one.pos[i + k]);
+      hi[k] = Math.max(hi[k], one.pos[i + k]);
+    }
+  }
+  const s = TARGET_H / (hi[1] - lo[1]);
+  const cx = (lo[0] + hi[0]) / 2, cz = (lo[2] + hi[2]) / 2;
+  for (let i = 0; i < one.pos.length; i += 3) {
+    one.pos[i] = (one.pos[i] - cx) * s;
+    one.pos[i + 1] = (one.pos[i + 1] - lo[1]) * s;
+    one.pos[i + 2] = (one.pos[i + 2] - cz) * s;
+  }
+}
+
+const m = measure(one.pos, TARGET_H, target);
+const source = fitSource(m, target);
+
+if (REPORT) {
+  console.log('\nsilhouette landmarks (metres, rig scale):');
+  // The widest slice of a standing body with its arms down is the forearms,
+  // not the shoulders — these are reported only as a sanity read on the scale.
+  console.log(`  widest upper  ${m.shoulderPeak.toFixed(3)}   widest lower ${m.hipPeak.toFixed(3)}`);
+  for (const k of ['shL', 'elbL', 'handL', 'kneeL', 'footL']) {
+    const v = m[k];
+    console.log(`  ${k.padEnd(6)} outer x=${v ? v.ext.toFixed(3) : 'n/a'}  centre x=${v ? v.x.toFixed(3) : 'n/a'} z=${v ? v.z.toFixed(3) : 'n/a'}`);
+  }
+  console.log('\njoint fit  (sculpt -> rig):');
+  for (const name of ['hips', 'chest', 'neck', 'head', 'armL', 'foreL', 'handL', 'thighL', 'shinL', 'footL']) {
+    const s = source[name], t = target[name];
+    const d = Math.hypot(s[0] - t[0], s[1] - t[1], s[2] - t[2]);
+    console.log(
+      `  ${name.padEnd(8)} ${s.map((v) => v.toFixed(3).padStart(7)).join(' ')}  ->  ` +
+      `${t.map((v) => v.toFixed(3).padStart(7)).join(' ')}   moved ${(d * 100).toFixed(1)}cm`
+    );
+  }
+}
+
+const segs = segments(source);
+const { bone, wt, tAlong } = skinWeights(one.pos, segs);
+const warped = warpToRig(one.pos, segs, source, target, bone, wt);
+const wind = orient(warped, one.idx);
+console.log(
+  `winding: turned ${wind.flipped} of ${one.idx.length / 3} triangles, ` +
+  `shell volume ${Math.abs(wind.volume).toFixed(3)} m3`
+);
+const N = normals(warped, one.idx);
+const targetSegs = segments(target);
+const UV = uvs(warped, targetSegs, bone, tAlong, target);
+const MAT = materials(warped, bone, target, TARGET_H);
+
+const counts = {};
+for (const v of MAT) counts[v] = (counts[v] || 0) + 1;
+console.log('\nmaterial split:', Object.entries(counts)
+  .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair'][k]}:${v}`).join(' '));
+
+const out = encode(warped, N, UV, bone, wt, MAT, one.idx);
+mkdirSync(dirname(OUT), { recursive: true });
+writeFileSync(OUT, out);
+console.log(
+  `\nwrote ${OUT}  ${(out.length / 1024).toFixed(0)} KB  ` +
+  `${warped.length / 3} verts  ${one.idx.length / 3} tris`
+);

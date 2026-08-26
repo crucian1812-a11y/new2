@@ -113,7 +113,10 @@ uniform mat4 u_bones[${BONE_COUNT}];
 out vec3 v_world;
 out vec3 v_nrm;
 out vec2 v_uv;
-out float v_mat;
+// Flat, and it matters. A material id is a name, not a quantity: interpolate
+// between hair (5) and jacket (1) and the fragments in between round to belt
+// and lapel, which paints a rainbow seam along every hem on the body.
+flat out float v_mat;
 
 void main() {
   mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
@@ -129,7 +132,7 @@ const SKIN_FS = COMMON + LIGHTING + `
 in vec3 v_world;
 in vec3 v_nrm;
 in vec2 v_uv;
-in float v_mat;
+flat in float v_mat;
 out vec4 outColor;
 
 uniform sampler2D u_cloth;
@@ -182,7 +185,7 @@ uniform mat4 u_viewProj;
 out vec3 v_world;
 out vec3 v_nrm;
 out vec2 v_uv;
-out float v_mat;
+flat out float v_mat;
 void main() {
   v_world = a_pos;
   v_nrm = a_nrm;
@@ -195,7 +198,7 @@ const STATIC_FS = COMMON + LIGHTING + `
 in vec3 v_world;
 in vec3 v_nrm;
 in vec2 v_uv;
-in float v_mat;
+flat in float v_mat;
 out vec4 outColor;
 
 uniform sampler2D u_tatami;
@@ -438,10 +441,13 @@ export class Renderer {
     this._buildTargets(w, h);
   }
 
-  // A fighter's drawable is built lazily the first time it is seen, so the
-  // mesh builder and the GL upload happen at load rather than mid-fight.
-  makeFighterGPU(mesh) {
+  // Upload a fighter. Takes any number of meshes sharing one skeleton: the
+  // procedural body is two (skin and gi, which need different radii), a baked
+  // one is a single mesh carrying its material id per vertex. Both end up as
+  // the same thing here — a list of parts to draw.
+  makeFighterGPU(meshes) {
     const gl = this.gl;
+    const list = Array.isArray(meshes) ? meshes : [meshes.skin, meshes.gi].filter(Boolean);
     const mk = (m) => ({
       main: vao(gl, this.progSkin.p, [
         { name: 'a_pos', data: m.pos, size: 3 },
@@ -459,7 +465,7 @@ export class Renderer {
       count: m.count,
       type: m.idx instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
     });
-    return { skin: mk(mesh.skin), gi: mk(mesh.gi) };
+    return { parts: list.map(mk) };
   }
 
   render(scene) {
@@ -490,7 +496,7 @@ export class Renderer {
     gl.uniformMatrix4fv(this.progShadowSkin.u.u_lightVP, false, this.lightVP);
     for (const f of fighters) {
       gl.uniformMatrix4fv(this.progShadowSkin.u.u_bones, false, f.skeleton.skin);
-      for (const part of [f.gpu.skin, f.gpu.gi]) {
+      for (const part of f.gpu.parts) {
         gl.bindVertexArray(part.shadow);
         gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
       }
@@ -549,7 +555,7 @@ export class Renderer {
       gl.uniform3fv(this.progSkin.u.u_beltCol, f.beltCol);
       gl.uniform3fv(this.progSkin.u.u_skinCol, f.skinCol);
       gl.uniform1f(this.progSkin.u.u_flash, f.flash || 0);
-      for (const part of [f.gpu.skin, f.gpu.gi]) {
+      for (const part of f.gpu.parts) {
         gl.bindVertexArray(part.main);
         gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
       }

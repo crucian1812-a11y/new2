@@ -12,6 +12,7 @@ export default [
         Path2D: 'readonly', Image: 'readonly', devicePixelRatio: 'readonly',
         process: 'readonly', URL: 'readonly', fetch: 'readonly',
         location: 'readonly', URLSearchParams: 'readonly',
+        TextDecoder: 'readonly', Buffer: 'readonly', DataView: 'readonly',
       },
     },
     rules: {
