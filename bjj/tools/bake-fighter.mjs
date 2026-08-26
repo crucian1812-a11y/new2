@@ -335,54 +335,235 @@ function sideOf(name) {
   return 0;
 }
 
-// How far each bone reaches for vertices, relative to plain distance. Nearest
-// bone alone is not enough: a hand hangs a few centimetres from the hip, so the
-// skirt of the jacket binds to the fingers and then flies off with them. Thin
-// bones are made to reach less and fat ones more, which is the same correction
-// a rigger paints by hand.
-const REACH = {
-  hips: 0.75, spine: 0.8, chest: 0.8, neck: 1.15, head: 1.0,
-  clavL: 1.15, clavR: 1.15,
-  armL: 1.05, armR: 1.05, foreL: 1.3, foreR: 1.3, handL: 1.9, handR: 1.9,
-  thighL: 0.92, thighR: 0.92, shinL: 1.05, shinR: 1.05, footL: 1.45, footR: 1.45,
-};
 
-function skinWeights(P, segs) {
+// Adjacency, as CSR. Weights are diffused over the mesh's own edges below, and
+// that is the whole point of building this.
+function adjacency(vertCount, idx) {
+  const deg = new Int32Array(vertCount);
+  const bump = (a, b) => {
+    deg[a]++;
+    deg[b]++;
+  };
+  for (let t = 0; t < idx.length; t += 3) {
+    bump(idx[t], idx[t + 1]);
+    bump(idx[t + 1], idx[t + 2]);
+    bump(idx[t + 2], idx[t]);
+  }
+  const start = new Int32Array(vertCount + 1);
+  for (let i = 0; i < vertCount; i++) start[i + 1] = start[i] + deg[i];
+  const fill = start.slice(0, vertCount);
+  const nbr = new Int32Array(start[vertCount]);
+  const put = (a, b) => {
+    nbr[fill[a]++] = b;
+    nbr[fill[b]++] = a;
+  };
+  for (let t = 0; t < idx.length; t += 3) {
+    put(idx[t], idx[t + 1]);
+    put(idx[t + 1], idx[t + 2]);
+    put(idx[t + 2], idx[t]);
+  }
+  return { start, nbr };
+}
+
+// Skinning weights, by seeding and then diffusing along the surface.
+//
+// The first version of this weighted every vertex by straight-line distance to
+// the nearest two bone segments, and straight-line distance is the wrong metric
+// on a body. A hand hangs four centimetres from a hip, so the skirt of the
+// jacket bound to the fingers and left with them. That got patched with a table
+// of per-bone "reach" multipliers — thin bones grab less, fat bones grab more —
+// which is what a rigger paints by hand and is exactly as principled as it
+// sounds.
+//
+// Diffusing over the mesh's own edges removes the need for the patch. Only
+// vertices that are unambiguously nearest one bone are seeded; everything else
+// is solved by letting those seeds spread across the surface. The hand cannot
+// capture the jacket because there is no short path along the cloth from one to
+// the other, however close they are in space. It is the cheap relative of bone
+// heat, and it fixes the same failures.
+function skinWeights(P, idx, segs) {
   const n = P.length / 3;
-  const bone = new Uint8Array(n * 2);
-  const wt = new Float32Array(n * 2);
   const tAlong = new Float32Array(n);
+  const nearest = new Int32Array(n);
+  // How far the vertex actually is from the bone that ends up owning it. The
+  // material rules need this: a hand hangs beside a hip, so "nearest bone is
+  // the hand" is true of the cuff of the jacket as well as of the hand, and
+  // only the distance tells them apart.
+  const ownerDist = new Float32Array(n);
+  const confident = new Uint8Array(n);
   const p = [0, 0, 0];
+
   for (let v = 0; v < n; v++) {
     p[0] = P[v * 3];
     p[1] = P[v * 3 + 1];
     p[2] = P[v * 3 + 2];
-    let b0 = 0, d0 = 1e9, t0 = 0, b1 = 0, d1 = 1e9;
+    let b0 = 0, d0 = 1e9, t0 = 0, d1 = 1e9;
     for (const s of segs) {
       const { d, t } = distToSeg(p, s.a, s.b);
       const side = sideOf(s.name);
-      // A limb only competes for vertices on its own side, and only mildly for
-      // the ones near the midline.
-      const penalty = side !== 0 && Math.sign(p[0]) !== side ? 1 + Math.abs(p[0]) * 6 : 1;
-      const dd = d * penalty * (REACH[s.name] ?? 1);
+      // A limb still only competes for vertices on its own side. This one is
+      // not a fudge: a left arm has no business owning anything at negative x,
+      // and no amount of diffusion recovers from seeding it there.
+      const dd = d * (side !== 0 && Math.sign(p[0]) !== side ? 1 + Math.abs(p[0]) * 6 : 1);
       if (dd < d0) {
-        d1 = d0; b1 = b0;
-        d0 = dd; b0 = s.i; t0 = t;
+        d1 = d0;
+        d0 = dd;
+        b0 = s.i;
+        t0 = t;
       } else if (dd < d1) {
-        d1 = dd; b1 = s.i;
+        d1 = dd;
       }
     }
-    // The second bone only gets a share when it is genuinely nearly as close,
-    // which is what happens across a joint and nowhere else.
-    const r = d0 / Math.max(d1, 1e-6);
-    const w1 = Math.max(0, (r - 0.55) / 0.45) * 0.5;
+    nearest[v] = b0;
+    tAlong[v] = t0;
+    // Seed only where the answer is not in doubt. Everything nearer to two
+    // bones at once — which is every joint — is left for the diffusion.
+    confident[v] = d0 < d1 * 0.62 ? 1 : 0;
+  }
+
+  // Guarantee every bone has something to spread from, even a bone that never
+  // won a confident vertex outright.
+  const seedCount = new Map();
+  for (let v = 0; v < n; v++) if (confident[v]) seedCount.set(nearest[v], (seedCount.get(nearest[v]) || 0) + 1);
+  for (const s of segs) {
+    if (seedCount.get(s.i)) continue;
+    let best = -1, bd = 1e9;
+    for (let v = 0; v < n; v++) {
+      p[0] = P[v * 3];
+      p[1] = P[v * 3 + 1];
+      p[2] = P[v * 3 + 2];
+      const { d } = distToSeg(p, s.a, s.b);
+      if (d < bd) {
+        bd = d;
+        best = v;
+      }
+    }
+    if (best >= 0) {
+      nearest[best] = s.i;
+      confident[best] = 1;
+    }
+  }
+
+  const { start, nbr } = adjacency(n, idx);
+  let W = new Float32Array(n * BONE_COUNT);
+  let W2 = new Float32Array(n * BONE_COUNT);
+  for (let v = 0; v < n; v++) if (confident[v]) W[v * BONE_COUNT + nearest[v]] = 1;
+
+  const ITER = 48;
+  for (let it = 0; it < ITER; it++) {
+    for (let v = 0; v < n; v++) {
+      if (confident[v]) {
+        W2.set(W.subarray(v * BONE_COUNT, v * BONE_COUNT + BONE_COUNT), v * BONE_COUNT);
+        continue;
+      }
+      const a = start[v], b = start[v + 1];
+      const deg = b - a;
+      if (!deg) continue;
+      const out = v * BONE_COUNT;
+      // Averaging the neighbours, with a share of the vertex's own previous
+      // value so the field relaxes rather than oscillating.
+      for (let k = 0; k < BONE_COUNT; k++) W2[out + k] = W[out + k] * 0.35;
+      const share = 0.65 / deg;
+      for (let e = a; e < b; e++) {
+        const u = nbr[e] * BONE_COUNT;
+        for (let k = 0; k < BONE_COUNT; k++) W2[out + k] += W[u + k] * share;
+      }
+    }
+    const tmp = W;
+    W = W2;
+    W2 = tmp;
+  }
+
+  // Two bones per vertex is what the vertex format carries, and on a body it is
+  // what matters: the third is always a rounding error next to the first two.
+  // Diffusion alone is not enough, and the reason is specific to sculpts like
+  // this one: the hands hang against the jacket and the generator welded them
+  // to it, so there *is* a short path along the surface from a fingertip to a
+  // hip. The field runs down it and paints a patch of bare skin on the cloth.
+  //
+  // So the surface field decides the shape of the boundaries, and plain
+  // distance keeps it honest: a vertex may not be claimed by a bone that is
+  // more than twice as far away as the nearest one.
+  const segByBone = new Map(segs.map((s2) => [s2.i, s2]));
+  const nearestDist = new Float32Array(n);
+  for (let v = 0; v < n; v++) {
+    p[0] = P[v * 3];
+    p[1] = P[v * 3 + 1];
+    p[2] = P[v * 3 + 2];
+    const s2 = segByBone.get(nearest[v]);
+    nearestDist[v] = s2 ? distToSeg(p, s2.a, s2.b).d : 0;
+  }
+
+  const bone = new Uint8Array(n * 2);
+  const wt = new Float32Array(n * 2);
+  let orphans = 0, clamped = 0;
+  for (let v = 0; v < n; v++) {
+    const o = v * BONE_COUNT;
+    let b0 = -1, w0 = -1, b1 = -1, w1 = -1;
+    for (let k = 0; k < BONE_COUNT; k++) {
+      const w = W[o + k];
+      if (w > w0) {
+        w1 = w0; b1 = b0;
+        w0 = w; b0 = k;
+      } else if (w > w1) {
+        w1 = w; b1 = k;
+      }
+    }
+    if (w0 <= 1e-6) {
+      // An island the diffusion never reached. Fall back to the nearest bone,
+      // which is what the whole mesh used to do.
+      b0 = nearest[v];
+      w0 = 1;
+      b1 = nearest[v];
+      w1 = 0;
+      orphans++;
+    }
+    if (b1 < 0) {
+      b1 = b0;
+      w1 = 0;
+    }
+    for (const [b, isFirst] of [[b0, true], [b1, false]]) {
+      const s2 = segByBone.get(b);
+      if (!s2) continue;
+      p[0] = P[v * 3];
+      p[1] = P[v * 3 + 1];
+      p[2] = P[v * 3 + 2];
+      if (distToSeg(p, s2.a, s2.b).d > nearestDist[v] * 2.0 + 0.02) {
+        if (isFirst) {
+          b0 = nearest[v];
+          w0 = 1;
+          b1 = nearest[v];
+          w1 = 0;
+          clamped++;
+        } else {
+          b1 = b0;
+          w1 = 0;
+        }
+      }
+    }
+    const sum = w0 + w1;
     bone[v * 2] = b0;
     bone[v * 2 + 1] = b1;
-    wt[v * 2] = 1 - w1;
-    wt[v * 2 + 1] = w1;
-    tAlong[v] = t0;
+    wt[v * 2] = w0 / sum;
+    wt[v * 2 + 1] = w1 / sum;
   }
-  return { bone, wt, tAlong };
+
+  let seeded = 0;
+  for (let v = 0; v < n; v++) seeded += confident[v];
+  console.log(
+    `weights: ${seeded} of ${n} vertices seeded (${((seeded / n) * 100).toFixed(0)}%), ` +
+    `${ITER} diffusion passes, ${clamped} clamped back to the nearest bone, ` +
+    `${orphans} orphan${orphans === 1 ? '' : 's'}`
+  );
+  for (let v = 0; v < n; v++) {
+    const s2 = segByBone.get(bone[v * 2]);
+    if (!s2) continue;
+    p[0] = P[v * 3];
+    p[1] = P[v * 3 + 1];
+    p[2] = P[v * 3 + 2];
+    ownerDist[v] = distToSeg(p, s2.a, s2.b).d;
+  }
+  return { bone, wt, tAlong, ownerDist };
 }
 
 /* ------------------------------------------------------------------- warp */
@@ -805,7 +986,7 @@ function uvs(P, segs, bone, tAlong, target) {
 // gives a clean edge. Parameter-along-the-bone does not: it jumps wherever the
 // nearest-bone assignment flips, and the sleeve ends up with a torn edge that
 // looks like damage rather than tailoring.
-function materials(P, bone, target, H) {
+function materials(P, bone, target, H, ownerDist) {
   const n = P.length / 3;
   const M = new Uint8Array(n);
   const nameOf = BONES.map((b) => b[0]);
@@ -829,11 +1010,15 @@ function materials(P, bone, target, H) {
     } else if (name === 'neck') {
       m = y > COLLAR_Y ? 0 : 1;
     } else if (name === 'handL' || name === 'handR' || name === 'handLTip' || name === 'handRTip') {
-      m = 0;
+      // Bare skin only where the vertex is genuinely on the hand. The cuff of
+      // the jacket is nearest the hand bone too — the hands hang against it —
+      // and painting that skin puts a patch of wrist on the hip.
+      m = ownerDist[v] < 0.07 ? 0 : 1;
     } else if (name === 'foreL' || name === 'foreR') {
       m = y < SLEEVE_Y ? 0 : 1;
     } else if (name === 'footL' || name === 'footR' || name === 'toeL' || name === 'toeR') {
-      m = 0;
+      // A bare foot is a big thing and its bone runs up the middle of it.
+      m = ownerDist[v] < 0.13 ? 0 : 2;
     } else if (name === 'shinL' || name === 'shinR') {
       m = y < CUFF_Y ? 0 : 2;
     } else if (name === 'thighL' || name === 'thighR') {
@@ -1033,7 +1218,7 @@ if (REPORT) {
 }
 
 const segs = segments(source);
-const { bone, wt, tAlong } = skinWeights(one.pos, segs);
+const { bone, wt, tAlong, ownerDist } = skinWeights(one.pos, one.idx, segs);
 const warped = warpToRig(one.pos, segs, source, target, bone, wt);
 const wind = orient(warped, one.idx);
 console.log(
@@ -1044,7 +1229,7 @@ console.log(
 const N = normals(warped, one.idx);
 const targetSegs = segments(target);
 const UV = uvs(warped, targetSegs, bone, tAlong, target);
-const MAT = materials(warped, bone, target, TARGET_H);
+const MAT = materials(warped, bone, target, TARGET_H, ownerDist);
 
 const counts = {};
 for (const v of MAT) counts[v] = (counts[v] || 0) + 1;
