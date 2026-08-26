@@ -576,6 +576,29 @@ export class Renderer {
       }
     }
 
+    // Tooling hook: look for NaN in the HDR buffer before anything spreads it.
+    //
+    // This is the check that would have saved an afternoon. A single NaN pixel
+    // here — from a zero normal, a divide by a degenerate derivative, anything
+    // — is invisible at this stage and then gets smeared by the bloom blur into
+    // black rectangles the size of a limb, which look exactly like a broken
+    // rasteriser and not at all like a bad vertex.
+    if (this.probe) {
+      const px = new Float32Array(4);
+      let nan = 0, sampled = 0;
+      for (let y = 1; y < 8; y++) {
+        for (let x = 1; x < 8; x++) {
+          gl.readPixels(
+            Math.floor((this.sceneW * x) / 9), Math.floor((this.sceneH * y) / 9),
+            1, 1, gl.RGBA, gl.FLOAT, px
+          );
+          sampled++;
+          for (let k = 0; k < 3; k++) if (!(px[k] === px[k]) || !isFinite(px[k])) nan++;
+        }
+      }
+      this.hdrNaN = { nan, sampled };
+    }
+
     /* ---- bloom ---- */
     gl.disable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.quadVAO);

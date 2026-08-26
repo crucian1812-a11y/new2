@@ -43,6 +43,18 @@ for (let i = 0; i < 22; i++) {
 
 const stats = await page.evaluate(() => window.__stats);
 check(!!stats, 'the loop is running', JSON.stringify(stats));
+
+// Say out loud which renderer this ran on. Headless Chrome falls back to a
+// software rasteriser without telling you, and a software rasteriser is the
+// first thing you blame when the picture is wrong — which makes it the last
+// thing you should be guessing about.
+const renderer = await page.evaluate(() => {
+  const gl = document.getElementById('gl').getContext('webgl2');
+  const d = gl.getExtension('WEBGL_debug_renderer_info');
+  return d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : 'unknown';
+});
+const soft = /swiftshader|llvmpipe|lavapipe|software/i.test(renderer);
+console.log(`     renderer: ${renderer}${soft ? '  (SOFTWARE — frame rate here means nothing)' : ''}`);
 check(errors.length === 0, 'no errors on the page', errors.slice(0, 3).join(' | '));
 check(stats && stats.fps > 8, 'frame rate is sane under software GL', stats && `${stats.fps} fps`);
 
@@ -50,11 +62,18 @@ check(stats && stats.fps > 8, 'frame rate is sane under software GL', stats && `
 const shot = await page.screenshot({ type: 'png' });
 // Ask the renderer to sample its own frame before it is presented; a read
 // after the swap is not defined to return anything at all.
-const lum = await page.evaluate(async () => {
+const probe = await page.evaluate(async () => {
   window.__bjj.renderer.probe = true;
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-  return window.__bjj.renderer.lum || [];
+  const r = window.__bjj.renderer;
+  return { lum: r.lum || [], nan: r.hdrNaN || null };
 });
+const lum = probe.lum;
+check(
+  probe.nan !== null && probe.nan.nan === 0,
+  'no NaN reached the HDR buffer',
+  probe.nan ? `${probe.nan.nan} of ${probe.nan.sampled * 3} channels` : 'probe did not run'
+);
 const bright = lum.filter((v) => v > 12).length;
 check(bright >= 10, 'the mat is actually lit', `${bright}/16 samples above black`);
 check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length / 1024) | 0}kb`);
