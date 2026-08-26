@@ -794,8 +794,13 @@ function staticMaterials(P) {
     if (p[1] < minY + H * 0.062) m = 0;                       // bare feet
     else if (p[1] < minY + H * 0.55) m = 2;                   // trousers
     if (near(p, head, H * 0.082)) {
+      // Same hairline as the rigged bake: high at the brow, down to the nape,
+      // and the face gets its own material so the shader can draw eyes on it.
       const above = p[1] - head[1];
-      m = above > H * 0.02 || p[2] < head[2] - H * 0.012 ? 5 : 0;
+      const front = Math.max(-1, Math.min(1, (p[2] - head[2]) / (H * 0.052)));
+      const line = H * (0.020 + front * 0.030);
+      if (above > line) m = 5;
+      else m = front > 0.15 && above > -H * 0.02 ? 6 : 0;
     } else if (near(p, fistL, H * 0.048) || near(p, fistR, H * 0.048)) m = 0;
     else if (p[1] > beltLo && p[1] < beltHi && Math.hypot(p[0], p[2]) < H * 0.19) m = 3;
     M[i] = m;
@@ -1026,10 +1031,55 @@ function uvs(P, segs, bone, tAlong, target) {
   return UV;
 }
 
-// 0 skin · 1 jacket · 2 pants · 3 belt · 4 lapel · 5 hair.
+// The face gets a different kind of UV.
+//
+// Everywhere else on the body the UV is a cylinder wrapped round a bone and it
+// addresses a noise texture, so it only has to be smooth. A face has to be
+// addressed like a face: the shader wants to know how far across the head a
+// pixel is and how far down it is, so it can put an eye a fixed fraction of the
+// way up and the same distance either side of the middle. That is what this
+// writes — u is -1 at one temple and +1 at the other, v is 0 at the chin and 1
+// at the hairline — over the face vertices only. Nothing else reads it and
+// nothing else is touched.
+function faceUVs(P, M, UV) {
+  const face = [];
+  for (let v = 0; v < M.length; v++) if (M[v] === 6) face.push(v);
+  if (face.length < 12) return;
+
+  // Centre on the face's own middle, not on x = 0. The static prop is a sculpt
+  // that was never centred and its head sits five centimetres off the axis; an
+  // eye placed three centimetres from x = 0 would land on an ear.
+  let cx = 0;
+  for (const v of face) cx += P[v * 3];
+  cx /= face.length;
+
+  const ys = face.map((v) => P[v * 3 + 1]).sort((a, b) => a - b);
+  const minY = ys[0], maxY = ys[ys.length - 1];
+  // A percentile rather than the extreme: one stray vertex from the far side of
+  // the head, caught by the nearest-bone test, would otherwise set the width
+  // and squash the whole face into the middle of the range.
+  // Fixed units of a real face — half its width at the cheekbones, and chin to
+  // brow — not the bounding box of whatever the material rule happened to
+  // catch. The shader turns these into centimetres and places an eye three
+  // centimetres off the middle; if the scale moved with the bake, so would the
+  // eyes. bake-mixamo.mjs uses the same two numbers.
+  const FACE_HALF_W = 0.065;
+  const FACE_H = 0.088;
+  if (maxY - minY < 1e-4) return;
+
+  for (const v of face) {
+    UV[v * 2] = (P[v * 3] - cx) / FACE_HALF_W;
+    UV[v * 2 + 1] = (P[v * 3 + 1] - minY) / FACE_H;
+  }
+  console.log(
+    `face: ${face.length} verts, ${((maxY - minY) * 100).toFixed(1)}cm tall, centred at x=${cx.toFixed(3)}`
+  );
+}
+
+// 0 skin · 1 jacket · 2 pants · 3 belt · 4 lapel · 5 hair · 6 face.
 // Derived from which bone owns the vertex and how far along it sits, which is
 // exactly where a gi's hems are: mid-forearm, mid-shin, the collar, the belt.
-// 0 skin · 1 jacket · 2 pants · 3 belt · 4 lapel · 5 hair.
+// 0 skin · 1 jacket · 2 pants · 3 belt · 4 lapel · 5 hair · 6 face.
 //
 // Cut by height in the bind pose rather than by distance along a bone. In the
 // bind pose the arms hang and the legs are straight, so every hem on a gi — the
@@ -1054,10 +1104,20 @@ function materials(P, bone, target, H, ownerDist) {
     let m = 1;
 
     if (name === 'head' || name === 'headTop') {
-      // Hair is the crown and the back of the skull. The face keeps its skin,
-      // and the boundary runs where a hairline runs.
+      // Hair is the crown and the back of the skull, and the hairline is not a
+      // horizontal plane. Cutting it at one height put hair across the bridge
+      // of the nose — a black helmet with a chin under it, which is what every
+      // screenshot showed. A real hairline sits high at the brow and drops to
+      // the nape, so the cut runs with the front-to-back axis of the skull.
       const above = y - headY;
-      m = above > 0.075 || (z < headZ - 0.015 && above > 0.0) ? 5 : 0;
+      const front = Math.max(-1, Math.min(1, (z - headZ) / 0.09));
+      const line = 0.072 + front * 0.062;
+      if (above > line) m = 5;
+      // The face gets its own material so the shader can put a pair of eyes on
+      // it. Skin everywhere else on the head — under the jaw, round the ears —
+      // stays plain skin, because a feature drawn on the side of a head is a
+      // smear rather than a face.
+      else m = front > 0.15 && above > 0.012 ? 6 : 0;
     } else if (name === 'neck') {
       m = y > COLLAR_Y ? 0 : 1;
     } else if (name === 'handL' || name === 'handR' || name === 'handLTip' || name === 'handRTip') {
@@ -1227,6 +1287,7 @@ if (STATIC) {
   const N = normals(one.pos, one.idx);
   const UV = staticUVs(one.pos);
   const MAT = staticMaterials(one.pos);
+  faceUVs(one.pos, MAT, UV);
   const n = one.pos.length / 3;
   const bone = new Uint8Array(n * 2);          // everything rides the root bone
   const wt = new Float32Array(n * 2);
@@ -1234,7 +1295,7 @@ if (STATIC) {
   const counts = {};
   for (const v of MAT) counts[v] = (counts[v] || 0) + 1;
   console.log('material split:', Object.entries(counts)
-    .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair'][k]}:${v}`).join(' '));
+    .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair', 'face'][k]}:${v}`).join(' '));
   const out = encode(one.pos, N, UV, bone, wt, MAT, one.idx);
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, out);
@@ -1303,11 +1364,12 @@ const N = normals(warped, one.idx);
 const targetSegs = segments(target);
 const UV = uvs(warped, targetSegs, bone, tAlong, target);
 const MAT = materials(warped, bone, target, TARGET_H, ownerDist);
+faceUVs(warped, MAT, UV);
 
 const counts = {};
 for (const v of MAT) counts[v] = (counts[v] || 0) + 1;
 console.log('\nmaterial split:', Object.entries(counts)
-  .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair'][k]}:${v}`).join(' '));
+  .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair', 'face'][k]}:${v}`).join(' '));
 
 const out = encode(warped, N, UV, bone, wt, MAT, one.idx);
 mkdirSync(dirname(OUT), { recursive: true });

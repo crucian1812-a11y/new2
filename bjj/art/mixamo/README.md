@@ -63,3 +63,40 @@ Two things to know before leaning on it:
   them folds a standing figure's arms across its chest, which is what the first
   version of the tool did. Directions have no such problem, and roll about a
   limb's own axis is not something a grappling position reads.
+
+
+## body-block.fbx — the fighter
+
+This is the one the game is built on. A Mixamo character exported **with skin**:
+67 bones of the full `mixamorig` skeleton, seven mesh parts, and — the part that
+matters — real skin weights, authored rather than guessed.
+
+`bake-mixamo.mjs` reads it directly. Nothing about it is estimated: the joints
+are in the file, each bone's bind matrix is in the file as its cluster's
+`TransformLink`, and the weights are in the file. All the baker does is say
+which mixamorig bone is which of our twenty-four, move the mesh from their rest
+pose to ours, and fold sixty-seven bones' worth of weights down onto ours.
+
+The parts are identified by which bones move them and where they sit, not by
+name, because the names do not survive the export:
+
+| part | what it becomes |
+|---|---|
+| body, arms out in a T | skin |
+| head shell above the brow | hair |
+| two spheres on the eye bones | eyeballs, their own material |
+| a thin sheet across the eyes | lashes and brows |
+| shirt, trousers | dropped — the gi goes on instead |
+| shoes | dropped — this is a barefoot sport |
+
+The gi is built by `body.js` in the rig's own bind pose, which is the space the
+retargeted body now lives in, so the two meet with no fitting step. That is the
+payoff for warping the character onto our skeleton rather than adopting theirs.
+
+```bash
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/body-block.fbx \
+  --out bjj/assets/fighter.bin --report
+node bjj/tools/asset-check.mjs bjj/assets/fighter.bin
+```
+
+`--nogi` keeps the clothes the character arrived in.

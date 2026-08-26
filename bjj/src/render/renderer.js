@@ -131,14 +131,46 @@ in vec3 a_pos;
 in vec3 a_nrm;
 in vec2 a_bone;
 in vec2 a_wt;
+in float a_mat;
 uniform mat4 u_viewProj;
 uniform mat4 u_bones[${BONE_COUNT}];
-uniform float u_width;
+uniform float u_width;   // half-height of the viewport, in pixels
 void main() {
+  // Only the big shapes get an outline.
+  //
+  // An inverted hull is a copy of the mesh grown along its normals, and it only
+  // works on geometry thicker than the growth. A closed sphere inside a head
+  // grows straight out through the face — the eyeballs came out as two black
+  // discs on the eyelids. Hair strands and eyelashes are two triangles thick
+  // and came out as a smear down the cheek. The head's silhouette is drawn by
+  // the skin and the jacket underneath them, so nothing is lost by leaving
+  // everything above the lapel out of it.
+  if (a_mat > 4.5) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
   vec4 p = s * vec4(a_pos, 1.0);
   vec3 n = normalize(mat3(s) * a_nrm);
-  gl_Position = u_viewProj * vec4(p.xyz + n * u_width, 1.0);
+
+  // Grown in screen space, not in metres.
+  //
+  // A fixed world width is a different line at every distance: seven
+  // millimetres is a clean edge on a fighter three metres away and a black
+  // stripe on one at arm's length. Worse, on a face it is thicker than the
+  // features — the hull closed the gap between the fingers and drew a smear
+  // from the corner of the eye to the chin, and both of those were the outline
+  // rather than the shading they looked like.
+  //
+  // Projecting the normal and stepping a fixed number of pixels along it makes
+  // the line the same weight wherever the camera is, which is what a drawn
+  // outline does.
+  vec4 clip = u_viewProj * vec4(p.xyz, 1.0);
+  vec4 clipN = u_viewProj * vec4(p.xyz + n * 0.02, 1.0);
+  vec2 d = clipN.xy / max(clipN.w, 1e-4) - clip.xy / max(clip.w, 1e-4);
+  float l = length(d);
+  if (l > 1e-6) clip.xy += (d / l) * u_width * clip.w;
+  gl_Position = clip;
 }`;
 
 const OUTLINE_FS = COMMON + `
@@ -204,9 +236,80 @@ void main() {
     N = applyBump(N, v_world, v_uv * 1.6, t.rgb * 2.0 - 1.0, 0.35);
     albedo = u_skinCol * t.a;
     rough = 0.55; spec = 0.45; wrap = 0.55;   // sweat, and a lot of translucency
-  } else if (m == 5) {
-    // Hair. A dark shell with a sharp sheen along it — the specular is what
-    // makes it read as hair rather than as a helmet.
+  } else if (m == 7) {
+    // An eyeball. The baker stored where on the sphere each vertex sits
+    // relative to the way the face looks, so the iris is a cap on the front and
+    // stays there when the head turns.
+    float fwd = clamp(v_uv.y, -1.0, 1.0);
+    float across = clamp(v_uv.x, -1.0, 1.0);
+    float ring = length(vec2(across, clamp(v_uv.y * 0.0, -1.0, 1.0)));
+    // A sclera is never white on a lit face; it sits in the shadow of a brow.
+    albedo = vec3(0.55, 0.54, 0.52);
+    float iris = smoothstep(0.42, 0.62, fwd);
+    albedo = mix(albedo, vec3(0.17, 0.115, 0.075), iris);
+    float pupil = smoothstep(0.80, 0.93, fwd);
+    albedo = mix(albedo, vec3(0.02, 0.018, 0.016), pupil);
+    // The corners of the eye are in shadow no matter where the light is.
+    albedo *= 1.0 - smoothstep(0.55, 1.0, abs(across)) * 0.5;
+    rough = 0.14; spec = 0.85; wrap = 0.1;
+  } else if (m == 6) {
+    // The face.
+    //
+    // The sculpt has a nose and a brow and a jaw, and from three metres away
+    // none of that reads without eyes: a head with correct geometry and no
+    // features is a mannequin, and a mannequin is the thing that makes a game
+    // look unfinished no matter what else is right. So the features are drawn.
+    //
+    // The baker gives face vertices a different kind of UV — u runs -1 to +1
+    // temple to temple, v runs 0 at the chin to 1 at the hairline — so this can
+    // work in centimetres on an actual face and put an eye three centimetres
+    // off the middle and seven up, which is where an eye is.
+    vec2 F = vec2(v_uv.x * 6.5, v_uv.y * 8.8);
+    vec4 t = texture(u_skin, v_uv * 1.1);
+    N = applyBump(N, v_world, v_uv * 1.1, t.rgb * 2.0 - 1.0, 0.3);
+    albedo = u_skinCol * t.a;
+
+    float ax = abs(F.x);
+    // Features fade out towards the temples, where the surface turns away and a
+    // drawn feature would smear round the side of the head instead of sitting
+    // on the face.
+    float on = smoothstep(6.2, 4.6, ax) * smoothstep(0.2, 0.9, F.y) * smoothstep(8.8, 8.2, F.y);
+
+    // Eye socket: a soft darkening, which is most of what makes a face read.
+    float socket = exp(-(pow((ax - 3.0) / 2.0, 2.0) + pow((F.y - 6.85) / 1.0, 2.0)));
+    albedo *= 1.0 - socket * 0.34 * on;
+
+    // Brow.
+    float brow = 1.0 - smoothstep(0.55, 1.0, length(vec2((ax - 3.1) / 1.75, (F.y - 7.85 + (ax - 3.1) * 0.10) / 0.34)));
+    albedo *= 1.0 - brow * 0.55 * on;
+
+    // The eye itself: a sclera that is never white — an eye painted white on a
+    // shaded face reads as a doll — and a pupil that is nearly black.
+    float eye = 1.0 - smoothstep(0.75, 1.0, length(vec2((ax - 3.0) / 1.35, (F.y - 6.9) / 0.52)));
+    float pupil = 1.0 - smoothstep(0.7, 1.0, length(vec2((ax - 3.0) / 0.58, (F.y - 6.9) / 0.58)));
+    albedo = mix(albedo, vec3(0.34, 0.31, 0.29), eye * on);
+    albedo = mix(albedo, vec3(0.045, 0.038, 0.035), pupil * on);
+    // A lid line along the top, which is what stops the eye reading as a hole.
+    float lid = (1.0 - smoothstep(0.8, 1.0, length(vec2((ax - 3.0) / 1.5, (F.y - 7.36) / 0.3)))) * step(F.y, 7.5);
+    albedo *= 1.0 - lid * 0.4 * on;
+
+    // Nostrils and the shadow under the nose.
+    float nose = exp(-(pow((ax - 0.8) / 0.45, 2.0) + pow((F.y - 4.35) / 0.35, 2.0)));
+    albedo *= 1.0 - nose * 0.45 * on;
+
+    // Mouth. A line, not a shape: at this distance a drawn mouth with lips on
+    // it looks like a wound.
+    float mouth = 1.0 - smoothstep(0.6, 1.0, length(vec2(F.x / 2.1, (F.y - 2.45) / 0.22)));
+    albedo *= 1.0 - mouth * 0.42 * on;
+    // The lower lip catches light just under it.
+    float lipLit = 1.0 - smoothstep(0.6, 1.0, length(vec2(F.x / 1.7, (F.y - 1.95) / 0.3)));
+    albedo *= 1.0 + lipLit * 0.10 * on;
+
+    rough = 0.55; spec = 0.42; wrap = 0.55;
+  } else if (m == 5 || m == 8) {
+    // Hair, and the eyelashes and brows that came as their own thin sheets.
+    // A dark shell with a sharp sheen along it — the specular is what makes it
+    // read as hair rather than as a helmet.
     vec4 t = texture(u_skin, v_uv * 3.0);
     N = applyBump(N, v_world, v_uv * 3.0, t.rgb * 2.0 - 1.0, 0.6);
     albedo = vec3(0.035, 0.028, 0.026) * (0.7 + t.a * 0.6);
@@ -571,6 +674,7 @@ export class Renderer {
         { name: 'a_nrm', data: m.nrm, size: 3 },
         { name: 'a_bone', data: m.bone, size: 2 },
         { name: 'a_wt', data: m.wt, size: 2 },
+        { name: 'a_mat', data: m.mat, size: 1 },
       ], m.idx),
       count: m.count,
       type: m.idx instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
@@ -664,7 +768,9 @@ export class Renderer {
     gl.cullFace(gl.FRONT);
     for (const f of fighters) {
       gl.uniformMatrix4fv(this.progOutline.u.u_bones, false, f.skeleton.skin);
-      gl.uniform1f(this.progOutline.u.u_width, 0.011);
+      // Two and a bit pixels, in normalised device coordinates: the viewport is
+      // two units tall, so a pixel is 2/height.
+      gl.uniform1f(this.progOutline.u.u_width, (2.2 * 2) / Math.max(1, this.sceneH));
       for (const part of f.gpu.parts) {
         gl.bindVertexArray(part.outline);
         gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
