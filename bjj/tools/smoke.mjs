@@ -10,6 +10,9 @@ const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 
 const PORT = +(process.env.PORT || 8099);
 const browser = await chromium.launch({
+  // The sandbox ships a browser; CHROME_PATH points at it when the npm copy
+  // and the installed one disagree about their version number.
+  executablePath: process.env.CHROME_PATH || undefined,
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 const ctx = await browser.newContext({

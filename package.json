@@ -1,0 +1,14 @@
+{
+  "name": "bjj",
+  "private": true,
+  "type": "module",
+  "description": "Tooling for the BJJ browser game. The game itself has no dependencies and no build step — this is here only so the offline checks can drive a headless browser.",
+  "scripts": {
+    "check": "node bjj/tools/pose-check.mjs && node bjj/tools/sim-check.mjs && node bjj/tools/asset-check.mjs",
+    "relax": "node bjj/tools/pose-relax.mjs",
+    "sheet": "node bjj/tools/sheet.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

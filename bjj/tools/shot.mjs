@@ -16,6 +16,9 @@ const PLAY = +flag('play', 0);   // seconds of a real match before the shutter
 const PATH = flag('path', '/bjj/index.html');
 
 const browser = await chromium.launch({
+  // The sandbox ships a browser; CHROME_PATH points at it when the npm copy
+  // and the installed one disagree about their version number.
+  executablePath: process.env.CHROME_PATH || undefined,
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 const ctx = await browser.newContext({

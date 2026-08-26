@@ -12,9 +12,11 @@
 import { PairRig } from '../src/game/rig.js';
 import { POSES } from '../src/game/poses.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
+import { Overlap } from '../src/game/collide.js';
 
 const MAT_Y = 0.05;
 const rig = new PairRig();
+const overlap = new Overlap();
 // Knees are in the list because half the contact in this sport is a knee:
 // knee on belly, a knee cutting through, a knee wedged in a hip.
 const READ = [
@@ -73,10 +75,14 @@ for (const id of Object.keys(POSES)) {
     info.notes.push(`no contact — closest pair is ${(closest * 100).toFixed(0)}cm`);
   }
 
-  // Interpenetration, tested where it shows: torso centres inside each other.
-  const torso = dist(pos.A.chest, pos.B.chest);
-  if (torso < 0.19 && POSES[id].id !== 'RNC') {
-    info.notes.push(`chests overlapping (${(torso * 100).toFixed(0)}cm apart)`);
+  // Interpenetration, properly. Both bodies are covered by capsules down the
+  // bones and every pair is tested. The old version compared two chest points
+  // and passed everything, which is how fifteen poses shipped with limbs up to
+  // 21 cm inside each other.
+  const ov = overlap.measure(rig.skel.A, rig.skel.B);
+  info.overlap = ov.deepest;
+  if (ov.deepest > 0.08) {
+    info.notes.push(`${(ov.deepest * 100).toFixed(0)}cm of ${ov.where} — a limb is inside a body`);
   }
 
   info.closest = closest;
@@ -86,7 +92,10 @@ for (const id of Object.keys(POSES)) {
 
 for (const r of rows) {
   const tag = r.notes.length ? '!' : ' ';
-  console.log(`${tag} ${r.id.padEnd(15)} contact ${(r.closest * 100).toFixed(0).padStart(3)}cm`);
+  console.log(
+    `${tag} ${r.id.padEnd(15)} contact ${(r.closest * 100).toFixed(0).padStart(3)}cm` +
+    `   deepest overlap ${(r.overlap * 100).toFixed(0).padStart(3)}cm`
+  );
   for (const n of r.notes) console.log(`      · ${n}`);
 }
 console.log(problems ? `\n${problems} problem(s)` : '\nall poses clean');

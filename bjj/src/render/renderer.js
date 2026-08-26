@@ -39,15 +39,22 @@ float shadowAt(vec3 world, float ndl) {
   // Slope-scaled bias: a surface nearly edge-on to the light needs far more
   // slack than one facing it, and a single constant bias either peters or
   // detaches the contact shadow that sells a knee pressing into the mat.
-  float bias = mix(0.0035, 0.0005, ndl);
+  float bias = mix(0.0016, 0.00025, ndl);
+  // 5x5, rotated per pixel so the sample pattern does not print itself onto
+  // the shadow as a grid. At this frustum size the penumbra is small enough
+  // that a 3x3 was visibly stepped.
+  float a = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831;
+  vec2 rot = vec2(cos(a), sin(a));
   float sum = 0.0;
-  for (int y = -1; y <= 1; y++) {
-    for (int x = -1; x <= 1; x++) {
-      float d = texture(u_shadow, p.xy + vec2(float(x), float(y)) * u_shadowTexel).r;
+  for (int y = -2; y <= 2; y++) {
+    for (int x = -2; x <= 2; x++) {
+      vec2 o = vec2(float(x), float(y));
+      o = vec2(o.x * rot.x - o.y * rot.y, o.x * rot.y + o.y * rot.x);
+      float d = texture(u_shadow, p.xy + o * u_shadowTexel).r;
       sum += p.z - bias > d ? 0.0 : 1.0;
     }
   }
-  return sum / 9.0;
+  return sum / 25.0;
 }
 
 // Wrapped diffuse. Skin and a thick cotton gi both carry light around the
@@ -56,13 +63,25 @@ float wrapDiffuse(float ndl, float w) {
   return clamp((ndl + w) / (1.0 + w), 0.0, 1.0);
 }
 
+// Quantise a lit value into a few steps with soft edges between them.
+//
+// Not a stylistic flourish. A smooth ramp shows every wobble a generated mesh
+// has in its normals; three flat steps show the form and nothing else, so the
+// figure reads as a figure instead of as a lumpy approximation of one.
+float band(float v) {
+  float s = v * 3.0;
+  float f = floor(s);
+  float r = s - f;
+  return (f + smoothstep(0.42, 0.58, r)) / 3.0;
+}
+
 vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap, float ao) {
   vec3 V = normalize(u_camPos - world);
   vec3 L = u_sunDir;
   float ndl = dot(N, L);
   float sh = shadowAt(world, max(ndl, 0.0));
 
-  vec3 diff = u_sunCol * wrapDiffuse(ndl, wrap) * sh;
+  vec3 diff = u_sunCol * band(wrapDiffuse(ndl, wrap)) * sh;
 
   // Hemispheric ambient: the ceiling is bright, the floor throws back the
   // mat's own colour. This is the whole of the indirect lighting and it is
@@ -73,7 +92,8 @@ vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap,
   vec3 H = normalize(L + V);
   float ndh = max(dot(N, H), 0.0);
   float gloss = mix(140.0, 6.0, rough);
-  float s = pow(ndh, gloss) * spec * sh * (1.0 - rough * 0.7);
+  // A hard highlight rather than a soft falloff, for the same reason.
+  float s = smoothstep(0.35, 0.55, pow(ndh, gloss)) * spec * sh * (1.0 - rough * 0.7);
 
   // Rims. Deliberately not physical: they come from behind the camera's
   // shoulders in world space and their only job is separation.
@@ -98,6 +118,32 @@ vec3 applyBump(vec3 N, vec3 world, vec2 uv, vec3 tn, float amount) {
   return normalize(mat3(T * inv, B * inv, N) * m);
 }
 `;
+
+// The outline pass. Draw the character again, slightly fatter, inside out, in
+// near-black: the front faces are culled, so all that survives is the rim where
+// the expanded hull pokes past the real silhouette.
+//
+// It is the oldest trick there is and it is the right one here. A hand-drawn
+// edge does more for a figure than any amount of specular, and unlike specular
+// it does not care that the mesh under it came out of a generator.
+const OUTLINE_VS = COMMON + `
+in vec3 a_pos;
+in vec3 a_nrm;
+in vec2 a_bone;
+in vec2 a_wt;
+uniform mat4 u_viewProj;
+uniform mat4 u_bones[${BONE_COUNT}];
+uniform float u_width;
+void main() {
+  mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
+  vec4 p = s * vec4(a_pos, 1.0);
+  vec3 n = normalize(mat3(s) * a_nrm);
+  gl_Position = u_viewProj * vec4(p.xyz + n * u_width, 1.0);
+}`;
+
+const OUTLINE_FS = COMMON + `
+out vec4 o;
+void main() { o = vec4(0.012, 0.014, 0.022, 1.0); }`;
 
 const SKIN_VS = COMMON + `
 in vec3 a_pos;
@@ -175,8 +221,10 @@ void main() {
     rough = m == 3 ? 0.72 : 0.88; spec = m == 3 ? 0.3 : 0.12; wrap = 0.32;
   }
 
-  // Ground proximity: cloth and limbs near the mat pick up less of the room.
-  float ao = clamp(0.42 + v_world.y * 1.3, 0.0, 1.0);
+  // Ground proximity. Grappling happens with bodies pressed into the mat, so
+  // the few centimetres nearest it are where contact reads — this is stronger
+  // and tighter than a generic ambient term would be.
+  float ao = clamp(0.24 + v_world.y * 1.9, 0.0, 1.0);
   vec3 c = shade(v_world, N, albedo, rough, spec, wrap, ao);
   c += vec3(1.0, 0.45, 0.3) * u_flash * 0.6;
   // Belt and braces: anything that is not a sane positive number never reaches
@@ -226,7 +274,7 @@ void main() {
     // boundary is decided here, which keeps the two surfaces coplanar and out
     // of a depth fight.
     vec4 t = texture(u_tatami, v_uv * 0.5);
-    N = applyBump(N, v_world, v_uv * 0.5, t.rgb * 2.0 - 1.0, 0.7);
+    N = applyBump(N, v_world, v_uv * 0.5, t.rgb * 2.0 - 1.0, 1.15);
     float inArea = step(max(abs(v_world.x), abs(v_world.z)), u_area * 0.5);
     albedo = mix(u_matOuter, u_matInner, inArea) * t.a;
     // The white boundary line, painted on.
@@ -342,7 +390,9 @@ void main() {
   vec3 c = texture(u_src, uv).rgb;
   c += texture(u_bloom, uv).rgb * 0.55;
 
-  c = aces(c * 1.05);
+  c = aces(c * 1.02);
+  // A shoulder of contrast. Broadcast pictures are not linear ramps.
+  c = clamp(c * c * (3.0 - 2.0 * c) * 0.35 + c * 0.65, 0.0, 1.0);
 
   // Grade: lift the shadows towards the hall's cold blue, warm the highlights
   // towards the lamps.
@@ -351,8 +401,8 @@ void main() {
   c = mix(vec3(l), c, 1.0 - u_desat);
   c += vec3(1.0, 0.9, 0.8) * u_flash;
 
-  float vig = smoothstep(1.25, 0.35, length(uv - 0.5) * 1.45);
-  c *= mix(0.55, 1.0, vig);
+  float vig = smoothstep(1.3, 0.28, length(uv - 0.5) * 1.5);
+  c *= mix(0.38, 1.0, vig);
 
   // Broadcast grain. Fixed strength, screen-space, so it does not crawl with
   // the camera the way noise sampled in world space does.
@@ -373,6 +423,7 @@ export class Renderer {
     this.progStatic = program(gl, STATIC_VS, STATIC_FS, 'static');
     this.progShadowSkin = program(gl, SHADOW_VS_SKIN, SHADOW_FS, 'shadowSkin');
     this.progShadowStatic = program(gl, SHADOW_VS_STATIC, SHADOW_FS, 'shadowStatic');
+    this.progOutline = program(gl, OUTLINE_VS, OUTLINE_FS, 'outline');
     this.progBright = program(gl, POST_VS, BRIGHT_FS, 'bright');
     this.progBlur = program(gl, POST_VS, BLUR_FS, 'blur');
     this.progPost = program(gl, POST_VS, POST_FS, 'post');
@@ -397,7 +448,7 @@ export class Renderer {
       { name: 'a_pos', data: this.arena.pos, size: 3 },
     ], this.arena.idx);
 
-    this.SHADOW = 1024;
+    this.SHADOW = 2048;
     this.shadowTex = texture(gl, {
       width: this.SHADOW, height: this.SHADOW,
       internalFormat: gl.DEPTH_COMPONENT24, format: gl.DEPTH_COMPONENT,
@@ -477,6 +528,12 @@ export class Renderer {
         { name: 'a_bone', data: m.bone, size: 2 },
         { name: 'a_wt', data: m.wt, size: 2 },
       ], m.idx),
+      outline: vao(gl, this.progOutline.p, [
+        { name: 'a_pos', data: m.pos, size: 3 },
+        { name: 'a_nrm', data: m.nrm, size: 3 },
+        { name: 'a_bone', data: m.bone, size: 2 },
+        { name: 'a_wt', data: m.wt, size: 2 },
+      ], m.idx),
       count: m.count,
       type: m.idx instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
     });
@@ -491,9 +548,14 @@ export class Renderer {
     // resolution on the two people in it.
     const cx = clamp(scene.focus[0], -3, 3);
     const cz = clamp(scene.focus[2], -3, 3);
-    const sunDir = [0.35, 0.86, 0.37];
+    const sunDir = [0.32, 0.9, 0.3];
     const eye = [cx + sunDir[0] * 9, sunDir[1] * 9, cz + sunDir[2] * 9];
-    const lproj = m4ortho(m4(), -3.4, 3.4, -3.4, 3.4, 0.5, 18);
+    // The frustum used to cover seven metres of mat for two people who never
+    // occupy more than two. Tightening it is free resolution: the same 2048
+    // texels now fall on the bodies instead of on empty tatami, which is the
+    // difference between a shadow under a knee and a grey smudge near it.
+    const R = 1.9;
+    const lproj = m4ortho(m4(), -R, R, -R, R, 0.5, 18);
     const lview = m4lookAt(m4(), eye, [cx, 0.4, cz], [0, 1, 0]);
     m4mul(this.lightVP, lproj, lview);
 
@@ -531,11 +593,11 @@ export class Renderer {
     const setLights = (pr) => {
       gl.uniform3fv(pr.u.u_camPos, camera.eye);
       gl.uniform3f(pr.u.u_sunDir, sunDir[0], sunDir[1], sunDir[2]);
-      gl.uniform3f(pr.u.u_sunCol, 1.72, 1.65, 1.5);
-      gl.uniform3f(pr.u.u_skyCol, 0.2, 0.225, 0.29);
-      gl.uniform3f(pr.u.u_gndCol, 0.05, 0.055, 0.07);
-      gl.uniform3f(pr.u.u_rimA, 0.30, 0.40, 0.62);
-      gl.uniform3f(pr.u.u_rimB, 0.44, 0.34, 0.26);
+      gl.uniform3f(pr.u.u_sunCol, 1.92, 1.84, 1.66);
+      gl.uniform3f(pr.u.u_skyCol, 0.145, 0.17, 0.235);
+      gl.uniform3f(pr.u.u_gndCol, 0.036, 0.04, 0.052);
+      gl.uniform3f(pr.u.u_rimA, 0.34, 0.46, 0.72);
+      gl.uniform3f(pr.u.u_rimB, 0.5, 0.38, 0.28);
       gl.uniformMatrix4fv(pr.u.u_lightVP, false, this.lightVP);
       gl.uniform2f(pr.u.u_shadowTexel, 1 / this.SHADOW, 1 / this.SHADOW);
       gl.activeTexture(gl.TEXTURE3);
@@ -549,12 +611,28 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.texTatami);
     gl.uniform1i(this.progStatic.u.u_tatami, 0);
-    gl.uniform3f(this.progStatic.u.u_matInner, 0.055, 0.16, 0.42);
-    gl.uniform3f(this.progStatic.u.u_matOuter, 0.62, 0.36, 0.05);
+    gl.uniform3f(this.progStatic.u.u_matInner, 0.043, 0.105, 0.245);
+    gl.uniform3f(this.progStatic.u.u_matOuter, 0.40, 0.235, 0.045);
     gl.uniform1f(this.progStatic.u.u_area, 8);
     gl.uniform1f(this.progStatic.u.u_time, time);
     gl.bindVertexArray(this.arenaVAO);
     gl.drawElements(gl.TRIANGLES, this.arena.count, gl.UNSIGNED_INT, 0);
+
+    // Outlines first, culled to their back faces, so the lit pass draws over
+    // everything except the rim.
+    gl.useProgram(this.progOutline.p);
+    gl.uniformMatrix4fv(this.progOutline.u.u_viewProj, false, this.viewProj);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.FRONT);
+    for (const f of fighters) {
+      gl.uniformMatrix4fv(this.progOutline.u.u_bones, false, f.skeleton.skin);
+      gl.uniform1f(this.progOutline.u.u_width, 0.011);
+      for (const part of f.gpu.parts) {
+        gl.bindVertexArray(part.outline);
+        gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
+      }
+    }
+    gl.disable(gl.CULL_FACE);
 
     gl.useProgram(this.progSkin.p);
     setLights(this.progSkin);

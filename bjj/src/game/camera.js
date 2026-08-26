@@ -17,9 +17,9 @@ const SHOTS = {
   // The title card: low, close and off the shoulder, the way a promo still is
   // framed. Nothing is happening yet, so the shot has to do the work.
   hero: { dist: 2.75, height: 1.05, aimY: 0.98, fov: 38 },
-  stand: { dist: 4.6, height: 1.85, aimY: 1.05, fov: 52 },
-  ground: { dist: 2.45, height: 0.82, aimY: 0.40, fov: 55 },
-  sub: { dist: 1.85, height: 0.56, aimY: 0.34, fov: 46 },
+  stand: { dist: 3.9, height: 1.6, aimY: 1.02, fov: 50 },
+  ground: { dist: 2.6, height: 0.92, aimY: 0.42, fov: 50 },
+  sub: { dist: 2.1, height: 0.7, aimY: 0.36, fov: 44 },
 };
 
 export class Camera {

@@ -44,6 +44,13 @@ function quatsOf(poseId, role) {
   return c;
 }
 
+// The offline pose solver edits POSES in place and needs the cache to notice.
+// Nothing at runtime ever calls this — poses do not change during a match.
+export function invalidatePose(id) {
+  CACHE.delete(id + 'A');
+  CACHE.delete(id + 'B');
+}
+
 export class PairRig {
   constructor() {
     this.skel = { A: new Skeleton(), B: new Skeleton() };
@@ -57,10 +64,24 @@ export class PairRig {
     this.slack = { A: 0, B: 0 };
   }
 
+  invalidate(id) { invalidatePose(id); }
+
   // from/to are pose ids, t is 0..1 across the transition.
   apply(from, to, t, dt) {
     this.time += dt;
     const e = smooth(clamp(t, 0, 1));
+
+    // Mid-transition, give the two of them room.
+    //
+    // A transition is a slerp between two paired poses, and the straight line
+    // between two valid tangles runs through invalid ones: halfway from closed
+    // guard to a sweep, an arm is inside a ribcage. No amount of tuning either
+    // endpoint fixes it, because neither endpoint is wrong.
+    //
+    // Easing the pair apart across the middle of the blend and closing again at
+    // the end costs six centimetres at the worst moment and removes almost all
+    // of it. It also happens to be true: people do come apart in a scramble.
+    const gap = Math.sin(clamp(t, 0, 1) * Math.PI) * (from === to ? 0 : 0.062);
     for (const role of ['A', 'B']) {
       const sk = this.skel[role];
       const qa = quatsOf(from, role);
@@ -80,9 +101,14 @@ export class PairRig {
       // Place the pair frame: rotate the local offset by the frame yaw, then
       // translate. Then spin the fighter by the same yaw.
       const c = Math.cos(this.yaw), s = Math.sin(this.yaw);
-      sk.rootPos[0] = this.origin[0] + _t[0] * c + _t[2] * s;
-      sk.rootPos[1] = _t[1];
-      sk.rootPos[2] = this.origin[2] - _t[0] * s + _t[2] * c;
+      // The scramble gap pushes each of them away from the pair's own centre,
+      // so it opens the tangle rather than sliding it sideways.
+      const away = Math.hypot(_t[0], _t[2]) || 1;
+      const gx = _t[0] + (_t[0] / away) * gap;
+      const gz = _t[2] + (_t[2] / away) * gap;
+      sk.rootPos[0] = this.origin[0] + gx * c + gz * s;
+      sk.rootPos[1] = _t[1] + gap * 0.35;
+      sk.rootPos[2] = this.origin[2] - gx * s + gz * c;
       qEuler(_q, 0, (this.yaw * 180) / Math.PI, 0);
       qMul(sk.rootRot, _q, sk.rootRot);
 

@@ -375,20 +375,31 @@ export function buildFighterMesh(sk) {
 // Where a hand can grab. Each is a bind-space offset from a bone, so the world
 // point follows the pose for free — a lapel grip stays on the lapel when the
 // opponent turns.
+// Where a hand goes when it takes hold of something.
+//
+// Every one of these sits on the *surface* of what it grips, not on the bone
+// down the middle of it. That sounds obvious and it was wrong here for a long
+// time: a sleeve grip was authored three centimetres off the forearm bone,
+// which is inside the forearm, so the rig dutifully welded a hand into the
+// middle of an arm and drove the gripping fighter's own forearm in after it.
+// Twelve centimetres of a clinch's interpenetration was this one number.
+//
+// The offsets are the segment's own radius from body.js plus a little, because
+// a hand closing on a sleeve sits around it rather than on it.
 export const GRIP_POINTS = {
   lapelL: ['chest', [0.075, 0.06, 0.15]],
   lapelR: ['chest', [-0.075, 0.06, 0.15]],
-  sleeveL: ['foreL', [0, -0.16, 0.03]],
-  sleeveR: ['foreR', [0, -0.16, 0.03]],
-  wristL: ['handL', [0, -0.02, 0]],
-  wristR: ['handR', [0, -0.02, 0]],
-  ankleL: ['footL', [0, -0.01, 0]],
-  ankleR: ['footR', [0, -0.01, 0]],
-  neck: ['neck', [0, 0.04, 0.06]],
+  sleeveL: ['foreL', [0.02, -0.16, 0.085]],
+  sleeveR: ['foreR', [-0.02, -0.16, 0.085]],
+  wristL: ['handL', [0, -0.02, 0.045]],
+  wristR: ['handR', [0, -0.02, 0.045]],
+  ankleL: ['footL', [0, -0.01, 0.045]],
+  ankleR: ['footR', [0, -0.01, 0.045]],
+  neck: ['neck', [0, 0.04, 0.075]],
   beltBack: ['hips', [0, 0.05, -0.17]],
-  hipL: ['hips', [0.15, 0.03, 0]],
-  hipR: ['hips', [-0.15, 0.03, 0]],
-  kneeL: ['shinL', [0, -0.02, 0.05]],
-  kneeR: ['shinR', [0, -0.02, 0.05]],
-  headBack: ['head', [0, 0.05, -0.09]],
+  hipL: ['hips', [0.2, 0.03, 0]],
+  hipR: ['hips', [-0.2, 0.03, 0]],
+  kneeL: ['shinL', [0, -0.02, 0.1]],
+  kneeR: ['shinR', [0, -0.02, 0.1]],
+  headBack: ['head', [0, 0.05, -0.11]],
 };
