@@ -1,49 +1,81 @@
 # Source sculpts
 
-The two `.glb` files here are what a mesh generator produced from a prompt about
-judo and jiu-jitsu. They are **not loaded by the game** — nothing fetches them at
-runtime, and deleting them changes nothing except the ability to re-bake.
+Everything here is what a mesh generator produced from a prompt. **None of it is
+loaded by the game** — nothing fetches these at runtime, and deleting them
+changes nothing except the ability to re-bake. What ships is what
+`bjj/tools/bake-fighter.mjs` writes into `bjj/assets/`.
 
-What they actually contain, which is worth knowing before planning around them:
+Every one of these files has the same shape: one triangle soup, positions only.
 
-| | judo-study-montage | bjj-study-montage |
-|---|---|---|
-| triangles | 157 130 | 209 422 |
-| vertex attributes | positions only | positions only |
-| normals, UVs, materials, textures | none | none |
-| skeleton, skinning, animation | none | none |
-| separate objects | one soup, 7 connected components | one soup, several groups |
+| file | tris | what is in it | what it is good for |
+|---|---|---|---|
+| `judo-study-montage.glb` | 157 130 | 7 components; two are standing figures in a gi, arms at their sides | **the match fighter** — `assets/fighter.bin` |
+| `black-belt-stance.glb` | 97 128 | one figure, gi and black belt, hands up in a striking stance | **the title-screen hero** — `assets/hero.bin` |
+| `bjj-study-montage.glb` | 209 422 | sculpted pairs already locked into positions | reference for the paired poses; nothing in it stands up, so nothing is riggable |
+| `mini-arena.glb` | 81 196 | a mat, a low wall, benches, a hanging cube | one idea: the jumbotron, now built procedurally in `src/render/arena.js` |
+| `material-tiles.glb` | 20 562 | six flat plates, 19 mm thick | nothing — see below |
 
-No skeleton means neither file is a character on its own: there is nothing to
-pose. What `judo-study-montage.glb` does have is two clean standing figures in a
-gi, arms hanging at their sides — which happens to be this engine's rest pose —
-and those can be rigged automatically.
+None of them carries normals, UVs, materials, textures, a skeleton, skinning or
+animation.
 
-`bjj/tools/bake-fighter.mjs` does that, and writes `bjj/assets/fighter.bin`:
+## Why the arena is not used
+
+The generated arena is a box: a platform, a knee-high wall, four bench shapes and
+a hanging cube. `src/render/arena.js` already generates tiered stands, a crowd, a
+lighting truss, barrier hoardings and a mat with a painted competition boundary.
+Swapping one for the other would lose all of that to gain nothing, so only the
+jumbotron idea was taken — twelve triangles, hung over the middle of the mat.
+
+## Why the tiles are nothing at all
+
+A "material comparison" file with no materials, no textures and no UVs is six
+rectangles. There is no information in it about any material. If material
+reference is what is wanted, the useful thing to ask for is an image, not a mesh.
+
+## Why the black belt sculpt is the menu and not the match
+
+It is the better sculpt of the two figures, and it is still the wrong one to
+animate. Linear blend skinning degrades with the angle between the bind pose and
+the pose being played: a bind pose with the fists up beside the chin is a long
+way from a guard pass, and every position in the game would deform from it. The
+judo figure stands with its arms hanging at its sides, which is this engine's
+rest pose almost exactly, so it deforms from nearly zero.
+
+So the black belt sculpt is baked `--static`: no rig, no weights, bound rigidly
+to the root bone, decimated to 15 000 triangles, and stood on the mat behind the
+title card. Which is what a "focus" sculpt is for.
+
+## Re-baking
 
 ```bash
+# the match fighter: rigged, warped onto the canonical skeleton
 node bjj/tools/bake-fighter.mjs bjj/art/judo-study-montage.glb \
   --component 1 --out bjj/assets/fighter.bin --report
+
+# the title-screen hero: static prop, decimated
+node bjj/tools/bake-fighter.mjs bjj/art/black-belt-stance.glb \
+  --component 0 --static --tris 14000 --height 1.72 --out bjj/assets/hero.bin
+
+node bjj/tools/asset-check.mjs bjj/assets/fighter.bin
+node bjj/tools/asset-check.mjs bjj/assets/hero.bin
 ```
 
-`--component` picks one connected component, ordered largest first. On this file
-`0` and `1` are the two standing figures; the rest are the kneeling and ground
-figures from the montage, which have no usable rest pose and cannot be rigged
-this way.
+`--component` picks one connected component, ordered largest first.
 
-`bjj-study-montage.glb` is sculpted pairs already locked into positions — closed
-guard, mount, a back take. Nothing in it stands up, so none of it is riggable,
-but it is good reference for what the paired poses in `src/game/poses.js` are
-trying to look like.
+## What to ask a generator for next time
 
-## If you want to replace these with something better
+**One fighter, standing, arms hanging at the sides, and run its rigging step.**
+A `.glb` that arrives with a `skins` array skips every guess this pipeline makes:
+the bones come with the file and `bake-fighter.mjs` would only need to map their
+names onto `src/render/skeleton.js`. Failing that, a single clean A-pose figure
+bakes well — that is exactly what `judo-study-montage.glb` accidentally provided.
 
-The thing to ask a generator for is **one fighter, standing, arms at the sides**,
-and then to run its rigging step. A `.glb` that already carries a `skins` array
-skips every guess this pipeline has to make — the bones come with the file, and
-`bake-fighter.mjs` would only need to map their names onto `src/render/skeleton.js`.
-Failing that, a single clean A-pose figure like the two here bakes well.
+What does not work, in order of how badly:
 
-What does *not* work: a montage of people already in positions, a scene with the
-floor welded to the figures, or a mesh below roughly 8 000 triangles, which is
-not enough to hold a gi's silhouette.
+- **a montage of people already in positions** — no rest pose, nothing to rig;
+- **a fighting stance** — riggable in principle, but a bad bind pose (above);
+- **a scene with the floor welded to the figures** — connected components stop
+  separating people and start separating nothing;
+- **anything under ~8 000 triangles** — not enough to hold a gi's silhouette;
+- **"material" or "texture" prompts that return geometry** — a mesh cannot carry
+  a material the exporter did not write.

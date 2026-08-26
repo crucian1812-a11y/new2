@@ -15,7 +15,8 @@ const withBrowser = process.argv.includes('--browser');
 
 const steps = [
   ['pose lint', 'pose-check.mjs', []],
-  ['baked fighter', 'asset-check.mjs', []],
+  ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
+  ['title-screen hero', 'asset-check.mjs', ['bjj/assets/hero.bin']],
   ['match simulation', 'sim-check.mjs', ['400']],
 ];
 if (withBrowser) steps.push(['browser smoke', 'smoke.mjs', []]);

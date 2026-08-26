@@ -9,6 +9,8 @@ import { readFileSync, existsSync } from 'fs';
 import { decodeFighter } from '../src/render/asset.js';
 import { BONE_COUNT, BONES, TIPS } from '../src/render/skeleton.js';
 
+// A rigged fighter and a static prop are both valid assets and only one of
+// them has anything to say about bones.
 const path = process.argv[2] || 'bjj/assets/fighter.bin';
 if (!existsSync(path)) {
   console.log(`no baked fighter at ${path} — the game falls back to the procedural body`);
@@ -43,12 +45,17 @@ for (let i = 0; i < n; i++) {
 }
 check(badW === 0, 'weights sum to one', `${badW} vertices off`);
 
-let badN = 0;
+let badN = 0, zeroN = 0;
 for (let i = 0; i < n; i++) {
   const l = Math.hypot(m.nrm[i * 3], m.nrm[i * 3 + 1], m.nrm[i * 3 + 2]);
-  if (Math.abs(l - 1) > 0.08) badN++;
+  if (l < 1e-4) zeroN++;
+  else if (Math.abs(l - 1) > 0.08) badN++;
 }
 check(badN / n < 0.01, 'normals are unit length', `${badN} of ${n} off`);
+// Not a tolerance question. One zero normal becomes NaN in the shader, and the
+// bloom blur turns that NaN into a black rectangle far bigger than the triangle
+// it came from.
+check(zeroN === 0, 'no normal is zero length', `${zeroN} of ${n}`);
 
 // Bounds: a fighter standing on the mat, not a fighter the size of the arena
 // and not one buried in it.
@@ -62,29 +69,38 @@ for (let i = 0; i < n; i++) {
 const H = hi[1] - lo[1];
 check(H > 1.5 && H < 1.9, 'the fighter is a person-sized person', `${H.toFixed(2)} m tall`);
 check(Math.abs(lo[1]) < 0.12, 'the feet are on the mat, not through it', `lowest y ${lo[1].toFixed(3)}`);
-check(hi[0] - lo[0] < 1.1, 'the arms are at the sides, not spread', `${(hi[0] - lo[0]).toFixed(2)} m wide`);
+check(hi[0] - lo[0] < 1.3, 'the fighter fits in a human envelope', `${(hi[0] - lo[0]).toFixed(2)} m wide`);
 
-// Every bone that carries skin must actually own some. A limb with no vertices
-// bound to it is a limb that will not move — the failure that looks like the
-// character being partly paralysed.
 const owned = new Set(m.bone);
-const missing = [];
-for (let i = 0; i < BONE_COUNT; i++) {
-  const name = BONES[i][0];
-  if (TIPS.has(name)) continue;
-  if (!owned.has(i)) missing.push(name);
-}
-check(missing.length === 0, 'every bone drives some geometry', missing.join(',') || `${owned.size} bones used`);
+const rigged = owned.size > 1;
+console.log(`     this is a ${rigged ? 'rigged fighter' : 'static prop (everything on the root bone)'}`);
 
-// Both halves have to be represented, or the character is skinned to one side
-// and folds up the first time it is posed.
-const counts = new Map();
-for (const b of m.bone) counts.set(b, (counts.get(b) || 0) + 1);
-const share = (name) => (counts.get(BONES.findIndex((b) => b[0] === name)) || 0) / n;
-for (const [l, r] of [['armL', 'armR'], ['thighL', 'thighR'], ['handL', 'handR']]) {
-  const a = share(l), b = share(r);
-  const bal = Math.min(a, b) / Math.max(a, b, 1e-9);
-  check(bal > 0.45, `${l} and ${r} carry comparable geometry`, `${(bal * 100).toFixed(0)}% balanced`);
+if (rigged) {
+  // Every bone that carries skin must actually own some. A limb with no
+  // vertices bound to it is a limb that will not move — the failure that looks
+  // like the character being partly paralysed.
+  const missing = [];
+  for (let i = 0; i < BONE_COUNT; i++) {
+    const name = BONES[i][0];
+    if (TIPS.has(name)) continue;
+    if (!owned.has(i)) missing.push(name);
+  }
+  check(missing.length === 0, 'every bone drives some geometry', missing.join(',') || `${owned.size} bones used`);
+
+  // Both halves have to be represented, or the character is skinned to one
+  // side and folds up the first time it is posed.
+  const counts = new Map();
+  for (const b of m.bone) counts.set(b, (counts.get(b) || 0) + 1);
+  const share = (name) => (counts.get(BONES.findIndex((b) => b[0] === name)) || 0) / n;
+  for (const [l, r] of [['armL', 'armR'], ['thighL', 'thighR'], ['handL', 'handR']]) {
+    const a = share(l), b = share(r);
+    const bal = Math.min(a, b) / Math.max(a, b, 1e-9);
+    check(bal > 0.45, `${l} and ${r} carry comparable geometry`, `${(bal * 100).toFixed(0)}% balanced`);
+  }
+} else {
+  let allRoot = true;
+  for (let i = 0; i < n; i++) if (m.wt[i * 2] < 0.999) allRoot = false;
+  check(allRoot, 'a static prop rides the root bone rigidly');
 }
 
 const mats = new Set(m.mat);

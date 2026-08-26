@@ -5,6 +5,7 @@ import { Renderer } from './render/renderer.js';
 import { buildFighterMesh } from './render/body.js';
 import { loadFighter } from './render/asset.js';
 import { PairRig } from './game/rig.js';
+import { Skeleton } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { AI } from './game/ai.js';
 import { Camera } from './game/camera.js';
@@ -12,7 +13,7 @@ import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { HUD } from './ui/hud.js';
 import { POSES } from './game/poses.js';
-import { clamp, v3 } from './core/m4.js';
+import { clamp, v3, qEuler } from './core/m4.js';
 
 const glCanvas = document.getElementById('gl');
 const uiCanvas = document.getElementById('ui');
@@ -52,6 +53,33 @@ try {
   bodySource = `baked (${(baked.count / 3) | 0} tris)`;
 } catch (e) {
   console.info('using the procedural body:', e.message);
+}
+
+// The title-screen fighter. A static sculpt in a striking stance — no rig, no
+// weights, bound rigidly to the root bone so it renders exactly as sculpted.
+// It is deliberately not the fighter used in the match: linear blend skinning
+// degrades with the angle between the bind pose and the pose being played, and
+// a hands-up stance is a long way from a guard pass.
+let hero = null;
+try {
+  const mesh = await loadFighter(new URL('../assets/hero.bin', import.meta.url).href);
+  const skeleton = new Skeleton();
+  qEuler(skeleton.rootRot, 0, 26, 0);
+  skeleton.rootPos[0] = 0.34;  // off centre, so the title has somewhere to sit
+  skeleton.rootPos[1] += 0.05; // stand on the mat, not in it
+  skeleton.rootPos[2] = 0.1;
+  skeleton.pose();
+  skeleton.finishSkin();
+  hero = {
+    skeleton,
+    gpu: renderer.makeFighterGPU([mesh]),
+    giCol: new Float32Array([0.9, 0.905, 0.885]),
+    beltCol: new Float32Array([0.035, 0.035, 0.04]),
+    skinCol: new Float32Array([0.6, 0.42, 0.31]),
+    flash: 0,
+  };
+} catch (e) {
+  console.info('no title-screen fighter:', e.message);
 }
 
 const input = new Input(uiCanvas);
@@ -249,8 +277,19 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+const HERO_FOCUS = v3(0.34, 0.95, 0.1);
+
 function drawFrame(now) {
   const dt = 1 / 60;
+
+  // Before the bell, the screen belongs to one fighter and the empty mat.
+  if (hero && match.state === 'ready') {
+    camera.update(dt, HERO_FOCUS, 'hero', 0);
+    renderer.render({ camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero] });
+    hud.draw(match, input, 1 / 60, { level: LEVEL });
+    return;
+  }
+
   const ha = rig.skel.A.world[0];
   const hb = rig.skel.B.world[0];
   focus[0] = (ha[12] + hb[12]) / 2;

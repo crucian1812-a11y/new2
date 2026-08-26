@@ -28,12 +28,20 @@ const flag = (n, d) => {
   return i >= 0 ? argv[i + 1] : d;
 };
 if (!src) {
-  console.error('usage: bake-fighter.mjs <file.glb> [--component 1] [--out path] [--report]');
+  console.error(
+    'usage: bake-fighter.mjs <file.glb> [--component N] [--out path] [--report]\n' +
+    '                        [--static] [--tris N] [--height M]'
+  );
   process.exit(2);
 }
 const COMPONENT = +flag('component', 1);
 const OUT = flag('out', 'bjj/assets/fighter.bin');
 const REPORT = argv.includes('--report');
+// A static prop skips the whole rig: no joint fit, no warp, no weights. Used
+// for the title-screen fighter, which never moves.
+const STATIC = argv.includes('--static');
+const TRIS = +flag('tris', 0);          // decimate to roughly this many
+const HEIGHT = +flag('height', 0);      // override the target height, metres
 
 /* -------------------------------------------------------------- glb parse */
 
@@ -420,6 +428,177 @@ function warpToRig(P, segs, source, target, bone, wt) {
   return out;
 }
 
+/* ------------------------------------------------------------- decimation */
+
+// Vertex clustering: snap every vertex to a grid, replace each occupied cell
+// with the average of what fell into it, and drop the triangles that collapse.
+//
+// A quadric-error decimator would keep sharper creases, but this asset is a
+// menu prop seen at a fixed size, and the difference between 97 000 triangles
+// and 14 000 at that size is entirely a download-size difference. The grid is
+// sized by bisection because the relationship between cell size and surviving
+// vertex count depends on how the surface folds, and guessing it is slower than
+// measuring it.
+function decimate(P, idx, targetVerts) {
+  let lo = [1e9, 1e9, 1e9], hi = [-1e9, -1e9, -1e9];
+  for (let i = 0; i < P.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], P[i + k]);
+      hi[k] = Math.max(hi[k], P[i + k]);
+    }
+  }
+  const span = Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  const cellsFor = (cell) => {
+    const seen = new Set();
+    for (let i = 0; i < P.length; i += 3) {
+      seen.add(
+        `${Math.floor((P[i] - lo[0]) / cell)},` +
+        `${Math.floor((P[i + 1] - lo[1]) / cell)},` +
+        `${Math.floor((P[i + 2] - lo[2]) / cell)}`
+      );
+    }
+    return seen.size;
+  };
+  let a = span / 400, b = span / 8;
+  for (let it = 0; it < 24; it++) {
+    const mid = (a + b) / 2;
+    if (cellsFor(mid) > targetVerts) a = mid;
+    else b = mid;
+  }
+  const cell = (a + b) / 2;
+
+  const map = new Map();
+  const sums = [];
+  const remap = new Int32Array(P.length / 3);
+  for (let i = 0; i < P.length / 3; i++) {
+    const k =
+      `${Math.floor((P[i * 3] - lo[0]) / cell)},` +
+      `${Math.floor((P[i * 3 + 1] - lo[1]) / cell)},` +
+      `${Math.floor((P[i * 3 + 2] - lo[2]) / cell)}`;
+    let v = map.get(k);
+    if (v === undefined) {
+      v = sums.length;
+      map.set(k, v);
+      sums.push([0, 0, 0, 0]);
+    }
+    const s = sums[v];
+    s[0] += P[i * 3];
+    s[1] += P[i * 3 + 1];
+    s[2] += P[i * 3 + 2];
+    s[3]++;
+    remap[i] = v;
+  }
+  const out = new Float64Array(sums.length * 3);
+  sums.forEach((s, i) => {
+    out[i * 3] = s[0] / s[3];
+    out[i * 3 + 1] = s[1] / s[3];
+    out[i * 3 + 2] = s[2] / s[3];
+  });
+  const tris = [];
+  for (let t = 0; t < idx.length; t += 3) {
+    const a2 = remap[idx[t]], b2 = remap[idx[t + 1]], c2 = remap[idx[t + 2]];
+    if (a2 === b2 || b2 === c2 || c2 === a2) continue;
+    tris.push(a2, b2, c2);
+  }
+  return { pos: out, idx: new Int32Array(tris), cell };
+}
+
+/* ------------------------------------------------------- a static hero prop */
+
+// No rig, no warp, no weights worth the name: one mesh bound rigidly to the
+// root bone so it renders exactly as sculpted. Used for the fighter on the
+// title screen, whose whole job is to stand there and look like a black belt.
+//
+// Materials cannot be cut by height here — the sculpt is in a striking stance
+// with its fists up beside its face, so "below the sleeve" and "above the
+// collar" are the same height. They are cut by landmark instead: the head is
+// the mass at the top, the fists are the two clusters furthest forward at chest
+// height, and both are found from the geometry rather than typed in.
+function staticMaterials(P) {
+  const n = P.length / 3;
+  const M = new Uint8Array(n);
+  let maxY = -1e9, minY = 1e9;
+  for (let i = 0; i < n; i++) {
+    maxY = Math.max(maxY, P[i * 3 + 1]);
+    minY = Math.min(minY, P[i * 3 + 1]);
+  }
+  const H = maxY - minY;
+
+  const centroid = (pick) => {
+    let sx = 0, sy = 0, sz = 0, c = 0;
+    for (let i = 0; i < n; i++) {
+      if (!pick(P[i * 3], P[i * 3 + 1], P[i * 3 + 2])) continue;
+      sx += P[i * 3];
+      sy += P[i * 3 + 1];
+      sz += P[i * 3 + 2];
+      c++;
+    }
+    return c ? [sx / c, sy / c, sz / c, c] : null;
+  };
+
+  const head = centroid((x, y) => y > maxY - H * 0.135);
+  // Fists: at chest height, the two things furthest forward, split by side.
+  let zCut = -1e9;
+  const zs = [];
+  for (let i = 0; i < n; i++) {
+    const y = P[i * 3 + 1];
+    if (y > minY + H * 0.62 && y < minY + H * 0.86) zs.push(P[i * 3 + 2]);
+  }
+  zs.sort((a, b) => a - b);
+  zCut = zs.length ? zs[Math.floor(zs.length * 0.82)] : 1e9;
+  const fistL = centroid((x, y, z) => x > 0 && z > zCut && y > minY + H * 0.62 && y < minY + H * 0.86);
+  const fistR = centroid((x, y, z) => x <= 0 && z > zCut && y > minY + H * 0.62 && y < minY + H * 0.86);
+
+  const near = (p, c, r) =>
+    c && (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2 < r * r;
+
+  const beltLo = minY + H * 0.565, beltHi = minY + H * 0.625;
+  const p = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    p[0] = P[i * 3];
+    p[1] = P[i * 3 + 1];
+    p[2] = P[i * 3 + 2];
+    let m = 1;
+    if (p[1] < minY + H * 0.062) m = 0;                       // bare feet
+    else if (p[1] < minY + H * 0.55) m = 2;                   // trousers
+    if (near(p, head, H * 0.082)) {
+      const above = p[1] - head[1];
+      m = above > H * 0.02 || p[2] < head[2] - H * 0.012 ? 5 : 0;
+    } else if (near(p, fistL, H * 0.048) || near(p, fistR, H * 0.048)) m = 0;
+    else if (p[1] > beltLo && p[1] < beltHi && Math.hypot(p[0], p[2]) < H * 0.19) m = 3;
+    M[i] = m;
+  }
+  console.log(
+    `  landmarks: head ${head ? head.slice(0, 3).map((v) => v.toFixed(2)).join(',') : 'n/a'}` +
+    `  fists ${[fistL, fistR].map((f) => (f ? f.slice(0, 3).map((v) => v.toFixed(2)).join(',') : 'n/a')).join(' | ')}`
+  );
+  return M;
+}
+
+// A planar projection, deliberately not a cylindrical one.
+//
+// Wrapping the UV around the body with atan2 looks like the obvious choice and
+// is a trap: the angle is undefined on the body's own axis, and it does not
+// only misbehave in a thin seam. Anywhere x and z are both near zero — between
+// the arms and the ribs, between the thighs — the coordinate swings through
+// half a turn across a few centimetres of surface. The shader recovers its
+// tangent frame from screen-space derivatives of the UV, so a swing like that
+// hands it a frame built from near-infinities, and whole patches of the body
+// shade to black.
+//
+// Projecting on a diagonal has no singularity anywhere. The textures it feeds
+// are noise, so the stretching on surfaces edge-on to the projection is not
+// something an eye can find.
+function staticUVs(P) {
+  const n = P.length / 3;
+  const UV = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    UV[i * 2] = (P[i * 3] * 0.76 + P[i * 3 + 2] * 0.65) * 8;
+    UV[i * 2 + 1] = P[i * 3 + 1] * 8;
+  }
+  return UV;
+}
+
 /* -------------------------------------------------- normals, uvs, materials */
 
 // Make the winding consistent before anything reads a normal off it.
@@ -447,6 +626,22 @@ function orient(P, idx) {
       list.push(t);
     }
   }
+  // Is the winding already consistent? Count the shared edges whose two
+  // triangles walk them the same way round.
+  let shared = 0, disagree = 0;
+  for (const list of edges.values()) {
+    if (list.length !== 2) continue;
+    shared++;
+    const [t0, t1] = list;
+    for (let e = 0; e < 3; e++) {
+      const a = idx[t0 * 3 + e], b = idx[t0 * 3 + ((e + 1) % 3)];
+      for (let f = 0; f < 3; f++) {
+        if (idx[t1 * 3 + f] === a && idx[t1 * 3 + ((f + 1) % 3)] === b) disagree++;
+      }
+    }
+  }
+  const rate = shared ? disagree / shared : 0;
+
   const seen = new Uint8Array(triCount);
   let flipped = 0;
   const flip = (t) => {
@@ -455,7 +650,14 @@ function orient(P, idx) {
     idx[t * 3 + 2] = tmp;
     flipped++;
   };
-  for (let start = 0; start < triCount; start++) {
+  // Only walk the dual graph when there is something to fix. Decimation leaves
+  // edges shared by more than two triangles, and on a mesh like that the flood
+  // fill happily propagates the wrong answer across a whole limb — which shows
+  // up as shredded, patchwork normals rather than as anything obviously broken.
+  // If the source was already coherent, leave it alone and just check the
+  // shell is not inside-out.
+  const walk = rate > 0.02;
+  for (let start = 0; walk && start < triCount; start++) {
     if (seen[start]) continue;
     seen[start] = 1;
     const stack = [start];
@@ -491,7 +693,7 @@ function orient(P, idx) {
   if (vol < 0) {
     for (let t = 0; t < triCount; t++) flip(t);
   }
-  return { flipped, volume: vol };
+  return { flipped, volume: vol, rate, walked: walk };
 }
 
 function normals(P, idx) {
@@ -509,11 +711,57 @@ function normals(P, idx) {
       N[o + 2] += nz;
     }
   }
+  // A vertex whose adjacent faces cancel exactly ends up with a zero normal.
+  // Clustering makes this happen for real: where cloth is thin, a cell swallows
+  // vertices from both sides of it, and the two opposing faces sum to nothing.
+  //
+  // A zero normal is not a cosmetic problem. The shader normalises it, gets
+  // NaN, writes NaN into the HDR target, and the bloom blur then smears that
+  // NaN across a wide block of the screen — so forty-three bad vertices paint
+  // half a fighter black. Fall back to the biggest face touching the vertex.
+  const bad = [];
   for (let i = 0; i < N.length; i += 3) {
-    const l = Math.hypot(N[i], N[i + 1], N[i + 2]) || 1;
+    const l = Math.hypot(N[i], N[i + 1], N[i + 2]);
+    if (l < 1e-9) {
+      bad.push(i / 3);
+      continue;
+    }
     N[i] /= l;
     N[i + 1] /= l;
     N[i + 2] /= l;
+  }
+  if (bad.length) {
+    const want = new Set(bad);
+    const best = new Map();
+    for (let t = 0; t < idx.length; t += 3) {
+      let hit = -1;
+      for (let k = 0; k < 3; k++) if (want.has(idx[t + k])) hit = idx[t + k];
+      if (hit < 0) continue;
+      const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+      const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+      const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const area = Math.hypot(nx, ny, nz);
+      for (let k = 0; k < 3; k++) {
+        const v = idx[t + k];
+        if (!want.has(v)) continue;
+        const cur = best.get(v);
+        if (!cur || area > cur[3]) best.set(v, [nx, ny, nz, area]);
+      }
+    }
+    for (const v of bad) {
+      const f = best.get(v);
+      if (f && f[3] > 1e-12) {
+        N[v * 3] = f[0] / f[3];
+        N[v * 3 + 1] = f[1] / f[3];
+        N[v * 3 + 2] = f[2] / f[3];
+      } else {
+        N[v * 3] = 0;
+        N[v * 3 + 1] = 1;
+        N[v * 3 + 2] = 0;
+      }
+    }
+    console.log(`normals: repaired ${bad.length} vertices whose faces cancelled out`);
   }
   return N;
 }
@@ -702,7 +950,18 @@ for (let i = 0; i < BONE_COUNT; i++) {
   const m = sk.world[i];
   target[BONES[i][0]] = [m[12], m[13], m[14]];
 }
-const TARGET_H = target.headTop[1];
+const TARGET_H = HEIGHT > 0 ? HEIGHT : target.headTop[1];
+
+if (TRIS > 0) {
+  const before = one.idx.length / 3;
+  const d = decimate(one.pos, one.idx, Math.round(TRIS * 0.52));
+  one.pos = d.pos;
+  one.idx = d.idx;
+  console.log(
+    `decimated ${before} -> ${one.idx.length / 3} triangles ` +
+    `(${(one.pos.length / 3) | 0} verts, ${(d.cell * 1000).toFixed(1)} mm grid)`
+  );
+}
 
 // Normalise the sculpt: feet on the floor, centred, scaled to the rig's height.
 {
@@ -720,6 +979,34 @@ const TARGET_H = target.headTop[1];
     one.pos[i + 1] = (one.pos[i + 1] - lo[1]) * s;
     one.pos[i + 2] = (one.pos[i + 2] - cz) * s;
   }
+}
+
+if (STATIC) {
+  const wind = orient(one.pos, one.idx);
+  console.log(
+    `winding: ${(wind.rate * 100).toFixed(1)}% of shared edges disagreed, ` +
+    `${wind.walked ? 'reoriented' : 'left alone'}, turned ${wind.flipped}, ` +
+    `shell volume ${Math.abs(wind.volume).toFixed(3)} m3`
+  );
+  const N = normals(one.pos, one.idx);
+  const UV = staticUVs(one.pos);
+  const MAT = staticMaterials(one.pos);
+  const n = one.pos.length / 3;
+  const bone = new Uint8Array(n * 2);          // everything rides the root bone
+  const wt = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) wt[i * 2] = 1;
+  const counts = {};
+  for (const v of MAT) counts[v] = (counts[v] || 0) + 1;
+  console.log('material split:', Object.entries(counts)
+    .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair'][k]}:${v}`).join(' '));
+  const out = encode(one.pos, N, UV, bone, wt, MAT, one.idx);
+  mkdirSync(dirname(OUT), { recursive: true });
+  writeFileSync(OUT, out);
+  console.log(
+    `\nwrote ${OUT}  ${(out.length / 1024).toFixed(0)} KB  ` +
+    `${n} verts  ${one.idx.length / 3} tris  (static prop, no rig)`
+  );
+  process.exit(0);
 }
 
 const m = measure(one.pos, TARGET_H, target);
@@ -750,8 +1037,9 @@ const { bone, wt, tAlong } = skinWeights(one.pos, segs);
 const warped = warpToRig(one.pos, segs, source, target, bone, wt);
 const wind = orient(warped, one.idx);
 console.log(
-  `winding: turned ${wind.flipped} of ${one.idx.length / 3} triangles, ` +
-  `shell volume ${Math.abs(wind.volume).toFixed(3)} m3`
+  `winding: ${(wind.rate * 100).toFixed(1)}% of shared edges disagreed, ` +
+  `${wind.walked ? 'reoriented' : 'left alone'}, turned ${wind.flipped} of ` +
+  `${one.idx.length / 3}, shell volume ${Math.abs(wind.volume).toFixed(3)} m3`
 );
 const N = normals(warped, one.idx);
 const targetSegs = segments(target);

@@ -41,8 +41,13 @@ export class HUD {
     c.clearRect(0, 0, this.w, this.h);
     c.textBaseline = 'middle';
 
-    this._scorebug(match);
-    this._positionBar(match);
+    // The scorebug belongs to a match in progress. On the title card it is
+    // clutter across the fighter's head, announcing a score of nothing to
+    // nothing.
+    if (match.state !== 'ready') {
+      this._scorebug(match);
+      this._positionBar(match);
+    }
     if (match.state === 'live' || match.state === 'sub') {
       this._ring(match, input);
       this._stick(input);
@@ -401,30 +406,44 @@ export class HUD {
 
   _title(opts) {
     const c = this.ctx;
-    c.fillStyle = 'rgba(4,6,10,0.72)';
+    // A gradient off the bottom rather than a wash over everything: there is a
+    // fighter standing behind this now, and the point of him is to be seen.
+    const g = c.createLinearGradient(0, this.h * 0.28, 0, this.h);
+    g.addColorStop(0, 'rgba(4,6,10,0)');
+    g.addColorStop(0.42, 'rgba(4,6,10,0.55)');
+    g.addColorStop(1, 'rgba(4,6,10,0.94)');
+    c.fillStyle = g;
     c.fillRect(0, 0, this.w, this.h);
-    c.textAlign = 'center';
+
+    const left = Math.max(28, this.w * 0.06);
+    const base = this.h - Math.max(46, this.h * 0.14);
+    c.textAlign = 'left';
+
+    c.fillStyle = 'rgba(255,255,255,0.42)';
+    c.font = `700 10px ${FONT}`;
+    c.fillText('IBJJF · ADULTO · 5 МИНУТ', left, base - 58);
+
     c.fillStyle = '#fff';
-    c.font = `800 30px ${FONT}`;
-    c.fillText('JIU-JITSU', this.w / 2, this.h / 2 - 34);
+    c.font = `800 ${Math.round(Math.min(38, this.w * 0.055))}px ${FONT}`;
+    c.fillText('JIU-JITSU', left, base - 28);
+
     c.font = `600 12px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.55)';
-    c.fillText('позиционная борьба · 5 минут · IBJJF', this.w / 2, this.h / 2 - 10);
-    c.font = `600 12px ${FONT}`;
-    c.fillStyle = '#ffd166';
-    const p = 0.55 + 0.45 * Math.sin(this.pulse * 3);
-    c.globalAlpha = p;
-    c.fillText('КОСНИСЬ ЭКРАНА', this.w / 2, this.h / 2 + 26);
-    c.globalAlpha = 1;
+    c.fillStyle = 'rgba(255,255,255,0.58)';
+    c.fillText('позиционная борьба', left, base - 4);
+
     c.font = `500 10px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.4)';
-    c.fillText(
-      'левый палец — база и перемещение · правый — свайп для перехода, тап для захвата',
-      this.w / 2, this.h / 2 + 54
-    );
+    c.fillStyle = 'rgba(255,255,255,0.42)';
+    c.fillText('левый палец — база · правый — свайп для перехода, тап для захвата', left, base + 16);
     if (opts.level) {
-      c.fillText(`соперник: ${opts.level} belt`, this.w / 2, this.h / 2 + 70);
+      c.fillText(`соперник: ${opts.level} belt`, left, base + 31);
     }
+
+    c.textAlign = 'right';
+    c.font = `700 12px ${FONT}`;
+    c.fillStyle = '#ffd166';
+    c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
+    c.fillText('КОСНИСЬ ЭКРАНА', this.w - left, base - 4);
+    c.globalAlpha = 1;
   }
 
   _result(m) {

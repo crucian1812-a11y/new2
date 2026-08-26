@@ -14,6 +14,9 @@
 import { v3, v3set, v3lerp, lerp } from '../core/m4.js';
 
 const SHOTS = {
+  // The title card: low, close and off the shoulder, the way a promo still is
+  // framed. Nothing is happening yet, so the shot has to do the work.
+  hero: { dist: 2.75, height: 1.05, aimY: 0.98, fov: 38 },
   stand: { dist: 4.6, height: 1.85, aimY: 1.05, fov: 52 },
   ground: { dist: 2.45, height: 0.82, aimY: 0.40, fov: 55 },
   sub: { dist: 1.85, height: 0.56, aimY: 0.34, fov: 46 },

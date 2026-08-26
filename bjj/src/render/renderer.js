@@ -122,7 +122,13 @@ void main() {
   mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
   vec4 p = s * vec4(a_pos, 1.0);
   v_world = p.xyz;
-  v_nrm = normalize(mat3(s) * a_nrm);
+  // Guarded normalise. A zero-length normal — which a decimated mesh can carry
+  // where two opposing faces cancelled — would otherwise become NaN here, and
+  // NaN does not stay local: it goes into the HDR target and the bloom blur
+  // spreads it into black rectangles several times its size.
+  vec3 nn = mat3(s) * a_nrm;
+  float nl = length(nn);
+  v_nrm = nl > 1e-6 ? nn / nl : vec3(0.0, 1.0, 0.0);
   v_uv = a_uv;
   v_mat = a_mat;
   gl_Position = u_viewProj * p;
@@ -173,6 +179,9 @@ void main() {
   float ao = clamp(0.42 + v_world.y * 1.3, 0.0, 1.0);
   vec3 c = shade(v_world, N, albedo, rough, spec, wrap, ao);
   c += vec3(1.0, 0.45, 0.3) * u_flash * 0.6;
+  // Belt and braces: anything that is not a sane positive number never reaches
+  // the bloom buffer.
+  c = mix(vec3(0.0), min(c, vec3(64.0)), vec3(greaterThanEqual(c, vec3(0.0))));
   outColor = vec4(c, 1.0);
 }`;
 
@@ -241,9 +250,15 @@ void main() {
     albedo *= 0.5 + 0.5 * h;
     albedo *= smoothstep(26.0, 9.0, max(abs(v_world.x), abs(v_world.z)));
     rough = 1.0; spec = 0.0; ao = 0.22;
-  } else {
+  } else if (m == 5) {
     // Lamp housings: emissive, and the only thing in frame allowed to blow out.
     outColor = vec4(vec3(2.6, 2.45, 2.2), 1.0);
+    return;
+  } else {
+    // The jumbotron's screens. Bright enough to read as a display and to feed
+    // the bloom, dim enough that they are not a second key light.
+    float band = 0.5 + 0.5 * sin(v_world.y * 42.0 + u_time * 2.2);
+    outColor = vec4(vec3(0.20, 0.34, 0.62) * (1.35 + band * 0.25), 1.0);
     return;
   }
   outColor = vec4(shade(v_world, N, albedo, rough, spec, 0.15, ao), 1.0);

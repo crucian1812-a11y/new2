@@ -126,6 +126,17 @@ export function buildArena(rand = mulberry(20260826)) {
     }
   }
 
+  // The jumbotron. Lifted from the generated arena, which had little else in
+  // it worth having: a cube hung over the middle of the mat with a screen on
+  // each face. It costs twelve triangles and it is the thing that says the
+  // event is being broadcast rather than held in a gym.
+  s.box(0, 4.45, 0, 1.9, 1.15, 1.9, 2, false);
+  for (const [dx, dz, sx, sz] of [[0, 1, 1.62, 0.02], [0, -1, 1.62, 0.02], [1, 0, 0.02, 1.62], [-1, 0, 0.02, 1.62]]) {
+    s.box(dx * 0.97, 4.45, dz * 0.97, sx || 0.02, 0.82, sz || 0.02, 6);
+  }
+  s.box(0, 5.12, 0, 0.16, 0.2, 0.16, 2);
+  for (const dz of [-0.55, 0.55]) s.box(0, 5.72, dz, 0.06, 1.2, 0.06, 2);
+
   // The truss overhead, which is what gives the key light somewhere to be.
   for (const side of [-1, 1]) {
     s.box(0, 6.2, side * 5.5, 26, 0.3, 0.3, 2);
