@@ -1,53 +1,65 @@
 # Mixamo clips
 
-Four Mixamo exports. Read this before assuming they solve anything.
+Four Mixamo exports, re-downloaded **With Skin**. What they actually contain:
 
-| file | contents |
+```
+objects: NodeAttribute:65 Geometry:2 Model:67 Pose:2 Material:2
+         Deformer:131 AnimationStack:2 AnimationCurve:315 AnimationCurveNode:54
+Geometry "Beta_Surface"  14232 verts  28272 tris  50 clusters
+Geometry "Beta_Joints"   10514 verts  20840 tris  39 clusters
+clusters: 129            bones: 65    units: centimetres, 181 cm tall
+```
+
+| file | clip |
 |---|---|
-| `standing.fbx` | 65-bone skeleton + one clip |
-| `body-block.fbx` | 65-bone skeleton + one clip |
-| `situp-to-idle.fbx` | 65-bone skeleton + one clip |
-| `rockin-shackle-a.fbx` | 65-bone skeleton + one clip |
+| `standing.fbx` | neutral idle |
+| `body-block.fbx` | a block |
+| `situp-to-idle.fbx` | lying down to standing, 4.4 s |
+| `rockin-shackle-a.fbx` | a dance |
 
-All four are binary FBX 7.7 and all four are **"Without Skin"** exports:
+## Why these still do not fix rigging
+
+The export setting was right this time — the mesh, the bind poses and the skin
+weights are all there. The character is the problem: it is Mixamo's **Beta
+mannequin**, not one of our sculpts. It wears no gi, so it cannot be a fighter,
+and its weights cannot be borrowed either:
 
 ```
-objects: NodeAttribute:65 Model:65 AnimationStack:1 AnimationCurve:315
-         AnimationCurveNode:54 AnimationLayer:1
-clusters: 0
+Beta_Surface influences per vertex   1: 13367   2: 495   3: 370
 ```
 
-`Model:65` is the `mixamorig:` skeleton. `AnimationCurve:315` is one clip.
-**`clusters: 0` and no `Geometry` is the important line** — there is no mesh and
-there are no skin weights in these files. So they do not replace the rigging in
-`bake-fighter.mjs`; there is nothing here to skin.
+94% of its vertices have a single influence. That is not a badly made rig — Beta
+is a segmented robot, hard shells plus separate ball joints, and rigid weighting
+is correct for it. Transferred onto a smooth body in a kimono it would deform in
+blocks, which is worse than the weights `bake-fighter.mjs` computes itself.
 
-## What they could still be used for
+**To fix rigging, the character has to be ours.** On mixamo.com: *Upload
+Character*, feed it `bjj/art/judo-study-montage.glb` (or the black belt), let the
+auto-rigger place the markers, then download **With Skin**. Mixamo's auto-rig
+produces smooth weights for an organic mesh — it is the Beta mannequin
+specifically that is rigid. That download would replace every estimate the baker
+makes: joint placement, weights, bind pose.
 
-A Mixamo clip is a stream of poses on a humanoid skeleton, and this game's
-weakest data is its hand-typed pose angles. `tools/fbx.mjs` reads these files
-already. The natural use is a pose importer: sample a frame, retarget the
-skeleton onto the 24 bones in `src/render/skeleton.js`, and print it in the
-format `src/game/poses.js` uses — captured angles instead of typed ones.
+## What they are good for
 
-That is orthogonal to rigging and stays useful whatever else arrives.
+The clips. `tools/mixamo-pose.mjs` captures a frame as a pose in the format
+`src/game/poses.js` uses:
 
-Note that a solo clip cannot drive a *paired* pose on its own: both fighters
-have to move together, so an imported frame is a starting point for one half of
-a pose, not a finished pose.
+```bash
+node bjj/tools/mixamo-pose.mjs bjj/art/mixamo/situp-to-idle.fbx --at 1.0 --name SIT_UP
+```
 
-## What to export instead, to fix rigging
+Verified against this clip: at 0.0 s it prints a figure flat on its back, at
+1.0 s sitting up with a hand posted, at 2.0 s in a crouch, at 4.3 s standing —
+which is what the clip does.
 
-On the Mixamo download dialog:
+Two things to know before leaning on it:
 
-- **Format:** FBX Binary
-- **Skin:** **With Skin** ← this is the setting that matters
-- Pose: T-pose is fine (the baker warps onto the canonical rig either way)
-
-A With Skin export carries `Geometry` and `Deformer::Cluster` records: the mesh,
-the bone-to-vertex weights, and the bind matrices. That would replace every
-estimate the baker currently makes — joint placement, weights, bind pose — with
-values from the file.
-
-Even better, if the character was uploaded from one of our own sculpts: rig it
-in Mixamo, download **With Skin**, and the result is our fighter with a real rig.
+- **It gives one fighter.** A paired pose still needs the other half authored
+  against it. Half a pose from motion capture still beats a whole one guessed.
+- **Twist is dropped.** The transfer matches bone *directions*, not rotations,
+  because the two rigs bind differently — Mixamo in a T-pose, this one with the
+  arms hanging. Rotation deltas mean different things in the two rigs and copying
+  them folds a standing figure's arms across its chest, which is what the first
+  version of the tool did. Directions have no such problem, and roll about a
+  limb's own axis is not something a grappling position reads.

@@ -241,8 +241,15 @@ function rotAbout(out, v, axis, ang) {
 }
 const _tmpCross = v3();
 
-// Turn a bone so its +Y points along `dir` in world space, expressed as a
-// change to its local rotation.
+// Turn a bone so it points along `dir` in world space, expressed as a change to
+// its local rotation. Exported because retargeting needs exactly this: aiming a
+// bone at a direction taken from another rig is what makes the two rigs' rest
+// poses stop mattering.
+export function aimBone(sk, name, dir, weight = 1) {
+  applyWorldAim(sk, BONE_INDEX[name], dir, weight);
+  sk.poseFrom(BONE_INDEX[name]);
+}
+
 function applyWorldAim(sk, i, dir, weight) {
   m4dir(_aim, sk.world[i], sk.axis[i]); // where the bone currently points
   v3norm(_aim, _aim);

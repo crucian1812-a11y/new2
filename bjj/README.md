@@ -122,7 +122,15 @@ node bjj/tools/sheet.mjs out          # по скриншоту на кажду�
 node bjj/tools/shot.mjs out.png --pose MOUNT
 node bjj/tools/bake-fighter.mjs bjj/art/judo-study-montage.glb --component 1 --report
 node bjj/tools/bake-fighter.mjs bjj/art/black-belt-stance.glb --component 0 --static --tris 14000
+node bjj/tools/mixamo-pose.mjs bjj/art/mixamo/situp-to-idle.fbx --at 1.0 --name SIT_UP
 ```
+
+`mixamo-pose.mjs` снимает кадр из клипа Mixamo и печатает его как позу в формате
+`poses.js` — захваченные углы вместо напечатанных. Читает бинарный FBX сам
+(`tools/fbx.mjs`), конвертеры не нужны. Перенос идёт по **направлениям костей в
+мире**, а не по поворотам: у Mixamo bind — T-поза, у нас руки опущены, и копия
+дельты поворота складывает стоящей фигуре руки на груди. Даёт одного бойца —
+вторую половину парной позы всё равно писать руками.
 
 `pose-check` гоняет риг прямо в Node — без браузера и без GPU — и ловит то, что
 не видно в контактном листе: конечности под матом, руки, вытянутые в струну до
