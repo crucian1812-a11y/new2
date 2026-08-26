@@ -13,6 +13,7 @@
 // the far hip. Three predicates cover all of it:
 //
 //   above     one point is at least this far over another, vertically
+//   below     one point is no higher than this off the mat
 //   near      one point is within this far of another, along the mat
 //   straddle  two points are on opposite sides of a body's own left-right axis
 //
@@ -52,6 +53,10 @@ export function violations(skel, hold, slack = 0) {
       const gap = a[1] - b[1];
       const miss = (h.by ?? 0.15) - gap - slack;
       if (miss > 0) out.push({ miss, why: `${h.of} is only ${(gap * 100).toFixed(0)}cm above ${h.above}` });
+    } else if (h.below !== undefined) {
+      const a = point(skel, h.of);
+      const miss = a[1] - h.below - slack;
+      if (miss > 0) out.push({ miss, why: `${h.of} is ${(a[1] * 100).toFixed(0)}cm up in the air` });
     } else if (h.near) {
       const a = point(skel, h.of), b = point(skel, h.near);
       const d = Math.hypot(a[0] - b[0], a[2] - b[2]);
