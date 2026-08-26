@@ -1,0 +1,534 @@
+// The match.
+//
+// One position at a time, one contested transition at a time. Everything the
+// player does is one of four things: try a transition, deny theirs, fight for
+// grips, or spend stamina holding a frame. That is a small verb set on purpose
+// — a phone gives you two thumbs and no buttons you can look at — but the
+// position graph makes it deep, because the same flick means a sweep from
+// bottom half guard and a back take from bottom side control.
+//
+// Scoring is the IBJJF sheet: 2 for a takedown or a sweep, 3 for a guard pass,
+// 4 for mount or back, and only after the position has been held for three
+// seconds. Letting go early gets you an advantage, which is exactly what it is
+// worth.
+
+import { POSES } from './poses.js';
+import { optionsFor, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT } from './positions.js';
+import { clamp, lerp } from '../core/m4.js';
+
+export const MATCH_TIME = 300;
+
+const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
+
+export class Fighter {
+  constructor(name, opts = {}) {
+    this.name = name;
+    this.giCol = opts.giCol || new Float32Array([0.86, 0.87, 0.85]);
+    this.beltCol = opts.beltCol || new Float32Array([0.05, 0.05, 0.06]);
+    this.skinCol = opts.skinCol || new Float32Array([0.62, 0.44, 0.33]);
+    this.stamina = 100;
+    this.posture = 100;
+    this.points = 0;
+    this.advantages = 0;
+    this.flash = 0;
+    // Attributes, 0..1. They are small multipliers on purpose: a match should
+    // be decided by which position you are in, not by a stat block.
+    this.strength = opts.strength ?? 0.5;
+    this.technique = opts.technique ?? 0.5;
+    this.cardio = opts.cardio ?? 0.5;
+  }
+  get gassed() {
+    return this.stamina < 25;
+  }
+}
+
+export class Match {
+  constructor(fighters, opts = {}) {
+    this.f = fighters;
+    this.position = 'STANDING';
+    this.prevPosition = 'STANDING';
+    this.blend = 1; // 0 = prevPosition, 1 = position
+    this.blendSpeed = 4;
+    // Role A of the paired pose is always the better position; who is playing
+    // it changes every time somebody sweeps.
+    this.roleOf = ['A', 'B'];
+    this.time = opts.time ?? MATCH_TIME;
+    this.limit = this.time;
+    this.state = 'ready'; // ready | live | sub | over
+    this.attempt = null;
+    this.deny = null;
+    this.sub = null;
+    this.cool = [0, 0];
+    this.hold = null; // pending points
+    this.events = [];
+    this.winner = null;
+    this.winBy = null;
+    this.origin = [0, 0, 0];
+    this.yaw = 0;
+    this.intensity = 0;
+    this.gripAdv = [0, 0]; // won grip exchanges, decays
+    this.onEvent = opts.onEvent || (() => {});
+    this.stallTimer = 0;
+  }
+
+  /* ------------------------------------------------------------ queries - */
+
+  pose() {
+    return POSES[this.position];
+  }
+
+  // 'top' or 'bottom' from the point of view of the transition table. In
+  // standing and clinch nobody is on top, and the table registers those edges
+  // under both keys, so answering 'top' there is correct and not a fudge.
+  tagOf(i) {
+    const p = POSES[this.position];
+    if (!p.top) return 'top';
+    return this.roleOf[i] === p.top ? 'top' : 'bottom';
+  }
+
+  isDominant(i) {
+    const p = POSES[this.position];
+    return !!p.top && this.roleOf[i] === p.top;
+  }
+
+  options(i) {
+    if (this.state !== 'live' || this.attempt || this.cool[i] > 0) return {};
+    return optionsFor(this.position, this.tagOf(i));
+  }
+
+  other(i) {
+    return i === 0 ? 1 : 0;
+  }
+
+  /* ------------------------------------------------------------- actions */
+
+  // A direction from one of the two players. Returns what it was used for, so
+  // the UI can say something.
+  input(i, dir) {
+    if (this.state === 'over') return null;
+
+    // Answering a threat always beats starting one. If a transition is coming
+    // at you and you flick, that flick is a denial attempt, full stop —
+    // otherwise the defence is impossible to perform under pressure.
+    if (this.attempt && this.attempt.defender === i) {
+      return this._tryDeny(i, dir);
+    }
+    if (this.state === 'sub') return this._subInput(i, dir);
+    if (this.state !== 'live' || this.attempt || this.cool[i] > 0) return null;
+
+    const tr = optionsFor(this.position, this.tagOf(i))[dir];
+    if (!tr) return null;
+    const me = this.f[i];
+    if (me.stamina < tr.cost * 0.35) {
+      this.emit(`${me.name}: нет сил`, 'warn');
+      return null;
+    }
+    return this._start(i, tr);
+  }
+
+  _start(i, tr) {
+    const me = this.f[i];
+    me.stamina = clamp(me.stamina - tr.cost * 0.45, 0, 100);
+    this.attempt = {
+      tr,
+      by: i,
+      defender: this.other(i),
+      t: 0,
+      denied: false,
+      denyOpen: !!tr.deny,
+      resolved: false,
+    };
+    this.deny = tr.deny
+      ? { dir: tr.deny, t: 0, window: DENY_WINDOW, by: this.other(i) }
+      : null;
+    this.emit(`${me.name}: ${tr.name}`, 'attempt');
+    return tr;
+  }
+
+  _tryDeny(i, dir) {
+    const a = this.attempt;
+    if (!a || !this.deny || this.deny.t > this.deny.window) return null;
+    if (dir !== this.deny.dir) {
+      // A wrong read costs you: you have committed weight the wrong way.
+      this.f[i].stamina = clamp(this.f[i].stamina - 5, 0, 100);
+      this.f[i].posture = clamp(this.f[i].posture - 4, 0, 100);
+      this.deny = null;
+      this.emit(`${this.f[i].name}: не угадал`, 'warn');
+      return 'deny-miss';
+    }
+    a.denied = true;
+    this.deny = null;
+    this.f[i].advantages += 0; // denial is its own reward, not a score
+    this.emit(`${this.f[i].name}: защитился`, 'deny');
+    return 'deny';
+  }
+
+  // The tap on the right pad: a grip fight. Wins tilt the next transition.
+  grip(i) {
+    if (this.state !== 'live' || this.cool[i] > 0) return null;
+    const me = this.f[i];
+    const you = this.f[this.other(i)];
+    if (me.stamina < 6) return null;
+    me.stamina -= 4;
+    const mine = 0.5 + (me.technique - you.technique) * 0.45 + (me.stamina - you.stamina) / 320;
+    if (Math.random() < clamp(mine, 0.12, 0.88)) {
+      this.gripAdv[i] = clamp(this.gripAdv[i] + 0.34, 0, 1);
+      you.posture = clamp(you.posture - 7, 0, 100);
+      return 'win';
+    }
+    this.gripAdv[this.other(i)] = clamp(this.gripAdv[this.other(i)] + 0.2, 0, 1);
+    return 'lose';
+  }
+
+  /* ---------------------------------------------------------------- tick */
+
+  update(dt, control) {
+    if (this.state === 'ready' || this.state === 'over') return;
+    this.time = Math.max(0, this.time - dt);
+
+    for (let i = 0; i < 2; i++) this.cool[i] = Math.max(0, this.cool[i] - dt);
+    for (let i = 0; i < 2; i++) this.gripAdv[i] = Math.max(0, this.gripAdv[i] - dt * 0.16);
+
+    this.blend = Math.min(1, this.blend + dt * this.blendSpeed);
+    this._stamina(dt, control);
+
+    if (this.state === 'sub') this._subUpdate(dt);
+    else this._liveUpdate(dt);
+
+    this._drift(dt, control);
+    this._score(dt);
+
+    for (const f of this.f) f.flash = Math.max(0, f.flash - dt * 3);
+
+    if (this.time <= 0 && this.state !== 'over') this._timeUp();
+  }
+
+  _liveUpdate(dt) {
+    const a = this.attempt;
+    if (!a) {
+      this.intensity = lerp(this.intensity, 0.1, dt * 2);
+      this.stallTimer += dt;
+      return;
+    }
+    this.stallTimer = 0;
+    if (this.deny) {
+      this.deny.t += dt;
+      if (this.deny.t > this.deny.window) this.deny = null;
+    }
+    a.t += dt;
+    this.intensity = lerp(this.intensity, 1, dt * 6);
+    const dur = a.tr.time;
+    if (a.t < dur) {
+      // The blend towards the destination runs while the attempt is live, so a
+      // contested pass looks contested: bodies already halfway there, and then
+      // either arriving or snapping back.
+      this.blend = Math.min(0.82, a.t / dur);
+      this.prevPosition = this.position;
+      this.pending = a.tr.to;
+      return;
+    }
+    this._resolve(a);
+  }
+
+  _resolve(a) {
+    const tr = a.tr;
+    const me = this.f[a.by];
+    const you = this.f[a.defender];
+    this.attempt = null;
+    this.pending = null;
+    this.deny = null;
+
+    if (a.denied) {
+      this._snapBack(a.by, 0.65);
+      me.stamina = clamp(me.stamina - tr.cost * 0.3, 0, 100);
+      me.posture = clamp(me.posture - 6, 0, 100);
+      you.advantages += tr.big ? 1 : 0;
+      if (tr.big) this.emit(`${you.name}: преимущество`, 'adv');
+      return;
+    }
+
+    // Everything that decides it. Base rate from the technique, then the
+    // things the player actually controls: stamina, posture, grips, and how
+    // hard they were driving with the left thumb when it went off.
+    let p = tr.base;
+    p *= 0.75 + me.technique * 0.5;
+    p *= 0.72 + (me.stamina / 100) * 0.5;
+    p *= 1 + this.gripAdv[a.by] * 0.35;
+    p /= 0.78 + (you.stamina / 100) * 0.42;
+    p *= 1 + (1 - you.posture / 100) * 0.4;
+    p += (this.drive || 0) * 0.12;
+    p = clamp(p, 0.05, 0.95);
+
+    me.stamina = clamp(me.stamina - tr.cost * 0.55, 0, 100);
+
+    if (Math.random() > p) {
+      this._snapBack(a.by, 0.8);
+      me.posture = clamp(me.posture - 8, 0, 100);
+      this.emit(`${me.name}: не прошло`, 'fail');
+      return;
+    }
+
+    this.goTo(tr, a.by);
+  }
+
+  _snapBack(by, cool) {
+    this.prevPosition = this.position;
+    this.blend = 0;
+    this.blendSpeed = 4.5;
+    this.cool[by] = cool;
+  }
+
+  // Arrive somewhere. This is the only place the position, the roles and the
+  // pending score change, which is what keeps sweeps from quietly corrupting
+  // whose points are whose.
+  goTo(tr, by) {
+    const me = this.f[by];
+    const you = this.f[this.other(by)];
+    this.prevPosition = this.position;
+    this.position = tr.to;
+    this.blend = 0;
+    this.blendSpeed = 1 / Math.max(0.22, tr.time * 0.55);
+
+    if (tr.swap) {
+      this.roleOf = [this.roleOf[1], this.roleOf[0]];
+    }
+    // The destination pose decides who is role A; make sure the person who did
+    // the work is the one holding it.
+    const destTop = POSES[tr.to].top;
+    if (destTop && tr.becomes !== 'bottom') {
+      this.roleOf[by] = destTop;
+      this.roleOf[this.other(by)] = destTop === 'A' ? 'B' : 'A';
+    } else if (tr.becomes === 'bottom' && destTop) {
+      this.roleOf[by] = destTop === 'A' ? 'B' : 'A';
+      this.roleOf[this.other(by)] = destTop;
+    }
+
+    you.posture = clamp(you.posture - (tr.big ? 22 : 12), 0, 100);
+    me.posture = clamp(me.posture + 6, 0, 100);
+    this.cool[by] = 0.3;
+    this.cool[this.other(by)] = 0.18;
+    you.flash = 1;
+
+    if (tr.sub) {
+      this._startSub(by, tr);
+      return;
+    }
+
+    if (tr.points > 0) {
+      this.hold = { by, points: tr.points, t: 0, pos: tr.to, note: tr.note || tr.name };
+    } else {
+      this.hold = null;
+    }
+    this.emit(`${me.name}: ${tr.name}`, tr.big ? 'big' : 'move');
+    this.onEvent({ kind: 'position', by, tr });
+  }
+
+  /* ---------------------------------------------------------- submission */
+
+  _startSub(by, tr) {
+    const kind = POSES[tr.to].submission;
+    this.state = 'sub';
+    this.sub = {
+      kind,
+      spec: SUB_KIND[kind],
+      attacker: by,
+      defender: this.other(by),
+      meter: 0.12,
+      phase: 0,
+      escapeDir: 'left',
+      escapeT: 0,
+      lowT: 0,
+      age: 0,
+      from: tr.from,
+      lastTap: 0,
+    };
+    this.hold = null;
+    this.emit(`${this.f[by].name}: ${tr.name}!`, 'sub');
+    this.onEvent({ kind: 'submission', by, tr });
+  }
+
+  _subInput(i, dir) {
+    const s = this.sub;
+    if (!s) return null;
+    if (i === s.defender) {
+      if (dir === s.escapeDir) {
+        s.meter = clamp(s.meter - 0.145, 0, 1.2);
+        this.f[i].stamina = clamp(this.f[i].stamina - s.spec.escapeCost * 0.16, 0, 100);
+        s.escapeT = 999; // force a new direction, so it cannot be spammed
+        return 'escape';
+      }
+      this.f[i].stamina = clamp(this.f[i].stamina - 4, 0, 100);
+      s.meter = clamp(s.meter + 0.02, 0, 1.2);
+      return 'escape-miss';
+    }
+    return null;
+  }
+
+  // The attacker's tap. Timed against the pulsing ring: on the beat it
+  // tightens, off the beat it costs.
+  subTap(i) {
+    const s = this.sub;
+    if (!s || i !== s.attacker) return null;
+    const inWindow = s.phase > 0.64 && s.phase < 0.86;
+    const me = this.f[i];
+    if (inWindow) {
+      const w = 0.055 + me.strength * s.spec.strengthWeight * 0.09;
+      s.meter = clamp(s.meter + w, 0, 1.2);
+      me.stamina = clamp(me.stamina - 2.5, 0, 100);
+      s.phase = 0;
+      return 'tight';
+    }
+    me.stamina = clamp(me.stamina - 5, 0, 100);
+    s.meter = clamp(s.meter - 0.012, 0, 1.2);
+    s.phase = 0;
+    return 'slip';
+  }
+
+  _subUpdate(dt) {
+    const s = this.sub;
+    const att = this.f[s.attacker];
+    const def = this.f[s.defender];
+    this.intensity = 1;
+
+    s.age += dt;
+    s.phase = (s.phase + dt * 1.15) % 1;
+    s.escapeT += dt;
+    if (s.escapeT > 1.4) {
+      s.escapeT = 0;
+      const dirs = ['up', 'down', 'left', 'right'];
+      s.escapeDir = dirs[(Math.random() * 4) | 0];
+    }
+
+    // The creep. A submission that is on tightens by itself; the defender's
+    // job is to outpace it, and doing that costs more than holding it does.
+    const creep = s.spec.rate * 0.34
+      * (0.7 + att.strength * s.spec.strengthWeight)
+      * (0.75 + (1 - def.stamina / 100) * 0.7);
+    s.meter = clamp(s.meter + creep * dt, 0, 1.2);
+    def.stamina = clamp(def.stamina - dt * 3.2, 0, 100);
+    att.stamina = clamp(att.stamina - dt * 2.2, 0, 100);
+    def.posture = clamp(def.posture - dt * 8, 0, 100);
+
+    if (s.meter >= s.spec.tapAt) {
+      this._finish(s.attacker, 'submission');
+      return;
+    }
+    if (s.meter <= 0.02) s.lowT += dt;
+    else s.lowT = 0;
+    if (s.lowT > 1.2 || s.age > SUB_TIMEOUT) {
+      // Broken. The attacker has burned a lot of gas for nothing, and the
+      // defender comes out into the position the attack started from.
+      this.state = 'live';
+      this.prevPosition = this.position;
+      this.position = s.from;
+      this.blend = 0;
+      this.blendSpeed = 2.2;
+      this.cool[s.attacker] = 0.9;
+      att.stamina = clamp(att.stamina - 12, 0, 100);
+      def.advantages += 0;
+      this.emit(`${def.name}: вышел из захвата`, 'escape');
+      this.sub = null;
+      this.onEvent({ kind: 'escape' });
+    }
+  }
+
+  /* ------------------------------------------------------- score & clock */
+
+  _score(dt) {
+    if (!this.hold) return;
+    const { by } = this.hold;
+    // The clock runs while the other one is trying to get out — that is the
+    // whole point of the three seconds. It only stops if they actually get out.
+    if (!this.isDominant(by) || this.position !== this.hold.pos) {
+      // They gave it up before the three seconds were out. That is what an
+      // advantage is for.
+      this.f[by].advantages += 1;
+      this.emit(`${this.f[by].name}: преимущество`, 'adv');
+      this.hold = null;
+      return;
+    }
+    this.hold.t += dt;
+    if (this.hold.t >= POINTS_TO_HOLD) {
+      this.f[by].points += this.hold.points;
+      this.emit(`${this.f[by].name}: +${this.hold.points} (${this.hold.note})`, 'points');
+      this.onEvent({ kind: 'points', by, points: this.hold.points });
+      this.hold = null;
+    }
+  }
+
+  _stamina(dt, control) {
+    for (let i = 0; i < 2; i++) {
+      const f = this.f[i];
+      const dominant = this.isDominant(i);
+      const busy = this.attempt && this.attempt.by === i;
+      // Being on top is rest; being under someone is not. That asymmetry is
+      // the reason position is worth points in the first place.
+      let rate = dominant ? 5.5 : this.isDominant(this.other(i)) ? 1.4 : 4.2;
+      rate *= 0.7 + f.cardio * 0.7;
+      if (busy) rate = 0;
+      if (this.state === 'sub') rate = 0;
+      const drive = control && control[i] ? control[i].drive : 0;
+      f.stamina = clamp(f.stamina + rate * dt - drive * dt * 5, 0, 100);
+      // Posture comes back slowly, and only when nobody is doing anything to
+      // you.
+      const pr = dominant ? 9 : 3.5;
+      if (!this.attempt && this.state !== 'sub') {
+        f.posture = clamp(f.posture + pr * dt, 0, 100);
+      }
+    }
+  }
+
+  // Standing, the left thumb walks the pair around the mat; on the ground it
+  // is weight, and it only nudges the tangle. Either way the fight has to stay
+  // on the mat, which is the referee's job and here is a clamp.
+  _drift(dt, control) {
+    const p = POSES[this.position];
+    const c0 = control && control[0];
+    if (!c0) return;
+    const speed = p.ground ? 0.22 : 1.35;
+    this.origin[0] = clamp(this.origin[0] + c0.mx * speed * dt, -4.6, 4.6);
+    this.origin[2] = clamp(this.origin[2] + c0.mz * speed * dt, -4.6, 4.6);
+    if (!p.ground) this.yaw += c0.turn * dt * 0.9;
+    else this.yaw += c0.turn * dt * 0.2;
+    this.drive = c0.drive;
+  }
+
+  _timeUp() {
+    const [a, b] = this.f;
+    let w = null, by = 'points';
+    if (a.points !== b.points) w = a.points > b.points ? 0 : 1;
+    else if (a.advantages !== b.advantages) {
+      w = a.advantages > b.advantages ? 0 : 1;
+      by = 'advantages';
+    } else {
+      by = 'draw';
+    }
+    this._finish(w, by);
+  }
+
+  _finish(w, by) {
+    this.state = 'over';
+    this.winner = w;
+    this.winBy = by;
+    this.attempt = null;
+    this.deny = null;
+    if (by === 'submission') {
+      this.emit(`${this.f[w].name} — ПОБЕДА СДАЧЕЙ`, 'win');
+    } else if (by === 'draw') {
+      this.emit('НИЧЬЯ', 'win');
+    } else {
+      this.emit(`${this.f[w].name} — победа по ${by === 'points' ? 'очкам' : 'преимуществам'}`, 'win');
+    }
+    this.onEvent({ kind: 'end', winner: w, by });
+  }
+
+  start() {
+    this.state = 'live';
+    this.emit('COMBATE', 'big');
+  }
+
+  emit(text, kind) {
+    this.events.unshift({ text, kind, t: 0 });
+    if (this.events.length > 6) this.events.pop();
+  }
+}

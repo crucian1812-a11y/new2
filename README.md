@@ -91,6 +91,15 @@ src/ui/               HUD, panels, menus
 tools/                Playwright drivers for screenshots, benchmarks, autoplay
 ```
 
+## Ещё одна игра в этом репозитории
+
+[`bjj/`](bjj/) — **Jiu-Jitsu**, браузерная игра про бразильское джиу-джитсу под
+телефон: позиционная борьба по правилам IBJJF, управление в стиле UFC, свой
+WebGL2-рендер и парные позы вместо анимационных клипов. Она полностью
+самостоятельна и живёт в своей папке; общего кода с игрой выше у неё нет.
+Подробности — в [`bjj/README.md`](bjj/README.md), разбор технических решений —
+в [`bjj/docs/ARCHITECTURE.md`](bjj/docs/ARCHITECTURE.md).
+
 ## Development tools
 
 Serve the folder, then:

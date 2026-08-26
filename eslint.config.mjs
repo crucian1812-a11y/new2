@@ -1,6 +1,6 @@
 export default [
   {
-    files: ['src/**/*.js', 'tools/**/*.mjs'],
+    files: ['src/**/*.js', 'tools/**/*.mjs', 'bjj/src/**/*.js', 'bjj/tools/**/*.mjs'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
@@ -11,6 +11,7 @@ export default [
         AudioContext: 'readonly', webkitAudioContext: 'readonly',
         Path2D: 'readonly', Image: 'readonly', devicePixelRatio: 'readonly',
         process: 'readonly', URL: 'readonly', fetch: 'readonly',
+        location: 'readonly', URLSearchParams: 'readonly',
       },
     },
     rules: {
