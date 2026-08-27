@@ -37,7 +37,7 @@ export const TRANSITIONS = [
     time: 0.9, deny: 'left', becomes: 'top', note: 'сбил в партер',
   }),
   T('STANDING', 'any', 'down', 'CLOSED_GUARD', {
-    name: 'Сесть в гвардию', en: 'Pull guard', points: 0, cost: 10, base: 0.95,
+    name: 'Сесть в гард', en: 'Pull guard', points: 0, cost: 10, base: 0.95,
     time: 0.7, becomes: 'bottom',
   }),
 
@@ -51,7 +51,7 @@ export const TRANSITIONS = [
     deny: 'left', becomes: 'top',
   }),
   T('CLINCH', 'any', 'left', 'CLOSED_GUARD', {
-    name: 'Сесть в гвардию', en: 'Pull guard', points: 0, cost: 12, base: 0.9,
+    name: 'Сесть в гард', en: 'Pull guard', points: 0, cost: 12, base: 0.9,
     time: 0.6, becomes: 'bottom',
   }),
   T('CLINCH', 'any', 'down', 'STANDING', {
@@ -60,7 +60,7 @@ export const TRANSITIONS = [
 
   /* -------------------------------------------------------- closed guard */
   T('CLOSED_GUARD', 'top', 'up', 'OPEN_GUARD', {
-    name: 'Раскрыть гвардию', en: 'Open the guard', points: 0, cost: 16,
+    name: 'Раскрыть гард', en: 'Open the guard', points: 0, cost: 16,
     base: 0.6, time: 0.8, deny: 'down',
   }),
   T('CLOSED_GUARD', 'top', 'down', 'STANDING', {
@@ -86,8 +86,8 @@ export const TRANSITIONS = [
 
   /* ---------------------------------------------------------- open guard */
   T('OPEN_GUARD', 'top', 'up', 'SIDE_CONTROL', {
-    name: 'Проход гвардии', en: 'Guard pass', points: 3, cost: 24, base: 0.42,
-    time: 0.95, deny: 'down', big: true, note: 'прошёл гвардию',
+    name: 'Проход гарда', en: 'Guard pass', points: 3, cost: 24, base: 0.42,
+    time: 0.95, deny: 'down', big: true, note: 'прошёл гард',
   }),
   T('OPEN_GUARD', 'top', 'left', 'HALF_GUARD', {
     name: 'Проход коленом', en: 'Knee slice', points: 0, cost: 16, base: 0.62,
@@ -97,7 +97,7 @@ export const TRANSITIONS = [
     name: 'Разорвать', en: 'Disengage', points: 0, cost: 12, base: 0.8, time: 0.6,
   }),
   T('OPEN_GUARD', 'bottom', 'up', 'CLOSED_GUARD', {
-    name: 'Закрыть гвардию', en: 'Close the guard', points: 0, cost: 12,
+    name: 'Закрыть гард', en: 'Close the guard', points: 0, cost: 12,
     base: 0.7, time: 0.6, deny: 'down', becomes: 'bottom',
   }),
   T('OPEN_GUARD', 'bottom', 'left', 'MOUNT', {
@@ -112,14 +112,14 @@ export const TRANSITIONS = [
   /* ---------------------------------------------------------- half guard */
   T('HALF_GUARD', 'top', 'up', 'SIDE_CONTROL', {
     name: 'Дожать проход', en: 'Complete the pass', points: 3, cost: 20,
-    base: 0.5, time: 0.85, deny: 'down', big: true, note: 'прошёл гвардию',
+    base: 0.5, time: 0.85, deny: 'down', big: true, note: 'прошёл гард',
   }),
   T('HALF_GUARD', 'top', 'right', 'BACK', {
     name: 'Выход на спину', en: 'Take the back', points: 4, cost: 26, base: 0.3,
     time: 1.0, deny: 'left', big: true,
   }),
   T('HALF_GUARD', 'bottom', 'down', 'OPEN_GUARD', {
-    name: 'Восстановить гвардию', en: 'Recompose', points: 0, cost: 18,
+    name: 'Восстановить гард', en: 'Recompose', points: 0, cost: 18,
     base: 0.55, time: 0.8, deny: 'up', becomes: 'bottom',
   }),
   T('HALF_GUARD', 'bottom', 'left', 'SIDE_CONTROL', {
@@ -145,7 +145,7 @@ export const TRANSITIONS = [
     deny: 'left', sub: true,
   }),
   T('SIDE_CONTROL', 'bottom', 'down', 'HALF_GUARD', {
-    name: 'Вернуть гвардию', en: 'Recover guard', points: 0, cost: 20,
+    name: 'Вернуть гард', en: 'Recover guard', points: 0, cost: 20,
     base: 0.45, time: 0.85, deny: 'up', becomes: 'bottom',
   }),
   T('SIDE_CONTROL', 'bottom', 'left', 'SIDE_CONTROL', {
@@ -219,7 +219,7 @@ export const TRANSITIONS = [
     base: 0.5, time: 0.85, deny: 'left', note: 'прошёл в сторону',
   }),
   T('TURTLE', 'bottom', 'down', 'OPEN_GUARD', {
-    name: 'Сесть в гвардию', en: 'Sit to guard', points: 0, cost: 18,
+    name: 'Сесть в гард', en: 'Sit to guard', points: 0, cost: 18,
     base: 0.55, time: 0.8, deny: 'up', becomes: 'bottom',
   }),
   T('TURTLE', 'bottom', 'left', 'STANDING', {
@@ -255,6 +255,11 @@ export const SUB_KIND = {
 
 // Nobody holds a finishing position for a minute. If it has not come by here it
 // was never on, and the graph puts both of them back where the attack started.
-export const SUB_TIMEOUT = 13;
+// Long enough for the fight inside it to be a fight. At thirteen seconds the
+// whole race had to resolve inside thirteen, so the margin between "every
+// submission finishes" and "none of them do" was a few hundredths of a point
+// per second — no number could be set to make both ends of the belt range
+// behave.
+export const SUB_TIMEOUT = 18;
 
 export const POINTS_TO_HOLD = 3.0; // seconds a position must be held to score

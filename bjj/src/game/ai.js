@@ -112,10 +112,19 @@ export class AI {
           this.subTapTimer = 0.12;
         }
       } else if (this.subTapTimer <= 0) {
+        // The defence has a rhythm too, and it is the same rhythm: an escape
+        // winds up over about nine tenths of a second, so pressing sooner
+        // spends the wind-up for a fraction of it. A belt is worth two things
+        // here — reading which way to go, and waiting until the way is worth
+        // going. Mashing is what a white belt does, and it is what mashing
+        // should get him.
+        const err = (1 - this.level.tapSkill) * 0.75;
+        const want = 0.85 - Math.random() * err;
+        if (s.sinceEscape < want) return;
         const right = Math.random() < this.level.read;
         const dirs = ['up', 'down', 'left', 'right'];
         onFlick(right ? s.escapeDir : dirs[(Math.random() * 4) | 0]);
-        this.subTapTimer = 0.34 + (1 - this.level.aggression) * 0.4;
+        this.subTapTimer = 0.12;
       }
       return;
     }
@@ -146,6 +155,22 @@ export class AI {
         best = tr;
       }
     }
+    // Keep something in the tank.
+    //
+    // Without this the fight settles at nought: the only brake on attacking was
+    // being unable to afford it, so both men spent down to the floor and stayed
+    // there — thirty seconds in, every cost check in this function became a
+    // veto and the man underneath stopped trying to get out at all. Raising
+    // recovery does not help, because the extra is spent the moment it arrives.
+    //
+    // A man who is winning can wait; a man who is losing cannot, and spends
+    // what he has left. That is the whole of pacing, and it is one line.
+    const reserve = match.isDominant(this.i) ? 20 : 8;
+    if (best && me.stamina - best.cost * 0.45 < reserve) {
+      if (Math.random() < 0.3) onTap();
+      return;
+    }
+
     // Sitting still is a real option when everything on offer is a bad idea.
     if (!best || bestScore < (match.isDominant(this.i) ? 0.4 : -2.5)) {
       if (Math.random() < 0.5) onTap(); // fight for grips instead

@@ -13,7 +13,7 @@
 // worth.
 
 import { POSES } from './poses.js';
-import { optionsFor, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT } from './positions.js';
+import { optionsFor, TRANSITIONS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT } from './positions.js';
 import { clamp, lerp } from '../core/m4.js';
 
 export const MATCH_TIME = 300;
@@ -338,6 +338,8 @@ export class Match {
       escapeDir: 'left',
       escapeT: 0,
       lowT: 0,
+      sinceEscape: 9,
+      strip: 0,
       age: 0,
       from: tr.from,
       lastTap: 0,
@@ -352,13 +354,71 @@ export class Match {
     if (!s) return null;
     if (i === s.defender) {
       if (dir === s.escapeDir) {
-        s.meter = clamp(s.meter - 0.145, 0, 1.2);
+        // A tight submission is harder to get out of than a loose one.
+        //
+        // Without this the escape is worth a flat 0.145 however deep the choke
+        // is, and the two sides of the fight stop being comparable: the
+        // defence scales with the belt — a black belt reads the right direction
+        // three times as often as a white belt — while the attack only scales
+        // through hitting the beat. The ranking came out backwards. White belts
+        // submitted each other in every match; black belts never finished
+        // anybody at all.
+        //
+        // The attacker's skill is what drives the meter up, so making the
+        // escape cost more as the meter rises is what puts his skill on the
+        // same footing as the defender's.
+        //
+        // And with what he has left. Two men of equal skill in a meter race
+        // decide it by a hair — the whole balance flipped from "everybody gets
+        // finished" to "nobody ever does" on a fifth of a second of pacing —
+        // because nothing in it changed as the fight went on. Gas does: a fresh
+        // man fights out of a choke, a man three minutes and four scrambles in
+        // does not, and that is both true of the sport and a mechanism with
+        // some slack in it.
+        const left = 0.65 + 0.35 * (this.f[i].stamina / 100);
+        // An escape winds up; it is not granted by the press.
+        //
+        // The attacker's tightening is paced by the beat — about one a second —
+        // and the defender's was not paced at all, so the whole race came down
+        // to who could press faster. Gating the defender instead, with a window
+        // or a cooldown, only swapped one clock for another: two fifths of a
+        // second either way flipped the black belt from never being finished to
+        // almost always, because the gate beat against the clock that rotates
+        // the escape direction. A ramp has no beat to resonate with. Mashing
+        // earns a fraction each time; waiting for the moment earns all of it.
+        const wound = Math.min(1, s.sinceEscape / 0.9);
+        s.sinceEscape = 0;
+        s.meter = clamp(s.meter - 0.145 * wound * left * (1 - 0.55 * s.meter), 0, 1.2);
+        // And the grip itself comes apart. Knocking the meter down is not how
+        // anybody actually gets out of a choke — the arm is stripped, one hand
+        // fight at a time — and without that the only exits were driving the
+        // meter to nothing, which never happened, and the thirteen-second
+        // timeout. So every submission that locked on finished, at every belt.
+        // Three good escapes take the grip off him.
+        s.strip += wound * left;
         this.f[i].stamina = clamp(this.f[i].stamina - s.spec.escapeCost * 0.16, 0, 100);
-        s.escapeT = 999; // force a new direction, so it cannot be spammed
+        // A new direction to find, and a moment to re-set before he can go
+        // again. Without the pause the defender gets a fresh direction the
+        // instant he lands one and can escape twice a second, while the
+        // attacker's tightening is paced by the beat at about once a second —
+        // which is why the better the belt, the less anybody was ever finished.
+        s.escapeT = 999;
+        s.escapeCool = 0.7;
         return 'escape';
       }
+      // A wrong escape wastes the defender's air and, more to the point, his
+      // wind-up: he has committed the movement in the wrong direction and has
+      // to gather himself again. That is what makes reading the position worth
+      // anything — without it a miss cost nothing but a tenth of a second and
+      // every belt escaped at the same rate.
+      //
+      // It does not tighten the choke for him. At two flicks a second the old
+      // penalty was worth more than the attacker's own work, so a white belt's
+      // defence was actively feeding the submission and every one of their
+      // matches ended in a tap.
       this.f[i].stamina = clamp(this.f[i].stamina - 4, 0, 100);
-      s.meter = clamp(s.meter + 0.02, 0, 1.2);
+      s.sinceEscape = 0;
+      s.meter = clamp(s.meter + 0.008, 0, 1.2);
       return 'escape-miss';
     }
     return null;
@@ -372,7 +432,7 @@ export class Match {
     const inWindow = s.phase > 0.64 && s.phase < 0.86;
     const me = this.f[i];
     if (inWindow) {
-      const w = 0.055 + me.strength * s.spec.strengthWeight * 0.09;
+      const w = 0.040 + me.strength * s.spec.strengthWeight * 0.09;
       s.meter = clamp(s.meter + w, 0, 1.2);
       me.stamina = clamp(me.stamina - 2.5, 0, 100);
       s.phase = 0;
@@ -391,6 +451,7 @@ export class Match {
     this.intensity = 1;
 
     s.age += dt;
+    s.sinceEscape += dt;
     s.phase = (s.phase + dt * 1.15) % 1;
     s.escapeT += dt;
     if (s.escapeT > 1.4) {
@@ -401,7 +462,21 @@ export class Match {
 
     // The creep. A submission that is on tightens by itself; the defender's
     // job is to outpace it, and doing that costs more than holding it does.
-    const creep = s.spec.rate * 0.34
+    // "A submission that is on tightens by itself" is what the comment above
+    // has always said, and the arithmetic below never did it: the creep was the
+    // same at a meter of nought as at nine tenths. So a choke that was nearly
+    // finished was no more dangerous than one just applied, and against a
+    // defender who reads the escape well — which is what a high belt is — it
+    // could never close. Depth now feeds itself, which is both what the comment
+    // promised and what makes a good attacker finish.
+    const deep = 1 + 0.9 * s.meter;
+    // Small on purpose. Measured against the rest of the race, the passive
+    // creep used to be worth as much per second as everything the attacker did
+    // — so a submission finished itself in about nine seconds whoever had
+    // applied it, and a white belt's sloppy choke was as good as a black
+    // belt's. It decides fights that are already going one way; it does not
+    // fight them.
+    const creep = deep * s.spec.rate * 0.17
       * (0.7 + att.strength * s.spec.strengthWeight)
       * (0.75 + (1 - def.stamina / 100) * 0.7);
     s.meter = clamp(s.meter + creep * dt, 0, 1.2);
@@ -415,19 +490,39 @@ export class Match {
     }
     if (s.meter <= 0.02) s.lowT += dt;
     else s.lowT = 0;
-    if (s.lowT > 1.2 || s.age > SUB_TIMEOUT) {
-      // Broken. The attacker has burned a lot of gas for nothing, and the
-      // defender comes out into the position the attack started from.
+    if (s.lowT > 1.2 || s.strip >= 7 || s.age > SUB_TIMEOUT) {
+      // Broken. The attacker has burned a lot of gas for nothing.
+      //
+      // Where the defender comes out matters more than it looks. Putting him
+      // back where the attack started means surviving a choke buys him
+      // nothing: the man on his back still has it, still has the same best
+      // move, and takes it again a second later. Nine tenths of every match
+      // ended in a tap for that reason — not because the submissions were
+      // strong, but because there were so many of them.
+      //
+      // A grip that has been stripped is a position that has been improved, so
+      // he comes out through his own escape from it — the graph already knows
+      // which one that is. A submission that merely timed out leaves things
+      // where they were.
+      const stripped = s.strip >= 7;
+      const out = stripped
+        ? TRANSITIONS.find((t) => t.from === s.from && t.role === 'bottom' && t.becomes === 'bottom')
+        : null;
       this.state = 'live';
-      this.prevPosition = this.position;
-      this.position = s.from;
-      this.blend = 0;
-      this.blendSpeed = 2.2;
+      this.sub = null;
       this.cool[s.attacker] = 0.9;
       att.stamina = clamp(att.stamina - 12, 0, 100);
-      def.advantages += 0;
+      if (out) {
+        // Through his own escape from the position, scored and re-roled by the
+        // one place that does either.
+        this.goTo(out, s.defender);
+      } else {
+        this.prevPosition = this.position;
+        this.position = s.from;
+        this.blend = 0;
+        this.blendSpeed = 2.2;
+      }
       this.emit(`${def.name}: вышел из захвата`, 'escape');
-      this.sub = null;
       this.onEvent({ kind: 'escape' });
     }
   }
@@ -463,7 +558,14 @@ export class Match {
       const busy = this.attempt && this.attempt.by === i;
       // Being on top is rest; being under someone is not. That asymmetry is
       // the reason position is worth points in the first place.
-      let rate = dominant ? 5.5 : this.isDominant(this.other(i)) ? 1.4 : 4.2;
+      // Measured against what the fight actually spends. A minute of purple
+      // belt costs the pair about 370 points in attempts alone and used to
+      // return 234, so both men were flat on the floor thirty seconds in and
+      // stayed there — which turned every cost check in the AI into a veto,
+      // and is why the man on the bottom of back control never once tried to
+      // get out. These rates let a fighter sustain about eight attempts a
+      // minute, which is roughly what a five-minute match looks like.
+      let rate = dominant ? 7.7 : this.isDominant(this.other(i)) ? 2.0 : 5.9;
       rate *= 0.7 + f.cardio * 0.7;
       if (busy) rate = 0;
       if (this.state === 'sub') rate = 0;

@@ -156,7 +156,7 @@ export const POSES = {
   // A kneels inside B's closed guard. Scores nothing for either — this is the
   // position the whole sport is an argument about.
   CLOSED_GUARD: P('CLOSED_GUARD', {
-    name: 'Закрытая гвардия',
+    name: 'Закрытый гард',
     label: 'CLOSED GUARD',
     points: 0, top: 'A', ground: true, guardOf: 'B',
     A: {
@@ -193,7 +193,7 @@ export const POSES = {
 
   // Legs open, feet on hips: the working guard, where sweeps come from.
   OPEN_GUARD: P('OPEN_GUARD', {
-    name: 'Открытая гвардия',
+    name: 'Открытый гард',
     label: 'OPEN GUARD',
     points: 0, top: 'A', ground: true, guardOf: 'B',
     A: {
@@ -228,7 +228,7 @@ export const POSES = {
   }),
 
   HALF_GUARD: P('HALF_GUARD', {
-    name: 'Полугвардия',
+    name: 'Полугард',
     label: 'HALF GUARD',
     points: 0, top: 'A', ground: true, guardOf: 'B',
     A: {
@@ -700,7 +700,7 @@ export const POSES = {
   HALF_GUARD_WORK: P('HALF_GUARD_WORK', {
     // A продавливает колено наружу и наваливается плечом; B ставит
     // раму и уходит на бок, поднимая щит коленом.
-    name: 'Полугвардия — проход',
+    name: 'Полугард — проход',
     label: 'HALF GUARD',
     points: 0, top: 'A', ground: true, variantOf: 'HALF_GUARD',
     A: {
