@@ -235,7 +235,13 @@ function frame(now) {
   // The art tooling freezes the sim so a pose can be photographed without the
   // AI walking out of frame mid-shutter.
   if (window.__frozen) {
-    rig.apply(match.position, match.position, 1, dt);
+    // A frozen blend, for photographing the middle of a transition. This is the
+    // only way to look at the part of the animation nobody can see: the two
+    // endpoints of a transition are both authored and both checked, and the
+    // straight line between them is neither.
+    const b = window.__blend;
+    if (b) rig.apply(b.from, b.to, b.t, dt);
+    else rig.apply(match.position, match.position, 1, dt);
     drawFrame(now);
     requestAnimationFrame(frame);
     return;
@@ -336,6 +342,7 @@ window.__bjj = {
   // to check a pose by hand from the console.
   setPose: (id) => {
     window.__frozen = true;
+    window.__blend = null;
     match.attempt = null;
     match.deny = null;
     match.pending = null;
@@ -346,5 +353,16 @@ window.__bjj = {
     rig.effort.A = rig.effort.B = 0.05;
     rig.slack.A = rig.slack.B = 0;
   },
-  play: () => { window.__frozen = false; },
+  // Hold a transition at one moment of its blend.
+  setBlend: (from, to, t) => {
+    window.__frozen = true;
+    window.__blend = { from, to, t };
+    match.state = 'live';
+    match.prevPosition = from;
+    match.position = to;
+    match.blend = t;
+    rig.effort.A = rig.effort.B = 0.05;
+    rig.slack.A = rig.slack.B = 0;
+  },
+  play: () => { window.__frozen = false; window.__blend = null; },
 };

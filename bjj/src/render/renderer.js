@@ -362,7 +362,10 @@ void main() {
 
     vec3 base = m == 3 ? u_beltCol : u_giCol;
     if (m == 2) base *= 0.97;                  // trousers, very slightly duller
-    if (m == 4) base *= 1.04;                  // lapel, a doubled layer of cloth
+    // The collar is a doubled and quilted strip and it reads darker than the
+    // jacket, not lighter. Painted brighter it vanished into the chest, and the
+    // V is most of what says gi rather than pyjamas at any distance.
+    if (m == 4) base *= 0.86;
     albedo = base * t.a;
     // Light does not reach the bottom of a crease. This is the half of a fold
     // that survives at distance, after the normal has stopped being resolvable.

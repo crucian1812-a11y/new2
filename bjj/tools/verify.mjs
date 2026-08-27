@@ -15,6 +15,7 @@ const withBrowser = process.argv.includes('--browser');
 
 const steps = [
   ['pose lint', 'pose-check.mjs', []],
+  ['transition lint', 'blend-check.mjs', []],
   ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
   ['match simulation', 'sim-check.mjs', ['400']],
 ];

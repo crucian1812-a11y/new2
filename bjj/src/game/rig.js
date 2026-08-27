@@ -15,6 +15,7 @@
 // with every breath, which is the exact thing IK is here to prevent.
 
 import { POSES } from './poses.js';
+import { ARCS, VIAS } from './arcs.js';
 import { GRIP_POINTS } from '../render/body.js';
 import {
   Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone,
@@ -28,6 +29,10 @@ const _t3 = v3();
 const ARM_REACH = 0.52;
 const _q = quat();
 const _rq = quat();
+const _b1 = quat();
+const _b2 = quat();
+const _p1 = v3();
+const _p2 = v3();
 
 // Cache the quaternion form of every authored pose once. Converting fifteen
 // poses' worth of degrees to quaternions every frame is pure waste, and the
@@ -78,25 +83,92 @@ export class PairRig {
     // guard to a sweep, an arm is inside a ribcage. No amount of tuning either
     // endpoint fixes it, because neither endpoint is wrong.
     //
-    // Easing the pair apart across the middle of the blend and closing again at
-    // the end costs six centimetres at the worst moment and removes almost all
-    // of it. It also happens to be true: people do come apart in a scramble.
-    const gap = Math.sin(clamp(t, 0, 1) * Math.PI) * (from === to ? 0 : 0.062);
+    // This used to be one number — push them apart a little, close again at the
+    // end — and it was not enough by a long way. With the endpoints down to
+    // eight centimetres the worst moment in flight was still twenty-nine, and
+    // nothing measured it, because everything measured poses. blend-check.mjs
+    // measures it now and arcs.js holds the answer: one small vector per
+    // transition, in the pair's own frame, solved offline against the same
+    // capsules the poses were. It is a lot more honest than a scalar — a thigh
+    // through a hip needs to move a particular way, not just outwards.
+    // Two lobes, not one.
+    //
+    // A single correction peaking at the halfway mark cannot fix a collision at
+    // a third of the way through and a different one at five sixths, and
+    // several transitions have exactly that. Two overlapping bumps — one
+    // weighted towards the start of the blend, one towards the end, both zero
+    // at either end — give the path a shape instead of a bulge.
+    const arc = ARCS[from + '>' + to];
+    const via = from === to ? null : VIAS[from + '>' + to];
+    const bell = from === to ? 0 : Math.sin(clamp(t, 0, 1) * Math.PI);
+    const w0 = bell * (1 - t) * 2;
+    const w1 = bell * t * 2;
+    const gap = bell * (arc ? 0 : 0.062);
     for (const role of ['A', 'B']) {
       const sk = this.skel[role];
       const qa = quatsOf(from, role);
       const qb = quatsOf(to, role);
-      for (let i = 0; i < BONE_COUNT; i++) qSlerp(sk.local[i], qa[i], qb[i], e);
+      const qv = via ? quatsOf(via, role) : null;
+      if (qv) {
+        // A curve through a third pose, not a straight line to the second.
+        //
+        // Some transitions cannot be done in a straight line at all. Taking
+        // side control from the back means a leg has to come out from between
+        // the other man's and travel round him, and every point on the straight
+        // line between those two tangles has it going through him instead — a
+        // correction that swells in the middle cannot route a limb around a
+        // body, it can only shove the body.
+        //
+        // So the path is a quadratic through a third pose from the library,
+        // built the way a Bézier is: slerp to the middle pose, slerp from it,
+        // slerp between those. The middle pose is only ever pulled to half
+        // weight, so the pair leans through it rather than visiting it.
+        for (let i = 0; i < BONE_COUNT; i++) {
+          qSlerp(_b1, qa[i], qv[i], e);
+          qSlerp(_b2, qv[i], qb[i], e);
+          qSlerp(sk.local[i], _b1, _b2, e);
+        }
+      } else {
+        for (let i = 0; i < BONE_COUNT; i++) qSlerp(sk.local[i], qa[i], qb[i], e);
+      }
 
       const ra = POSES[from][role].root;
       const rb = POSES[to][role].root;
-      v3lerp(_t, ra.p, rb.p, e);
+      if (via) {
+        const rv = POSES[via][role].root;
+        v3lerp(_p1, ra.p, rv.p, e);
+        v3lerp(_p2, rv.p, rb.p, e);
+        v3lerp(_t, _p1, _p2, e);
+      } else {
+        v3lerp(_t, ra.p, rb.p, e);
+      }
       // Root rotation is interpolated as a quaternion, not as three angles.
       // A sweep passes through 180 degrees of roll and euler blending puts the
       // fighter through the floor on the way.
       qEuler(_q, ra.r[0], ra.r[1], ra.r[2]);
       qEuler(_rq, rb.r[0], rb.r[1], rb.r[2]);
-      qSlerp(sk.rootRot, _q, _rq, e);
+      if (via) {
+        const rv = POSES[via][role].root;
+        qEuler(_b1, rv.r[0], rv.r[1], rv.r[2]);
+        qSlerp(_b2, _q, _b1, e);
+        qSlerp(_b1, _b1, _rq, e);
+        qSlerp(sk.rootRot, _b2, _b1, e);
+      } else {
+        qSlerp(sk.rootRot, _q, _rq, e);
+      }
+      // A waypoint can turn a fighter as well as move him. Half the fixes in
+      // flight are a twist: side control to mount is the top man's whole body
+      // rotating over the bottom one, and the straight line between those two
+      // attitudes goes through him rather than around.
+      if (arc) {
+        for (let l = 0; l < arc.length; l++) {
+          const d = arc[l].r && arc[l].r[role];
+          if (!d) continue;
+          const w = l === 0 ? w0 : w1;
+          qEuler(_q, d[0] * w, d[1] * w, d[2] * w);
+          qMul(sk.rootRot, sk.rootRot, _q);
+        }
+      }
 
       // Place the pair frame: rotate the local offset by the frame yaw, then
       // translate. Then spin the fighter by the same yaw.
@@ -104,14 +176,41 @@ export class PairRig {
       // The scramble gap pushes each of them away from the pair's own centre,
       // so it opens the tangle rather than sliding it sideways.
       const away = Math.hypot(_t[0], _t[2]) || 1;
-      const gx = _t[0] + (_t[0] / away) * gap;
-      const gz = _t[2] + (_t[2] / away) * gap;
+      let gx = _t[0] + (_t[0] / away) * gap;
+      let gz = _t[2] + (_t[2] / away) * gap;
+      let gy = _t[1] + gap * 0.35;
+      // The solved arc, half to each of them in opposite directions, so it
+      // opens the tangle rather than sliding it across the mat.
+      if (arc) {
+        const dir = role === 'A' ? 0.5 : -0.5;
+        for (let l = 0; l < arc.length; l++) {
+          const lobe = arc[l];
+          if (!lobe.p) continue;
+          const half = (l === 0 ? w0 : w1) * dir;
+          gx += lobe.p[0] * half;
+          gy += lobe.p[1] * half;
+          gz += lobe.p[2] * half;
+        }
+      }
       sk.rootPos[0] = this.origin[0] + gx * c + gz * s;
-      sk.rootPos[1] = _t[1] + gap * 0.35;
+      sk.rootPos[1] = gy;
       sk.rootPos[2] = this.origin[2] - gx * s + gz * c;
       qEuler(_q, 0, (this.yaw * 180) / Math.PI, 0);
       qMul(sk.rootRot, _q, sk.rootRot);
 
+      // The waypoint's joint deltas, if this transition has any. They ride on
+      // top of the slerp with the same swell, so both endpoints are untouched.
+      if (arc) {
+        for (let l = 0; l < arc.length; l++) {
+          const j = arc[l].j && arc[l].j[role];
+          if (!j) continue;
+          const w = l === 0 ? w0 : w1;
+          for (const bone in j) {
+            const d = j[bone];
+            addEuler(sk, bone, d[0] * w, d[1] * w, d[2] * w);
+          }
+        }
+      }
       this._life(role, sk, from, to, e);
       sk.pose();
       this._ground(sk);

@@ -633,8 +633,12 @@ if (!NOGI) {
   // measured front of the jacket and closing towards the middle as it goes, so
   // it lies on the chest and makes the V a gi has.
   {
-    const chest = profile(ourPos[BONE_INDEX.chest][1] - 0.06, ourPos[BONE_INDEX.chest][1] + 0.10);
-    const front = (Math.max(chest[Math.floor(SECTORS * 0.25)], 0.10) + waist[Math.floor(SECTORS * 0.25)]) / 2;
+    const FRONT = Math.floor(SECTORS * 0.25);
+    // How far forward the jacket is at a given height. Taken at the collar's
+    // own height row by row, not once at the chest: the body narrows sharply
+    // towards the neck, and a strip held out at chest depth all the way up
+    // reads as a bar across the throat rather than a collar on it.
+    const frontAt = (y) => Math.max(0.085, profile(y - 0.055, y + 0.055)[FRONT]);
     const topY = ourPos[BONE_INDEX.neck][1] - 0.01;
     const botY = beltY - 0.02;
     const ROWS = 5;
@@ -648,7 +652,7 @@ if (!NOGI) {
         // Open at the throat, crossed at the waist: the offset from the middle
         // shrinks as it goes down and the strip leans inward with it.
         const off = 0.085 * (1 - t) + 0.012 * t;
-        const z = front * (1 - t * 0.18) + 0.008;
+        const z = frontAt(y) + 0.008;
         // Above the ribs the collar rides the chest bone, below them the spine,
         // so it folds with the torso rather than sliding across it.
         const b = t < 0.55 ? iChest : iSpine;

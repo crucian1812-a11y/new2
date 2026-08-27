@@ -28,8 +28,13 @@ export const TRANSITIONS = [
   T('STANDING', 'any', 'left', 'CLINCH', {
     name: 'Клинч', en: 'Tie up', points: 0, cost: 8, base: 0.82, time: 0.5, deny: 'right',
   }),
-  T('STANDING', 'any', 'right', 'CLINCH', {
-    name: 'Клинч', en: 'Tie up', points: 0, cost: 8, base: 0.82, time: 0.5, deny: 'left',
+  // Both sideways flicks used to tie up, which wasted the most-used input in
+  // the most-seen position: two of the four labels round the pad said the same
+  // word. An arm drag is what standing was missing — the one thing from here
+  // that is worth four points and almost never works.
+  T('STANDING', 'any', 'right', 'HALF_GUARD', {
+    name: 'Проход в одну', en: 'Single leg', points: 2, cost: 20, base: 0.46,
+    time: 0.9, deny: 'left', becomes: 'top', note: 'сбил в партер',
   }),
   T('STANDING', 'any', 'down', 'CLOSED_GUARD', {
     name: 'Сесть в гвардию', en: 'Pull guard', points: 0, cost: 10, base: 0.95,

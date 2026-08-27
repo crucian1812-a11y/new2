@@ -32,7 +32,7 @@ function play(l0, l1, seenPos, seenTr) {
     }
     m.update(DT, [ai0.control, ai1.control]);
     seenPos.add(m.position);
-    if (m.attempt) seenTr.add(m.attempt.tr.from + '>' + m.attempt.tr.dir + '>' + m.attempt.tr.to);
+    if (m.attempt) seenTr.add(key(m.attempt.tr));
   }
   return { m, steps, cap };
 }
@@ -50,7 +50,7 @@ function randomPlay(seenPos, seenTr) {
     }
     m.update(DT, [ZERO, ZERO]);
     seenPos.add(m.position);
-    if (m.attempt) seenTr.add(m.attempt.tr.from + '>' + m.attempt.tr.dir + '>' + m.attempt.tr.to);
+    if (m.attempt) seenTr.add(key(m.attempt.tr));
   }
 }
 const ZERO = { mx: 0, mz: 0, turn: 0, drive: 0 };
@@ -86,6 +86,12 @@ check(
 );
 check(totalPoints / N > 2, 'points are actually scored', `${(totalPoints / N).toFixed(1)} per match`);
 
+// The role belongs in the key. Half guard's back-take is authored twice, once
+// for the man on top and once for the man on the bottom, and without the role
+// the two collapse into one — which is how this check reported 46 of 47
+// forever, with nothing actually missing.
+function key(t) { return `${t.from}>${t.role}>${t.dir}>${t.to}`; }
+
 /* --- coverage: is any of the graph unreachable? -------------------------- */
 const allPos = Object.keys(POSES);
 const missPos = allPos.filter((p) => !seenPos.has(p));
@@ -95,7 +101,7 @@ check(missPos.length === 0, 'every position is reached', missPos.join(',') || `$
 // coverage. A random agent walks the whole graph instead, and proves that every
 // edge in it can be run without the sim falling over.
 for (let i = 0; i < 120; i++) randomPlay(seenPos, seenTr);
-const allTr = TRANSITIONS.map((t) => t.from + '>' + t.dir + '>' + t.to);
+const allTr = TRANSITIONS.map(key);
 const missTr = allTr.filter((t) => !seenTr.has(t));
 check(
   missTr.length === 0,
