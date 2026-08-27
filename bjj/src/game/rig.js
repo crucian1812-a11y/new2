@@ -14,7 +14,7 @@
 // chest before the arm is solved onto the lapel, otherwise the grip slides
 // with every breath, which is the exact thing IK is here to prevent.
 
-import { POSES } from './poses.js';
+import { POSES, HOLD_LOOPS } from './poses.js';
 import { ARCS, VIAS } from './arcs.js';
 import { GRIP_POINTS } from '../render/body.js';
 import {
@@ -72,6 +72,36 @@ export class PairRig {
   invalidate(id) { invalidatePose(id); }
 
   // from/to are pose ids, t is 0..1 across the transition.
+  // Holding a position.
+  //
+  // A held position used to be one pose with breathing on it, and the fight
+  // spends three quarters of its time held — mostly on somebody's back. So a
+  // position with variants cycles through them: out to the variant quickly, the
+  // way a grappler takes ground, and back slowly, the way he settles onto it.
+  //
+  // The phase resets when the position changes, so every hold starts from the
+  // pose the transition into it ended on and nothing jumps.
+  hold(id, dt) {
+    const loop = HOLD_LOOPS[id];
+    if (!loop || !loop.length) return this.apply(id, id, 1, dt);
+    if (this.heldId !== id) {
+      this.heldId = id;
+      this.heldT = 0;
+    }
+    // Work harder and the cycle runs faster and reaches further: the two are
+    // the same fact about a man under pressure, and the effort the sim already
+    // tracks is where it is written.
+    const eff = Math.max(this.effort.A, this.effort.B);
+    this.heldT += dt;
+    const period = 5.4 - 2.0 * eff;
+    const phase = (this.heldT % (period * loop.length)) / period;
+    const leg = Math.min(loop.length - 1, Math.floor(phase));
+    const u = phase - leg;
+    const OUT = 0.38;
+    const raw = u < OUT ? u / OUT : 1 - (u - OUT) / (1 - OUT);
+    this.apply(id, loop[leg], smooth(raw) * (0.55 + 0.45 * eff), dt);
+  }
+
   apply(from, to, t, dt) {
     this.time += dt;
     const e = smooth(clamp(t, 0, 1));
@@ -98,12 +128,27 @@ export class PairRig {
     // several transitions have exactly that. Two overlapping bumps — one
     // weighted towards the start of the blend, one towards the end, both zero
     // at either end — give the path a shape instead of a bulge.
+    // A position moving inside itself is not a transition. Its two poses are a
+    // few centimetres apart and share their intent and their grips, so there is
+    // nothing to route around: no arc, no via, and above all no default gap —
+    // prising the pair apart six centimetres in the middle of a held mount is a
+    // pulse, and a held mount is what the fight looks like most of the time.
+    const inPlace = from === to || POSES[to].variantOf === from || POSES[from].variantOf === to;
+    // Anything that is not a position moving inside itself ends the hold. A
+    // transition lands on the base pose, so a loop resumed from the middle of
+    // its cycle would jump on arrival — leaving and coming back to the same
+    // position has to start the cycle again.
+    if (!inPlace) this.heldId = null;
     const arc = ARCS[from + '>' + to];
-    const via = from === to ? null : VIAS[from + '>' + to];
+    const via = inPlace ? null : VIAS[from + '>' + to];
     const bell = from === to ? 0 : Math.sin(clamp(t, 0, 1) * Math.PI);
     const w0 = bell * (1 - t) * 2;
     const w1 = bell * t * 2;
-    const gap = bell * (arc ? 0 : 0.062);
+    // The blanket nudge apart is for a transition with no solved arc yet. A
+    // position moving inside itself gets none of it: prising a held mount apart
+    // by six centimetres in the middle of its own breathing cycle is a pulse,
+    // and it is a solved arc or nothing.
+    const gap = inPlace ? 0 : bell * (arc ? 0 : 0.062);
     for (const role of ['A', 'B']) {
       const sk = this.skel[role];
       const qa = quatsOf(from, role);
@@ -322,6 +367,13 @@ export class PairRig {
       sk.boneHead(_t3, upper);
       const reach = ARM_REACH;
       const d = Math.hypot(_t2[0] - _t3[0], _t2[1] - _t3[1], _t2[2] - _t3[2]);
+      // The fade starts at nine tenths of the arm's reach, which is early: a
+      // grip whose target sits at 94% of reach — the seatbelt in back control
+      // is one — is permanently half released, and the hand rests about five
+      // centimetres off the wrist it is supposed to be holding. Moving the
+      // threshold to 0.96 closes that and costs a full re-solve of every pose
+      // and every arc, because each was solved against arms that were being
+      // let go. Measured, written down in the handover, not done here.
       const fit = 1 - smooth(clamp((d - reach * 0.90) / (reach * 0.16), 0, 1));
       const w = g.w * fit;
       if (w < 0.02) continue;
@@ -341,10 +393,23 @@ function collect(out, grips, w) {
   if (!grips || w <= 0) return;
   for (const g of grips) {
     const found = out.find((o) => o.role === g.role && o.hand === g.hand);
-    // Two poses can grip with the same hand. The incoming one wins outright
-    // once it is more than half faded in; blending two targets would put the
-    // hand somewhere neither pose ever asked for, which looks like a bug.
     if (found) {
+      // The same hand on the same point in both poses is not a crossfade. It is
+      // one grip that never let go, and its weight is the sum rather than the
+      // greater of the two.
+      //
+      // Taking the greater fades it to a half at the midpoint of every blend,
+      // and a half-weight grip does not hold: the hand drifts off the lapel
+      // exactly halfway through the pass, which is where the pass is most
+      // tangled and least forgiving. It cost a held position a twenty-eight
+      // centimetre swing of the arm before anything measured a held position.
+      if (found.point === g.point && !found.self === !g.self) {
+        found.w = Math.min(1, found.w + w);
+        continue;
+      }
+      // Two different targets for one hand: the incoming one wins outright once
+      // it is more than half faded in. Blending two targets would put the hand
+      // somewhere neither pose ever asked for, which looks like a bug.
       if (w > found.w) {
         found.point = g.point;
         found.self = g.self;

@@ -257,7 +257,7 @@ function frame(now) {
     // straight line between them is neither.
     const b = window.__blend;
     if (b) rig.apply(b.from, b.to, b.t, dt);
-    else rig.apply(match.position, match.position, 1, dt);
+    else rig.hold(match.position, dt);
     drawFrame(now);
     requestAnimationFrame(frame);
     return;
@@ -289,7 +289,11 @@ function frame(now) {
 
   const from = match.prevPosition;
   const to = match.pending || match.position;
-  rig.apply(from, to, match.blend, dt);
+  // Settled in a position, or on the way to one. A settled position is not a
+  // still frame any more: it cycles through its own variants, which is where
+  // three quarters of the match is spent.
+  if (from === to && match.blend >= 1) rig.hold(to, dt);
+  else rig.apply(from, to, match.blend, dt);
 
   /* --- draw ------------------------------------------------------------- */
   drawFrame(now);

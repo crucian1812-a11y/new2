@@ -15,7 +15,7 @@
 //   node bjj/tools/blend-check.mjs --all    every transition, worst first
 
 import { PairRig } from '../src/game/rig.js';
-import { POSES } from '../src/game/poses.js';
+import { POSES, HOLD_LOOPS } from '../src/game/poses.js';
 import { TRANSITIONS } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
@@ -38,14 +38,24 @@ const rig = new PairRig();
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
 
+// Everything the rig ever slerps through: the graph's transitions, and the
+// loops a held position runs while it is held. The loops are shorter and
+// gentler, and they are also on screen for three quarters of the match, so a
+// bad moment in one is worth more than a bad moment in a transition.
+const BLENDS = [
+  ...TRANSITIONS.map((tr) => ({ from: tr.from, to: tr.to, name: tr.name, kind: 'transition' })),
+  ...Object.entries(HOLD_LOOPS).flatMap(([pos, loop]) =>
+    loop.map((v) => ({ from: pos, to: v, name: POSES[v].name, kind: 'hold' }))),
+];
+
 const rows = [];
 const seen = new Set();
-for (const tr of TRANSITIONS) {
+for (const tr of BLENDS) {
   const key = `${tr.from}>${tr.to}`;
   if (tr.from === tr.to || seen.has(key)) continue;
   seen.add(key);
 
-  let worst = 0, at = 0, where = null, sunk = 0, sunkAt = 0, sunkWho = null;
+  let worst = 0, at = 0, where = null, sunk = 0, sunkAt = 0, sunkWho = null, ends = 0;
   for (let i = 0; i < STEPS; i++) {
     const t = i / (STEPS - 1);
     // Fresh every sample: the rig integrates breathing off its own clock, and
@@ -58,6 +68,7 @@ for (const tr of TRANSITIONS) {
 
     const ov = overlap.measure(rig.skel.A, rig.skel.B);
     if (ov.deepest > worst) { worst = ov.deepest; at = t; where = ov.where; }
+    if (i === 0 || i === STEPS - 1) ends = Math.max(ends, ov.deepest);
 
     for (const role of ['A', 'B']) {
       for (const b of READ) {
@@ -67,29 +78,46 @@ for (const tr of TRANSITIONS) {
       }
     }
   }
-  rows.push({ key, name: tr.name, worst, at, where, sunk, sunkAt, sunkWho });
+  rows.push({ key, name: tr.name, kind: tr.kind, worst, at, where, sunk, sunkAt, sunkWho, ends });
 }
 
 rows.sort((a, b) => b.worst - a.worst);
 let bad = 0, fails = 0;
 for (const r of rows) {
-  const flag = r.worst > LIMIT || r.sunk > 0.04;
+  // A hold is judged against its own ends, not against a number.
+  //
+  // It is on screen for as long as the position lasts, so a moment in it is
+  // seen the way a pose is seen — but both of its ends are poses that already
+  // passed pose-check, and some of them sit at eight centimetres because a
+  // forearm wrapped round a throat reads as overlap and always will. The
+  // question worth asking of the path between them is whether it introduces
+  // anything the two poses do not already have.
+  const limit = r.kind === 'hold' ? r.ends + 0.02 : LIMIT;
+  const fail = r.kind === 'hold' ? r.ends + 0.03 : FAIL;
+  const flag = r.worst > limit || r.sunk > 0.04;
   if (flag) bad++;
-  if (r.worst > FAIL || r.sunk > 0.06) fails++;
+  if (r.worst > fail || r.sunk > 0.06) fails++;
   if (!ALL && !flag) continue;
   const line =
     `${flag ? '!' : ' '} ${r.key.padEnd(28)} worst ${(r.worst * 100).toFixed(0).padStart(3)}cm ` +
     `at t=${r.at.toFixed(2)}`;
   console.log(line);
-  if (r.worst > LIMIT) console.log(`      · ${r.where}`);
+  if (r.worst > limit) console.log(`      · ${r.where}`);
   if (r.sunk > 0.04) {
     console.log(`      · ${r.sunkWho} ${(r.sunk * 100).toFixed(0)}cm under the mat at t=${r.sunkAt.toFixed(2)}`);
   }
 }
 
 const worstOverall = rows.length ? rows[0].worst : 0;
+const holds = rows.filter((r) => r.kind === 'hold');
+const worstHold = holds.reduce((m, r) => Math.max(m, r.worst), 0);
+const overEnds = holds.reduce((m, r) => Math.max(m, r.worst - r.ends), 0);
 console.log(
-  `\n${rows.length} transitions, worst moment ${(worstOverall * 100).toFixed(0)}cm — ` +
+  `\n${holds.length} hold loops, worst moment ${(worstHold * 100).toFixed(0)}cm — ` +
+  `${(overEnds * 100).toFixed(0)}cm deeper than the poses they run between`
+);
+console.log(
+  `${rows.length - holds.length} transitions, worst moment ${(worstOverall * 100).toFixed(0)}cm — ` +
   (fails ? `${fails} too deep to ship` : bad ? `${bad} on the work list, none too deep` : 'all clean')
 );
 if (fails) process.exitCode = 1;

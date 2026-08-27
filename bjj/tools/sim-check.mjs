@@ -9,7 +9,7 @@
 
 import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
 import { AI, AI_LEVELS } from '../src/game/ai.js';
-import { POSES } from '../src/game/poses.js';
+import { POSITION_IDS } from '../src/game/poses.js';
 import { TRANSITIONS } from '../src/game/positions.js';
 
 const DT = 1 / 30;
@@ -105,7 +105,9 @@ function key(t) { return `${t.from}>${t.role}>${t.dir}>${t.to}`; }
 // agent is the thing that walks the graph, and it walks all of it.
 for (let i = 0; i < 120; i++) randomPlay(seenPos, seenTr);
 
-const allPos = Object.keys(POSES);
+// The graph's nodes only. A held position now cycles through variants of
+// itself, and those are poses, not places the fight can be in.
+const allPos = POSITION_IDS;
 const missPos = allPos.filter((p) => !seenPos.has(p));
 check(missPos.length === 0, 'every position is reached', missPos.join(',') || `${seenPos.size}/${allPos.length}`);
 

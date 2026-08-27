@@ -44,6 +44,64 @@ const STANCE_LEGS = {
 };
 const STANCE_SPINE = { hips: [-6, 0, 0], spine: [7, 0, 0], chest: [4, 0, 0], neck: [-4, 0, 0] };
 
+// Held positions share their intent and their grips with the variant of
+// themselves that they move through while they are held: the same position
+// doing something is still the same position, and if what makes it that
+// position is edited it has to be edited once.
+const BACK_HOLD = [
+      { of: 'A.chest', above: 'B.hips', by: 0.2 },
+      { of: 'A.chest', near: 'B.chest', within: 0.34 },
+      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
+];
+const BACK_GRIPS = [
+      { role: 'A', hand: 'L', point: 'lapelR' },
+      { role: 'B', hand: 'R', point: 'wristL' },
+          { role: 'A', hand: 'R', point: 'wristL', self: true },
+      { role: 'B', hand: 'L', point: 'sleeveL' },
+];
+const RNC_HOLD = [
+      { of: 'A.chest', above: 'B.hips', by: 0.2 },
+      { of: 'A.chest', near: 'B.chest', within: 0.34 },
+      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
+];
+const RNC_GRIPS = [
+      { role: 'A', hand: 'L', point: 'neck' },
+      { role: 'A', hand: 'R', point: 'headBack' },
+      { role: 'B', hand: 'L', point: 'sleeveL' },
+      { role: 'B', hand: 'R', point: 'sleeveL' },
+];
+const HALF_GUARD_HOLD = [
+      { of: 'A.chest', above: 'B.chest', by: 0.16 },
+      { of: 'A.chest', near: 'B.chest', within: 0.36 },
+];
+const HALF_GUARD_GRIPS = [
+      { role: 'B', hand: 'L', point: 'sleeveR' },
+      { role: 'A', hand: 'L', point: 'lapelR' },
+          { role: 'A', hand: 'R', point: 'headBack' },
+      { role: 'B', hand: 'R', point: 'lapelL' },
+];
+const MOUNT_HOLD = [
+      { of: 'A.hips', above: 'B.hips', by: 0.17 },
+      { of: 'A.hips', near: 'B.hips', within: 0.17 },
+      { straddle: 'B.chest', with: ['A.shinL', 'A.shinR'], by: 0.13 },
+];
+const MOUNT_GRIPS = [
+      { role: 'A', hand: 'L', point: 'lapelR' },
+      { role: 'A', hand: 'R', point: 'lapelL' },
+          { role: 'B', hand: 'L', point: 'hipR' },
+      { role: 'B', hand: 'R', point: 'hipL' },
+];
+const SIDE_CONTROL_HOLD = [
+      { of: 'A.chest', above: 'B.chest', by: 0.16 },
+      { of: 'A.chest', near: 'B.chest', within: 0.3 },
+];
+const SIDE_CONTROL_GRIPS = [
+      { role: 'A', hand: 'L', point: 'headBack' },
+      { role: 'A', hand: 'R', point: 'lapelL' },
+          { role: 'B', hand: 'L', point: 'neck' },
+      { role: 'B', hand: 'R', point: 'hipL' },
+];
+
 export const POSES = {
 
   STANDING: P('STANDING', {
@@ -193,16 +251,8 @@ export const POSES = {
         thighR: [-62.9, -38.9, -27.7], shinR: [84.8, -13.4, 13.5], footR: [-14, 0, 0],
       },
     },
-    hold: [
-      { of: 'A.chest', above: 'B.chest', by: 0.16 },
-      { of: 'A.chest', near: 'B.chest', within: 0.36 },
-    ],
-    grips: [
-      { role: 'B', hand: 'L', point: 'sleeveR' },
-      { role: 'A', hand: 'L', point: 'lapelR' },
-          { role: 'A', hand: 'R', point: 'headBack' },
-      { role: 'B', hand: 'R', point: 'lapelL' },
-    ],
+    hold: HALF_GUARD_HOLD,
+    grips: HALF_GUARD_GRIPS,
   }),
 
   /* --------------------------------------------------------- top control - */
@@ -231,16 +281,8 @@ export const POSES = {
         thighR: [-16, -6, -10], shinR: [34, 0, 0], footR: [-16, 0, 0],
       },
     },
-    hold: [
-      { of: 'A.chest', above: 'B.chest', by: 0.16 },
-      { of: 'A.chest', near: 'B.chest', within: 0.3 },
-    ],
-    grips: [
-      { role: 'A', hand: 'L', point: 'headBack' },
-      { role: 'A', hand: 'R', point: 'lapelL' },
-          { role: 'B', hand: 'L', point: 'neck' },
-      { role: 'B', hand: 'R', point: 'hipL' },
-    ],
+    hold: SIDE_CONTROL_HOLD,
+    grips: SIDE_CONTROL_GRIPS,
   }),
 
   KNEE_ON_BELLY: P('KNEE_ON_BELLY', {
@@ -303,17 +345,8 @@ export const POSES = {
         thighR: [-26.9, -6.7, -2.4], shinR: [36.3, 0, 0], footR: [-14, 0, 0],
       },
     },
-    hold: [
-      { of: 'A.hips', above: 'B.hips', by: 0.17 },
-      { of: 'A.hips', near: 'B.hips', within: 0.17 },
-      { straddle: 'B.chest', with: ['A.shinL', 'A.shinR'], by: 0.13 },
-    ],
-    grips: [
-      { role: 'A', hand: 'L', point: 'lapelR' },
-      { role: 'A', hand: 'R', point: 'lapelL' },
-          { role: 'B', hand: 'L', point: 'hipR' },
-      { role: 'B', hand: 'R', point: 'hipL' },
-    ],
+    hold: MOUNT_HOLD,
+    grips: MOUNT_GRIPS,
   }),
 
   BACK: P('BACK', {
@@ -340,17 +373,8 @@ export const POSES = {
         thighR: [-56, -8, -14], shinR: [86, 0, 0], footR: [-10, 0, 0],
       },
     },
-    hold: [
-      { of: 'A.chest', above: 'B.hips', by: 0.2 },
-      { of: 'A.chest', near: 'B.chest', within: 0.34 },
-      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
-    ],
-    grips: [
-      { role: 'A', hand: 'L', point: 'lapelR' },
-      { role: 'B', hand: 'R', point: 'wristL' },
-          { role: 'A', hand: 'R', point: 'wristL', self: true },
-      { role: 'B', hand: 'L', point: 'sleeveL' },
-    ],
+    hold: BACK_HOLD,
+    grips: BACK_GRIPS,
   }),
 
   TURTLE: P('TURTLE', {
@@ -415,17 +439,8 @@ export const POSES = {
         thighR: [-52, -8, -14], shinR: [92, 0, 0], footR: [-10, 0, 0],
       },
     },
-    hold: [
-      { of: 'A.chest', above: 'B.hips', by: 0.2 },
-      { of: 'A.chest', near: 'B.chest', within: 0.34 },
-      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
-    ],
-    grips: [
-      { role: 'A', hand: 'L', point: 'neck' },
-      { role: 'A', hand: 'R', point: 'headBack' },
-      { role: 'B', hand: 'L', point: 'sleeveL' },
-      { role: 'B', hand: 'R', point: 'sleeveL' },
-    ],
+    hold: RNC_HOLD,
+    grips: RNC_GRIPS,
   }),
 
   ARMBAR: P('ARMBAR', {
@@ -606,6 +621,196 @@ export const POSES = {
       { role: 'A', hand: 'R', point: 'hipL' },
     ],
   }),
+
+  /* ------------------------------------------------- the same, working - */
+  //
+  // A held position is a photograph with breathing on it, and the fight
+  // spends most of its time in one. Each of these is the position it names
+  // with the two of them doing something in it — a hip switched, a knee
+  // walked up, a frame posted — and the rig cycles the pair of them slowly
+  // for as long as the position is held. They are poses like any other:
+  // solved by pose-relax, measured by pose-check, and they carry the same
+  // `hold`, so a variant that has quietly become another position fails.
+
+  BACK_WORK: P('BACK_WORK', {
+    // A тянет сиденье ремня и подбирает крюки выше; B прячет шею и
+    // разворачивается к обхватывающей руке.
+    name: 'Спина — работа',
+    label: 'BACK CONTROL',
+    points: 4, top: 'A', ground: true, variantOf: 'BACK',
+    A: {
+      root: { p: [0.008, 0.384, -0.46], r: [-22, 8, 6] },
+      j: {
+        hips: [0, -12.7, -27.6], spine: [24, -12, 0], chest: [22, -11, 9],
+        neck: [20, 0, 0], head: [-12, 8, 0], clavL: [-2.2, -3.6, 14.1],
+        armL: [-128.4, 32.3, -50], foreL: [-92.2, 12.2, 6.8], clavR: [14.3, 0, -14],
+        armR: [-109, -37.4, -0.6], foreR: [-131.9, -63.7, -35.2], thighL: [-77, 16.6, 27.3],
+        shinL: [81, 0, 0], footL: [-14, 0, 0], thighR: [-77, -15, -25],
+        shinR: [81, 0, 0], footR: [-14, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0.03, 0.354, -0.05], r: [-16, 4, 4] },
+      j: {
+        hips: [-8, -16.5, -4.5], spine: [2, 0, -6], chest: [-2, -12, -34.5],
+        neck: [-8.7, -9.7, -2.2], head: [13, -8, 0], clavL: [-34.4, 15.8, 6.4],
+        armL: [-146.9, 6.4, -31.9], foreL: [-49.4, 5.3, -10.4], clavR: [5.9, 35.4, -30],
+        armR: [-105.3, -20.3, 44.1], foreR: [-78.7, 5.4, 5.4], thighL: [-56, 8, 14],
+        shinL: [86, 0, 0], footL: [-10, 0, 0], thighR: [-56, -8, -14],
+        shinR: [86, 0, 0], footR: [-10, 0, 0],
+      },
+    },
+    hold: BACK_HOLD,
+    grips: BACK_GRIPS,
+  }),
+
+  RNC_WORK: P('RNC_WORK', {
+    // Сжатие: A подтягивает предплечья и уводит голову вниз, у B
+    // выгибается спина и руки тянут захват от горла.
+    name: 'Удушение — сжатие',
+    label: 'REAR NAKED CHOKE',
+    points: 4, top: 'A', ground: true, variantOf: 'RNC',
+    submission: 'choke', from: 'BACK',
+    A: {
+      root: { p: [0.004, 0.423, -0.409], r: [-26, 8, 8] },
+      j: {
+        hips: [-6, -12.7, -10.5], spine: [18, 0, 6.8], chest: [-13.9, -10.5, 2.3],
+        neck: [25, 0, 0], head: [-21, 10, 0], clavL: [8.3, -0.7, 22.3],
+        armL: [-161.4, 39.8, -36.1], foreL: [-134.7, 1.5, 1.5], clavR: [5.3, -11.8, -31.3],
+        armR: [-122.6, -27.2, 57.1], foreR: [-135.3, 3.1, -0.7], thighL: [-74, 15.8, 24.8],
+        shinL: [72, 0, 0], footL: [-14, 0, 0], thighR: [-75.5, -16.5, -25.5],
+        shinR: [75.8, 0, 0], footR: [-14, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.026, 0.415, -0.066], r: [-10, 4, 4] },
+      j: {
+        hips: [-2, -2.2, -12.7], spine: [-17, -5.9, -0.7], chest: [3.3, 16.6, -12.7],
+        neck: [-28.2, -18.7, -23], head: [-7.3, 27.2, 1.6], clavL: [-11.1, 14.3, 22.8],
+        armL: [-141.7, 37.6, -43.1], foreL: [-124.7, -6.6, -0.7], clavR: [4.8, -2.1, -4.6],
+        armR: [-130.3, -41.8, 35.1], foreR: [-123.2, -6.6, -1.5], thighL: [-52, 8, 14],
+        shinL: [92, 0, 0], footL: [-10, 0, 0], thighR: [-52, -8, -14],
+        shinR: [92, 0, 0], footR: [-10, 0, 0],
+      },
+    },
+    hold: RNC_HOLD,
+    grips: RNC_GRIPS,
+  }),
+
+  HALF_GUARD_WORK: P('HALF_GUARD_WORK', {
+    // A продавливает колено наружу и наваливается плечом; B ставит
+    // раму и уходит на бок, поднимая щит коленом.
+    name: 'Полугвардия — проход',
+    label: 'HALF GUARD',
+    points: 0, top: 'A', ground: true, variantOf: 'HALF_GUARD',
+    A: {
+      root: { p: [0.217, 0.47, -0.13], r: [0, 24, 0] },
+      j: {
+        hips: [13.8, -6, 30], spine: [26, 0, 33], chest: [-2, -6, 3],
+        neck: [12.5, 0, -0.7], head: [-10, 0, 0], clavL: [-17, 4.6, 32.2],
+        armL: [-101.1, 55.1, 0.7], foreL: [-47.3, 12.9, -1.3], clavR: [0, 0, -7.5],
+        armR: [-58.7, -14, 20], foreR: [-47.8, 13.6, -17.1], thighL: [-30.7, 10, 14],
+        shinL: [104, 0, 0], footL: [10, 0, 0], thighR: [-8, 42.8, -20.5],
+        shinR: [103.6, 4.6, -3.7], footR: [18, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.11, 0.28, 0.05], r: [-72, 156, -22] },
+      j: {
+        hips: [13, -16.5, -4.5], spine: [-6.2, 28.5, 19.5], chest: [5.3, 18.3, -12],
+        neck: [-23, 0, 0], head: [14, 3, 6], clavL: [10.7, 25.6, -10.1],
+        armL: [-92.5, 34.5, -26.6], foreL: [-82.5, -8, -5.1], clavR: [30.9, -2.2, -24.1],
+        armR: [-19.8, 29.5, 10.2], foreR: [-39.9, 30.1, 6.9], thighL: [-79, 8, 18],
+        shinL: [88, 0, 0], footL: [-14, 0, 0], thighR: [-62.1, -39.6, -27.7],
+        shinR: [84.8, -13.4, 13.5], footR: [-14, 0, 0],
+      },
+    },
+    hold: HALF_GUARD_HOLD,
+    grips: HALF_GUARD_GRIPS,
+  }),
+
+  MOUNT_WORK: P('MOUNT_WORK', {
+    // A подтягивает колени под подмышки и садится весом вниз —
+    // не вперёд: маунт и так стоит на границе своего замысла, а тяжёлый
+    // маунт это низкий таз и грудь над грудью. B ставит мост.
+    name: 'Маунт — колени вверх',
+    label: 'MOUNT',
+    points: 4, top: 'A', ground: true, variantOf: 'MOUNT',
+    A: {
+      root: { p: [0.008, 0.54, 0.045], r: [0, 0, 0] },
+      j: {
+        hips: [21.1, 10.5, -6], spine: [4.4, 23.3, -38.1], chest: [36.9, -13.3, -20.1],
+        neck: [12, 0, 0], head: [-10, 0, 0], clavL: [5.4, -17.8, -17.9],
+        armL: [-90.1, 13.1, -26.7], foreL: [-75.8, 9.3, 8.4], clavR: [4.8, 13, 44.3],
+        armR: [-85.9, -6.8, 36.7], foreR: [-87.9, -4.4, 2.4], thighL: [-10.7, 14.5, 87.3],
+        shinL: [103, 0, 0], footL: [18, 0, 0], thighR: [-9.8, -9, -26.3],
+        shinR: [103, 0, 0], footR: [18, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0.016, 0.289, 0.249], r: [-90, 180, 0] },
+      j: {
+        hips: [24, -17, -6], spine: [8, -0.7, -11.2], chest: [13.8, 17.3, 17.3],
+        neck: [-20, 0, 0], head: [14, 0, 0], clavL: [1.7, -27, -0.5],
+        armL: [-156.6, 51.5, 1.1], foreL: [-119.1, 6.2, 6.1], clavR: [15.1, 24.8, -16],
+        armR: [-181.4, 1.8, 23.8], foreR: [-89.2, 2.3, -0.7], thighL: [-27.6, -17.1, -18.4],
+        shinL: [42.2, 0, 0.8], footL: [-14, 0, 0], thighR: [-35.1, -8.2, -2.4],
+        shinR: [42.1, -0.7, 0], footR: [-14, 0, 0],
+      },
+    },
+    hold: MOUNT_HOLD,
+    grips: MOUNT_GRIPS,
+  }),
+
+  SIDE_CONTROL_WORK: P('SIDE_CONTROL_WORK', {
+    // A меняет бедро и вжимает плечо в челюсть; B ставит раму и
+    // подтягивает колено, чтобы креветкой уйти.
+    name: 'Сторона — смена бедра',
+    label: 'SIDE CONTROL',
+    points: 3, top: 'A', ground: true, variantOf: 'SIDE_CONTROL',
+    A: {
+      root: { p: [0.26, 0.325, 0.22], r: [8, 100, 0] },
+      j: {
+        hips: [-42, -12, -13.5], spine: [57.8, -30, 28.6], chest: [58, -24, 18.8],
+        neck: [16.3, 4.5, -6.7], head: [-30, 0, 0], clavL: [-20.9, -27.7, -15.1],
+        armL: [-79.4, 39.6, -55.6], foreL: [-115.9, 9.1, 7.6], clavR: [12.8, -29.9, -19.4],
+        armR: [-38.7, -31.5, 36.4], foreR: [-125.8, 6.1, -8.1], thighL: [-48.9, 7.3, 14.3],
+        shinL: [113.6, -2.2, 2.3], footL: [16, 0, 0], thighR: [0, -27.9, -16.8],
+        shinR: [96, 0, 0], footR: [20, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.12, 0.275, -0.06], r: [-90, 180, 0] },
+      j: {
+        hips: [16, -7.5, 6], spine: [-2, -17.2, 6], chest: [2, -3.7, 12],
+        neck: [2.3, 28.6, 20.3], head: [25, 10.9, -11.1], clavL: [-25.3, -5.9, 17],
+        armL: [-142.7, 22.5, -38.4], foreL: [-110.9, 9.1, 3.8], clavR: [5.4, -15.7, 10.4],
+        armR: [-60.3, -31.7, 10.8], foreR: [-75.2, 5.4, -5.1], thighL: [-37, 6, 12],
+        shinL: [55, 0, 0], footL: [-16, 0, 0], thighR: [-16, -6, -10],
+        shinR: [34, 0, 0], footR: [-16, 0, 0],
+      },
+    },
+    hold: SIDE_CONTROL_HOLD,
+    grips: SIDE_CONTROL_GRIPS,
+  }),
+
 };
 
 export const POSE_IDS = Object.keys(POSES);
+
+// What each held position cycles through while it is held.
+//
+// Derived rather than declared: a variant says which position it is a variant
+// of, and that is the only place the fact is written down. Adding one is adding
+// a pose.
+export const HOLD_LOOPS = (() => {
+  const m = {};
+  for (const p of Object.values(POSES)) {
+    if (p.variantOf) (m[p.variantOf] = m[p.variantOf] || []).push(p.id);
+  }
+  return m;
+})();
+
+// Positions the game can actually be in — the graph's nodes, without the
+// variants that only exist inside one of them.
+export const POSITION_IDS = Object.keys(POSES).filter((id) => !POSES[id].variantOf);
