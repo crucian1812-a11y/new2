@@ -29,7 +29,7 @@ import { v3, v3set, v3lerp, lerp } from '../core/m4.js';
 const SHOTS = {
   // The title card: low, close and off the shoulder, the way a promo still is
   // framed. Nothing is happening yet, so the shot has to do the work.
-  hero: { dist: 2.75, height: 1.02, aimY: 0.96, fov: 32 },
+  hero: { dist: 2.9, height: 1.06, aimY: 1.06, fov: 32 },
   stand: { dist: 4.1, height: 1.52, aimY: 1.06, fov: 36 },
   ground: { dist: 2.6, height: 1.0, aimY: 0.44, fov: 34 },
   sub: { dist: 2.35, height: 0.82, aimY: 0.38, fov: 30 },
@@ -49,6 +49,7 @@ export class Camera {
     this.shake = 0;
     this.cutHold = 0;
     this.t = 0;
+    this._shot = null;
     this._focus = v3(0, 0, 0);
   }
 
@@ -75,12 +76,28 @@ export class Camera {
     else this.targetOrbit += dt * 0.07 * (Math.sin(this.t * 0.11) > 0 ? 1 : -1);
     this.orbit = lerp(this.orbit, this.targetOrbit, 1 - Math.pow(0.02, dt));
 
-    const k = 1 - Math.pow(0.004, dt);
-    this.dist = lerp(this.dist, s.dist - intensity * 0.18, k);
-    this.height = lerp(this.height, s.height, k);
-    this.aimY = lerp(this.aimY, s.aimY, k);
-    // Push in on effort: a couple of degrees of lens, not a lurch forward.
-    this.fovDeg = lerp(this.fovDeg, s.fov - intensity * 2.5, k);
+    // A change of shot is a cut, not a dolly.
+    //
+    // Easing between them looked like the camera operator running: the title
+    // card's close portrait unwound into the standing wide over about two
+    // seconds, and going to the mat did the same in reverse. A broadcast
+    // director cuts between cameras, and the shots here are cameras. Only the
+    // small adjustments — pushing in as the effort rises — are eased.
+    const wantDist = s.dist - intensity * 0.18;
+    const wantFov = s.fov - intensity * 2.5;
+    if (this._shot !== mode) {
+      this._shot = mode;
+      this.dist = wantDist;
+      this.height = s.height;
+      this.aimY = s.aimY;
+      this.fovDeg = wantFov;
+    } else {
+      const k = 1 - Math.pow(0.004, dt);
+      this.dist = lerp(this.dist, wantDist, k);
+      this.height = lerp(this.height, s.height, k);
+      this.aimY = lerp(this.aimY, s.aimY, k);
+      this.fovDeg = lerp(this.fovDeg, wantFov, k);
+    }
 
     v3lerp(this._focus, this._focus, focus, 1 - Math.pow(0.001, dt));
 

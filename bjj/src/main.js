@@ -5,7 +5,7 @@ import { Renderer } from './render/renderer.js';
 import { buildFighterMesh } from './render/body.js';
 import { loadFighter } from './render/asset.js';
 import { PairRig } from './game/rig.js';
-import { Skeleton } from './render/skeleton.js';
+import { Skeleton, poseToQuats } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { AI } from './game/ai.js';
 import { Camera } from './game/camera.js';
@@ -55,18 +55,26 @@ try {
   console.info('using the procedural body:', e.message);
 }
 
-// The title-screen fighter. A static sculpt in a striking stance — no rig, no
-// weights, bound rigidly to the root bone so it renders exactly as sculpted.
-// It is deliberately not the fighter used in the match: linear blend skinning
-// degrades with the angle between the bind pose and the pose being played, and
-// a hands-up stance is a long way from a guard pass.
+// The title-screen fighter.
+//
+// It used to be its own file: a static sculpt in a striking stance, bound
+// rigidly to the root bone, on the reasoning that linear blend skinning
+// degrades with the angle between the bind pose and the pose being played. That
+// was true of the sculpt and it stopped being worth it the moment the match
+// fighter became a properly rigged character — the title card was showing a
+// visibly worse man than the game behind it, which is the wrong way round for
+// the first thing anybody sees.
+//
+// So it is the match fighter, held in the game's own standing pose. A stance is
+// a few degrees from the bind pose and skins cleanly.
 let hero = null;
 try {
-  const mesh = await loadFighter(new URL('../assets/hero.bin', import.meta.url).href);
+  const mesh = await loadFighter(new URL('../assets/fighter.bin', import.meta.url).href);
   const skeleton = new Skeleton();
+  poseToQuats(skeleton.local, POSES.STANDING.A);
   qEuler(skeleton.rootRot, 0, 26, 0);
   skeleton.rootPos[0] = 0.34;  // off centre, so the title has somewhere to sit
-  skeleton.rootPos[1] += 0.05; // stand on the mat, not in it
+  skeleton.rootPos[1] = POSES.STANDING.A.root.p[1] + 0.05;
   skeleton.rootPos[2] = 0.1;
   skeleton.pose();
   skeleton.finishSkin();

@@ -21,7 +21,6 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { readMixamo } from './mixamo.mjs';
 import { Skeleton, BONES, BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
-import { buildGiTrim } from '../src/render/body.js';
 
 const argv = process.argv.slice(2);
 const SRC = argv.find((a) => !a.startsWith('-')) || 'bjj/art/mixamo/body-block.fbx';
@@ -532,10 +531,17 @@ if (!NOGI) {
 
   // The widest garment vertex in each angular sector over a band of heights,
   // measured from the body's own axis.
+  // Only the trunk counts. The rig stands with its arms down, so at hip height
+  // the widest garment vertex is a sleeve, not a waist — measured naively this
+  // came out twenty-four centimetres of half-width, which is a shoulder, and
+  // the skirt built on it was a board.
+  const TRUNK = new Set(['hips', 'spine', 'thighL', 'thighR']);
+
   function profile(yLo, yHi) {
     const r = new Array(SECTORS).fill(0);
     for (let v = 0; v < MAT.length; v++) {
       if (MAT[v] !== 1 && MAT[v] !== 2) continue;
+      if (!TRUNK.has(BONES[BONE[v * 2]][0])) continue;
       const y = P[v * 3 + 1];
       if (y < yLo || y > yHi) continue;
       const x = P[v * 3], z = P[v * 3 + 2];
@@ -557,14 +563,14 @@ if (!NOGI) {
   }
 
   const hips = BONE_INDEX.hips;
-  const ring = (yOf, rOf, rows, mat, closeTop) => {
+  const ring = (yOf, rOf, rows, mat) => {
     const first = P.length / 3;
     for (let row = 0; row < rows; row++) {
       const t = rows === 1 ? 0 : row / (rows - 1);
       for (let k = 0; k < SECTORS; k++) {
         const a = (k / SECTORS) * Math.PI * 2 - Math.PI;
         const rad = rOf(t, k);
-        P.push(Math.cos(a) * rad, yOf(t), Math.sin(a) * rad);
+        P.push(Math.cos(a) * rad, yOf(t, k, a), Math.sin(a) * rad);
         BONE.push(hips, hips);
         WT.push(1, 0);
         MAT.push(mat);
@@ -581,13 +587,18 @@ if (!NOGI) {
     return first;
   };
 
-  // The skirt: the jacket's lower rim, carried down and flared, so the tail of
-  // the kimono hangs past the belt the way it does on a mat.
+  // The skirt: the jacket's tail, hanging from under the belt to mid-thigh. It
+  // starts below the belt, not above it — carried up over the waist it was a
+  // second barrel around the jacket, wider than the man inside it.
   const waist = profile(hipsY - 0.02, hipsY + 0.10);
+  if (REPORT) console.log('waist profile cm:', waist.map((r) => (r * 100).toFixed(0)).join(' '));
+  // A gi jacket is split up both sides and its tails hang past the split, so
+  // the hem is not a horizontal cut. Built as one it read as a card taped to
+  // the front of the fighter.
   ring(
-    (t) => hipsY + 0.06 - t * 0.26,
-    (t, k) => waist[k] + 0.004 + t * 0.030,
-    4, 1
+    (t, k, a) => hipsY + 0.02 - t * (0.215 - 0.125 * Math.pow(Math.abs(Math.cos(a)), 2.2)),
+    (t, k) => waist[k] + 0.006 + t * 0.020,
+    5, 1
   );
 
   // The belt over it, wider again, with the two ends of the knot at the front.
@@ -613,31 +624,52 @@ if (!NOGI) {
     }
   }
 
-  // The collar is the one piece with no radius to measure — it is a flat strip
-  // down the front of the chest — so it still comes from body.js.
-  const dressed = new Skeleton();
-  dressed.pose();
-  const trim = buildGiTrim(dressed);
-  const remap = new Map();
-  const take = (v) => {
-    let n = remap.get(v);
-    if (n !== undefined) return n;
-    n = P.length / 3;
-    P.push(trim.pos[v * 3], trim.pos[v * 3 + 1], trim.pos[v * 3 + 2]);
-    BONE.push(trim.bone[v * 2], trim.bone[v * 2 + 1]);
-    WT.push(trim.wt[v * 2], trim.wt[v * 2 + 1]);
-    MAT.push(trim.mat[v]);
-    remap.set(v, n);
-    return n;
-  };
-  let n = 0;
-  for (let t = 0; t < trim.idx.length; t += 3) {
-    const a = trim.idx[t];
-    if (trim.mat[a] !== 4) continue;   // the lapel only
-    IDX.push(take(a), take(trim.idx[t + 1]), take(trim.idx[t + 2]));
-    n++;
+  // The collar, measured the same way.
+  //
+  // body.js builds it as a flat ribbon fifteen centimetres in front of the
+  // chest bone, which is where the front of the mannequin was. On a real chest
+  // it floated: a white card hanging off the sternum. Here it is two strips
+  // running from the base of the neck down to the belt, each one riding the
+  // measured front of the jacket and closing towards the middle as it goes, so
+  // it lies on the chest and makes the V a gi has.
+  {
+    const chest = profile(ourPos[BONE_INDEX.chest][1] - 0.06, ourPos[BONE_INDEX.chest][1] + 0.10);
+    const front = (Math.max(chest[Math.floor(SECTORS * 0.25)], 0.10) + waist[Math.floor(SECTORS * 0.25)]) / 2;
+    const topY = ourPos[BONE_INDEX.neck][1] - 0.01;
+    const botY = beltY - 0.02;
+    const ROWS = 5;
+    const iChest = BONE_INDEX.chest;
+    const iSpine = BONE_INDEX.spine;
+    for (const side of [1, -1]) {
+      const first = P.length / 3;
+      for (let r = 0; r < ROWS; r++) {
+        const t = r / (ROWS - 1);
+        const y = topY + (botY - topY) * t;
+        // Open at the throat, crossed at the waist: the offset from the middle
+        // shrinks as it goes down and the strip leans inward with it.
+        const off = 0.085 * (1 - t) + 0.012 * t;
+        const z = front * (1 - t * 0.18) + 0.008;
+        // Above the ribs the collar rides the chest bone, below them the spine,
+        // so it folds with the torso rather than sliding across it.
+        const b = t < 0.55 ? iChest : iSpine;
+        for (let c = 0; c < 2; c++) {
+          const w = 0.030;
+          P.push(side * (off + (c ? w : -w) * 0.5), y, z - (c ? 0.004 : 0));
+          BONE.push(b, b);
+          WT.push(1, 0);
+          MAT.push(4);
+        }
+      }
+      for (let r = 0; r + 1 < ROWS; r++) {
+        const a = first + r * 2, b2 = first + r * 2 + 1;
+        const c2 = first + (r + 1) * 2 + 1, d = first + (r + 1) * 2;
+        if (side > 0) IDX.push(a, b2, c2, a, c2, d);
+        else IDX.push(a, c2, b2, a, d, c2);
+      }
+    }
   }
-  console.log(`belt and skirt measured onto the jacket; collar ${n} tris from body.js`);
+  // Nothing is taken from body.js any more.
+  console.log('belt, skirt and collar all measured onto the jacket');
 }
 
 const pos = new Float64Array(P);

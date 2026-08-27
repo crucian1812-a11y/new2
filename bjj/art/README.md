@@ -10,7 +10,7 @@ Every one of these files has the same shape: one triangle soup, positions only.
 | file | tris | what is in it | what it is good for |
 |---|---|---|---|
 | `judo-study-montage.glb` | 157 130 | 7 components; two are standing figures in a gi, arms at their sides | **the match fighter** — `assets/fighter.bin` |
-| `black-belt-stance.glb` | 97 128 | one figure, gi and black belt, hands up in a striking stance | **the title-screen hero** — `assets/hero.bin` |
+| `black-belt-stance.glb` | 97 128 | one figure, gi and black belt, hands up in a striking stance | the source of the earlier sculpt-based bake; unused now |
 | `bjj-study-montage.glb` | 209 422 | sculpted pairs already locked into positions | reference for the paired poses; nothing in it stands up, so nothing is riggable |
 | `mini-arena.glb` | 81 196 | a mat, a low wall, benches, a hanging cube | one idea: the jumbotron, now built procedurally in `src/render/arena.js` |
 | `material-tiles.glb` | 20 562 | six flat plates, 19 mm thick | nothing — see below |
@@ -52,12 +52,10 @@ title card. Which is what a "focus" sculpt is for.
 node bjj/tools/bake-fighter.mjs bjj/art/judo-study-montage.glb \
   --component 1 --out bjj/assets/fighter.bin --report
 
-# the title-screen hero: static prop, decimated
-node bjj/tools/bake-fighter.mjs bjj/art/black-belt-stance.glb \
-  --component 0 --static --tris 14000 --height 1.72 --out bjj/assets/hero.bin
+# the title screen uses the match fighter, held in the standing pose — there
+# is no separate hero asset any more
 
 node bjj/tools/asset-check.mjs bjj/assets/fighter.bin
-node bjj/tools/asset-check.mjs bjj/assets/hero.bin
 ```
 
 `--component` picks one connected component, ordered largest first.
