@@ -23,8 +23,8 @@
 // axis, which the pose library barely uses and no grappling position reads.
 
 import { readMixamo, readCurves, poseAt, clipLength, bare } from './mixamo.mjs';
-import { Skeleton, BONES, BONE_INDEX, BONE_COUNT, aimBone } from '../src/render/skeleton.js';
-import { v3, v3set, v3norm, qEuler } from '../src/core/m4.js';
+import { Skeleton, BONES, BONE_INDEX, BONE_COUNT } from '../src/render/skeleton.js';
+import { rootFromHips, aimAll } from './retarget.mjs';
 
 const argv = process.argv.slice(2);
 const file = argv[0];
@@ -39,24 +39,6 @@ if (!file) {
 const AT = +flag('at', 0);
 const NAME = flag('name', 'IMPORTED');
 const ROLE = flag('role', 'A');
-
-// Which Mixamo bone each of ours follows, and which Mixamo bone it points at.
-// Mixamo carries a finer spine and a full hand; several of its bones map onto
-// one of ours, and aiming at a grandchild is how the extra links get absorbed.
-const AIM = {
-  spine: ['Spine', 'Spine2'],
-  chest: ['Spine2', 'Neck'],
-  neck: ['Neck', 'Head'],
-  head: ['Head', 'HeadTop_End'],
-  clavL: ['LeftShoulder', 'LeftArm'], armL: ['LeftArm', 'LeftForeArm'],
-  foreL: ['LeftForeArm', 'LeftHand'], handL: ['LeftHand', 'LeftHandMiddle1'],
-  clavR: ['RightShoulder', 'RightArm'], armR: ['RightArm', 'RightForeArm'],
-  foreR: ['RightForeArm', 'RightHand'], handR: ['RightHand', 'RightHandMiddle1'],
-  thighL: ['LeftUpLeg', 'LeftLeg'], shinL: ['LeftLeg', 'LeftFoot'],
-  footL: ['LeftFoot', 'LeftToeBase'],
-  thighR: ['RightUpLeg', 'RightLeg'], shinR: ['RightLeg', 'RightFoot'],
-  footR: ['RightFoot', 'RightToeBase'],
-};
 
 const parsed = readMixamo(file);
 const curves = readCurves(file, parsed);
@@ -74,22 +56,7 @@ const posOf = (n) => {
 
 const sk = new Skeleton();
 
-// The hips carry the whole body's orientation, and that one *is* a rotation
-// rather than a direction. Take it from two axes of the Mixamo pelvis: where
-// it points up and where it faces.
-{
-  const hips = now.get(byName.get('Hips'));
-  const up = v3norm(v3(), v3set(v3(), hips[4], hips[5], hips[6]));
-  const fwd = v3norm(v3(), v3set(v3(), hips[8], hips[9], hips[10]));
-  // Mixamo's pelvis frame has Y up the spine and Z out of the belly, the same
-  // convention this rig uses, so the rotation transfers as it stands.
-  const yaw = Math.atan2(fwd[0], fwd[2]);
-  const pitch = Math.asin(Math.max(-1, Math.min(1, -up[2] * Math.cos(yaw) - up[0] * Math.sin(yaw))));
-  const roll = Math.atan2(up[0] * Math.cos(yaw) - up[2] * Math.sin(yaw), up[1]);
-  const d = 180 / Math.PI;
-  qEuler(sk.rootRot, pitch * d, yaw * d, roll * d);
-  sk.rootEuler = [pitch * d, yaw * d, roll * d].map((v) => +v.toFixed(1));
-}
+rootFromHips(sk, now.get(byName.get('Hips')));
 
 const theirTop = parsed.world.get(byName.get('HeadTop_End'))[13];
 sk.pose();
@@ -101,19 +68,7 @@ sk.rootPos[1] = hipsPos[1] * scale;
 sk.rootPos[2] = hipsPos[2] * scale;
 sk.pose();
 
-// Aim every mapped bone, parents before children, so each one is solved against
-// a parent that has already moved.
-const dir = v3();
-for (let i = 0; i < BONE_COUNT; i++) {
-  const name = BONES[i][0];
-  const pair = AIM[name];
-  if (!pair) continue;
-  const a = posOf(pair[0]);
-  const b = posOf(pair[1]);
-  if (!a || !b) continue;
-  v3norm(dir, v3set(dir, b[0] - a[0], b[1] - a[1], b[2] - a[2]));
-  aimBone(sk, name, dir);
-}
+aimAll(sk, posOf);
 
 /* ------------------------------------------------------------- read it out */
 

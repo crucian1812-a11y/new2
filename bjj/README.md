@@ -180,6 +180,7 @@ node bjj/tools/asset-check.mjs        # запечённый боец: веса,
 node bjj/tools/sim-check.mjs 500      # баланс: чем заканчиваются матчи, ранжируются ли пояса
 node bjj/tools/blend-check.mjs        # то же для середины каждого перехода
 node bjj/tools/mark-check.mjs         # клубные марки: шрифт, атлас, разметка мата, нашивки
+node bjj/tools/clip-check.mjs пак.glb # присланный пак парной анимации: годится или нет
 node bjj/tools/mark-check.mjs --dump out/   # плюс картинка атласа и план мата сверху
 node bjj/tools/pose-relax.mjs --write  # решатель поз: столкновения, контакт, замысел
 node bjj/tools/arc-solve.mjs --write   # решатель дуг переходов (долго; --only для одной)
