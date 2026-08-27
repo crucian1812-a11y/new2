@@ -123,6 +123,12 @@ function cost(id) {
     const d = Math.hypot(t[0] - s[12], t[1] - s[13], t[2] - s[14]);
     const over = d - 0.42;
     if (over > 0) c += over * over * 90;
+    // Past the arm's own length it is not a stretch, it is a grip the pose has
+    // asked for and cannot have — the rig lets go, and a released grip is a
+    // hand hanging in the air. Weighted to matter as much as a limb inside a
+    // body, because it looks about as wrong.
+    const impossible = d - 0.5;
+    if (impossible > 0) c += impossible * impossible * 700;
   }
 
   // A straight arm. Nothing in grappling holds an arm locked out except an arm

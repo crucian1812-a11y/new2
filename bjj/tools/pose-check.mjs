@@ -13,9 +13,14 @@ import { PairRig } from '../src/game/rig.js';
 import { POSES } from '../src/game/poses.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
+import { GRIP_POINTS } from '../src/render/body.js';
+import { m4point, v3 } from '../src/core/m4.js';
 import { violations } from '../src/game/intent.js';
 
 const MAT_Y = 0.05;
+const _t = v3();
+// Shoulder to wrist on the rest skeleton, the same number rig.js uses.
+const ARM = 0.52;
 const rig = new PairRig();
 const overlap = new Overlap();
 // Knees are in the list because half the contact in this sport is a knee:
@@ -50,6 +55,36 @@ for (const id of Object.keys(POSES)) {
         info.notes.push(`${role}.${b} under the mat by ${((MAT_Y - y) * 100).toFixed(0)}cm`);
       }
     }
+    // Is the hand on the thing it is holding?
+    //
+    // This is the claim the whole grip system exists to make — a hand on a
+    // lapel stays on the lapel for the length of a pass — and nothing measured
+    // it. Two different faults hide behind one number, so both are named:
+    //
+    //   out of reach  the pose asks for a grip the arm cannot make. The rig is
+    //                 right to let go; the pose is what is wrong.
+    //   loose         the target is within reach and the hand is not on it.
+    //
+    for (const g of POSES[id].grips || []) {
+      if (g.role !== role) continue;
+      const def = GRIP_POINTS[g.point];
+      if (!def) continue;
+      const other = rig.skel[g.self ? role : role === 'A' ? 'B' : 'A'];
+      m4point(_t, other.world[BONE_INDEX[def[0]]], def[1]);
+      const sh = sk.world[BONE_INDEX[g.hand === 'L' ? 'armL' : 'armR']];
+      const h = sk.world[BONE_INDEX[g.hand === 'L' ? 'handL' : 'handR']];
+      const reach = Math.hypot(sh[12] - _t[0], sh[13] - _t[1], sh[14] - _t[2]) / ARM;
+      const gap = Math.hypot(h[12] - _t[0], h[13] - _t[1], h[14] - _t[2]);
+      if (reach > 1.0) {
+        info.notes.push(`${role}.hand${g.hand} cannot reach the ${g.point} it holds ` +
+          `(${(reach * 100).toFixed(0)}% of the arm)`);
+      } else if (gap > 0.06) {
+        info.notes.push(`${role}.hand${g.hand} is ${(gap * 100).toFixed(0)}cm off the ${g.point} ` +
+          `it holds, and could reach it (${(reach * 100).toFixed(0)}%)`);
+      }
+      info.grip = Math.max(info.grip || 0, reach > 1.0 ? 0 : gap);
+    }
+
     // Arms that had to straighten to reach their grip.
     for (const [hand, sh] of [['handL', 'armL'], ['handR', 'armR']]) {
       const a = sk.world[BONE_INDEX[sh]];
@@ -82,7 +117,22 @@ for (const id of Object.keys(POSES)) {
   // 21 cm inside each other.
   const ov = overlap.measure(rig.skel.A, rig.skel.B);
   info.overlap = ov.deepest;
-  if (ov.deepest > 0.08) {
+  // Contact the pose itself asked for is judged more loosely.
+  //
+  // A guillotine is an arm around a head — the pose says so in its own `hold`,
+  // "the head is under the arm, that is the whole technique" — and a capsule
+  // model has no way to represent an arm around anything: a forearm at the
+  // throat and a head are two solids reading eight centimetres into each other
+  // however carefully the pose is authored. Where the author has declared that
+  // two parts must be near each other, they are allowed to be inside each other
+  // rather further than parts that have no business touching at all.
+  const declared = new Set();
+  for (const h of POSES[id].hold || []) {
+    if (h.of && h.near) declared.add([h.of, h.near].sort().join('|'));
+  }
+  const pair = ov.where && ov.where.replace(' in ', '|').split('|').sort().join('|');
+  const limit = declared.has(pair) ? 0.12 : 0.08;
+  if (ov.deepest > limit) {
     info.notes.push(`${(ov.deepest * 100).toFixed(0)}cm of ${ov.where} — a limb is inside a body`);
   }
 
