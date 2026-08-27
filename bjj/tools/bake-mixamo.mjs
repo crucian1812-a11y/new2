@@ -483,7 +483,7 @@ if (!NOGI) {
   var NRM0 = normals(new Float64Array(P), Uint32Array.from(IDX));
   var pos0 = (v, k) => P[v * 3 + k];
 
-  const beltY = ourPos[BONE_INDEX.hips][1] + 0.05;
+  const beltY = ourPos[BONE_INDEX.hips][1] + 0.055;
   const collarY = ourPos[BONE_INDEX.neck][1] + 0.035;
   const sleeveY = ourPos[BONE_INDEX.handL][1] + 0.05;
   const cuffY = ourPos[BONE_INDEX.footL][1] + 0.055;
@@ -520,30 +520,124 @@ if (!NOGI) {
   );
   console.log(`sleeves: ${sleeve.tris} tris (${sleeve.hems} hem edges)`);
 
-  // The collar and the belt are not offsets of anything, so they still come
-  // from body.js, built in the rig's own bind pose — which is the space the
-  // retargeted body now lives in, so the two meet with no fitting step.
+  // The belt and the skirt are measured onto the jacket, not assumed.
+  //
+  // body.js builds both at a fixed radius, sized for the mannequin it was
+  // written against. On this character the belt came out a centimetre narrower
+  // than the jacket and disappeared inside it — which is why a black belt
+  // rendered as a pale band, because the pale band was the jacket and the belt
+  // was never visible at all. The fix is to ask the jacket how wide it is.
+  const SECTORS = 28;
+  const hipsY = ourPos[BONE_INDEX.hips][1];
+
+  // The widest garment vertex in each angular sector over a band of heights,
+  // measured from the body's own axis.
+  function profile(yLo, yHi) {
+    const r = new Array(SECTORS).fill(0);
+    for (let v = 0; v < MAT.length; v++) {
+      if (MAT[v] !== 1 && MAT[v] !== 2) continue;
+      const y = P[v * 3 + 1];
+      if (y < yLo || y > yHi) continue;
+      const x = P[v * 3], z = P[v * 3 + 2];
+      const d = Math.hypot(x, z);
+      let k = Math.floor(((Math.atan2(z, x) + Math.PI) / (Math.PI * 2)) * SECTORS) % SECTORS;
+      if (k < 0) k += SECTORS;
+      if (d > r[k]) r[k] = d;
+    }
+    // Fill any empty sector from its neighbours, and smooth once so the ring
+    // does not scallop between one measurement and the next.
+    for (let pass = 0; pass < 2; pass++) {
+      const c = r.slice();
+      for (let k = 0; k < SECTORS; k++) {
+        const a = c[(k + SECTORS - 1) % SECTORS], b = c[(k + 1) % SECTORS];
+        r[k] = c[k] > 0 ? c[k] * 0.6 + (a + b) * 0.2 : (a + b) / 2;
+      }
+    }
+    return r;
+  }
+
+  const hips = BONE_INDEX.hips;
+  const ring = (yOf, rOf, rows, mat, closeTop) => {
+    const first = P.length / 3;
+    for (let row = 0; row < rows; row++) {
+      const t = rows === 1 ? 0 : row / (rows - 1);
+      for (let k = 0; k < SECTORS; k++) {
+        const a = (k / SECTORS) * Math.PI * 2 - Math.PI;
+        const rad = rOf(t, k);
+        P.push(Math.cos(a) * rad, yOf(t), Math.sin(a) * rad);
+        BONE.push(hips, hips);
+        WT.push(1, 0);
+        MAT.push(mat);
+      }
+    }
+    for (let row = 0; row + 1 < rows; row++) {
+      for (let k = 0; k < SECTORS; k++) {
+        const k2 = (k + 1) % SECTORS;
+        const a = first + row * SECTORS + k, b = first + row * SECTORS + k2;
+        const c = first + (row + 1) * SECTORS + k2, d = first + (row + 1) * SECTORS + k;
+        IDX.push(a, b, c, a, c, d);
+      }
+    }
+    return first;
+  };
+
+  // The skirt: the jacket's lower rim, carried down and flared, so the tail of
+  // the kimono hangs past the belt the way it does on a mat.
+  const waist = profile(hipsY - 0.02, hipsY + 0.10);
+  ring(
+    (t) => hipsY + 0.06 - t * 0.26,
+    (t, k) => waist[k] + 0.004 + t * 0.030,
+    4, 1
+  );
+
+  // The belt over it, wider again, with the two ends of the knot at the front.
+  const over = profile(beltY - 0.08, beltY + 0.08);
+  ring(
+    (t) => beltY - 0.032 + t * 0.064,
+    (t, k) => Math.max(over[k], waist[k]) + 0.016,
+    2, 3
+  );
+  {
+    const frontR = Math.max(over[Math.floor(SECTORS * 0.25)], waist[Math.floor(SECTORS * 0.25)]) + 0.018;
+    for (const dx of [-0.055, 0.055]) {
+      const f = P.length / 3;
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 2; c++) {
+          P.push(dx + (c ? 0.032 : -0.032), beltY + 0.030 - r * 0.20, frontR + 0.006);
+          BONE.push(hips, hips);
+          WT.push(1, 0);
+          MAT.push(3);
+        }
+      }
+      IDX.push(f, f + 1, f + 3, f, f + 3, f + 2);
+    }
+  }
+
+  // The collar is the one piece with no radius to measure — it is a flat strip
+  // down the front of the chest — so it still comes from body.js.
   const dressed = new Skeleton();
   dressed.pose();
-  const gi = buildGiTrim(dressed);
+  const trim = buildGiTrim(dressed);
   const remap = new Map();
   const take = (v) => {
     let n = remap.get(v);
     if (n !== undefined) return n;
     n = P.length / 3;
-    P.push(gi.pos[v * 3], gi.pos[v * 3 + 1], gi.pos[v * 3 + 2]);
-    BONE.push(gi.bone[v * 2], gi.bone[v * 2 + 1]);
-    WT.push(gi.wt[v * 2], gi.wt[v * 2 + 1]);
-    MAT.push(gi.mat[v]);
+    P.push(trim.pos[v * 3], trim.pos[v * 3 + 1], trim.pos[v * 3 + 2]);
+    BONE.push(trim.bone[v * 2], trim.bone[v * 2 + 1]);
+    WT.push(trim.wt[v * 2], trim.wt[v * 2 + 1]);
+    MAT.push(trim.mat[v]);
     remap.set(v, n);
     return n;
   };
   let n = 0;
-  for (let t = 0; t < gi.idx.length; t += 3) {
-    IDX.push(take(gi.idx[t]), take(gi.idx[t + 1]), take(gi.idx[t + 2]));
+  for (let t = 0; t < trim.idx.length; t += 3) {
+    const a = trim.idx[t];
+    if (trim.mat[a] !== 4) continue;   // the lapel only
+    IDX.push(take(a), take(trim.idx[t + 1]), take(trim.idx[t + 2]));
     n++;
   }
-  console.log(`skirt, collar and belt: ${n} tris from body.js`);
+  console.log(`belt and skirt measured onto the jacket; collar ${n} tris from body.js`);
 }
 
 const pos = new Float64Array(P);

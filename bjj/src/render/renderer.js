@@ -101,7 +101,15 @@ vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap,
   float rimB = pow(clamp(dot(N, normalize(vec3(-0.6, 0.25, -0.75))), 0.0, 1.0), 2.5);
   vec3 rim = u_rimA * rimA * 0.6 + u_rimB * rimB * 0.5;
 
-  return albedo * diff + vec3(s) * u_sunCol + rim * ao;
+  // Both the highlight and the rims are tinted by what they are landing on.
+  //
+  // They were not, and a black belt came out pale grey: a broad band facing the
+  // camera picked up the full specular and the full rim regardless of having
+  // almost no albedo, and the two together washed it to the colour of the gi.
+  // A separation rim on black cotton is still a rim, it is just a dark one.
+  float tone = 0.22 + 0.78 * clamp(dot(albedo, vec3(0.3, 0.6, 0.1)) * 1.6, 0.0, 1.0);
+
+  return albedo * diff + vec3(s) * u_sunCol * tone + rim * ao * tone;
 }
 
 // Perturb the interpolated normal by a tangent-space map without a real
@@ -359,7 +367,7 @@ void main() {
     // Light does not reach the bottom of a crease. This is the half of a fold
     // that survives at distance, after the normal has stopped being resolvable.
     albedo *= 1.0 - max(0.0, -fold) * 0.055;
-    rough = m == 3 ? 0.72 : 0.88; spec = m == 3 ? 0.3 : 0.12; wrap = 0.32;
+    rough = m == 3 ? 0.74 : 0.88; spec = m == 3 ? 0.14 : 0.12; wrap = 0.32;
   }
 
   // Ground proximity. Grappling happens with bodies pressed into the mat, so
