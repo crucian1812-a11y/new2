@@ -42,6 +42,7 @@ import { TRANSITIONS } from '../src/game/positions.js';
 import { HOLD_LOOPS } from '../src/game/poses.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
+import { SOLVE_STEPS } from './grid.mjs';
 
 const WRITE = process.argv.includes('--write');
 const FRESH = process.argv.includes('--fresh');
@@ -49,7 +50,8 @@ const ONLY = (() => {
   const i = process.argv.indexOf('--only');
   return i >= 0 && process.argv[i + 1] ? new Set(process.argv[i + 1].split(',')) : null;
 })();
-const STEPS = 13;
+// See grid.mjs: this has to stay a refinement of what blend-check judges on.
+const STEPS = SOLVE_STEPS;
 const MAT_Y = 0.05;
 // Contact is fine in flight too — they are still grappling. This is where a
 // limb starts being inside a body.
@@ -108,14 +110,19 @@ for (const [from, to] of [
   keys.push(key);
 }
 
+// Which of them this run is actually solving. This has to be settled before
+// anything is thrown away, and it was not: --fresh deleted the warm start for
+// every key in the list and only afterwards did --only shorten the list, so
+// every arc not named on the command line was written out empty. It happened
+// twice — the second time to a file that had just taken an hour to fill — and
+// both times the only symptom was the worst moment in flight going from 19 cm
+// to 29 in the last line of the report.
+const solving = new Set(keys.filter((key) => !ONLY || ONLY.has(key)));
+
 // What is already there, and what the straight line looks like without it.
-//
-// --fresh throws away the warm start, and it throws it away only for the keys
-// being solved. Applied to the whole table while --only names three of them, it
-// deletes the other forty on write — which it did, silently, and the worst
-// moment in flight went from 21 cm to 29 before anything noticed.
+const WAS = new Set(Object.keys(ARCS));
 const held = JSON.parse(JSON.stringify(ARCS));
-if (FRESH) for (const key of keys) delete held[key];
+if (FRESH) for (const key of solving) delete held[key];
 const before = {};
 for (const key of keys) {
   const [from, to] = key.split('>');
@@ -128,7 +135,7 @@ for (const key of Object.keys(held)) ARCS[key] = held[key];
 // it stands so the summary is still the whole picture.
 const skipped = [];
 for (const key of keys.slice()) {
-  if (!ONLY || ONLY.has(key)) continue;
+  if (solving.has(key)) continue;
   const [from, to] = key.split('>');
   skipped.push({ key, before: before[key], after: measure(from, to).worst, arc: ARCS[key] || null });
   keys.splice(keys.indexOf(key), 1);
@@ -314,6 +321,16 @@ const worst = results.length ? results[0].after : 0;
 console.log(`\nworst moment in flight: ${(worst * 100).toFixed(0)}cm`);
 
 if (WRITE) {
+  // Nothing this run was not asked to solve may lose the arc it came in with.
+  // The two accidents above both ended in a file with forty arcs missing and a
+  // cheerful "wrote 1 arcs" underneath, so the check is here rather than in a
+  // comment: a run that would drop somebody else's work writes nothing.
+  const lost = [...WAS].filter((key) => !solving.has(key) && !results.some((r) => r.key === key && r.arc));
+  if (lost.length) {
+    console.error(`\nrefusing to write: ${lost.length} arc(s) this run was not asked to touch would be lost`);
+    console.error(lost.slice(0, 8).map((k) => `  ${k}`).join('\n'));
+    process.exit(1);
+  }
   const lobe = (l) => {
     const lj = l.j || {};
     const lr = l.r || {};

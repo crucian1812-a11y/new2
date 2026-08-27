@@ -17,14 +17,17 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
-import { POSES } from '../src/game/poses.js';
+import { POSITION_IDS } from '../src/game/poses.js';
 import { VIAS } from '../src/game/arcs.js';
 import { TRANSITIONS } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
+import { JUDGE_STEPS } from './grid.mjs';
 
 const WRITE = process.argv.includes('--write');
-const STEPS = 13;
+// The same grid blend-check judges on — thirteen stepped over the very
+// crossings this tool exists to route around. See grid.mjs.
+const STEPS = JUDGE_STEPS;
 // Only transitions this bad are worth bending; below it the straight line is
 // fine and a curve is a change nobody asked for.
 const TRIGGER = 0.11;
@@ -73,7 +76,10 @@ for (const tr of TRANSITIONS) {
   keys.push(key);
 }
 
-const poses = Object.keys(POSES);
+// Positions only. A held position's working variant is the same tangle with
+// a hip moved, so routing through one is routing through the pose you are
+// already at — twenty more candidates that cannot help and can win by noise.
+const poses = POSITION_IDS;
 const chosen = {};
 for (const key of keys) {
   const [from, to] = key.split('>');

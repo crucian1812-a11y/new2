@@ -44,78 +44,6 @@ const STANCE_LEGS = {
 };
 const STANCE_SPINE = { hips: [-6, 0, 0], spine: [7, 0, 0], chest: [4, 0, 0], neck: [-4, 0, 0] };
 
-// Held positions share their intent and their grips with the variant of
-// themselves that they move through while they are held: the same position
-// doing something is still the same position, and if what makes it that
-// position is edited it has to be edited once.
-const BACK_HOLD = [
-      { of: 'A.chest', above: 'B.hips', by: 0.2 },
-      { of: 'A.chest', near: 'B.chest', within: 0.34 },
-      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
-];
-// Both men used to hold the same wrist, and both hands landed on the same four
-// centimetres of it — so the two forearms had to come from the same direction
-// and passed straight through each other, thirteen centimetres of it. The
-// defender takes the choking arm instead: two hands on the sleeve, which is
-// what anybody does with a seatbelt on them, and the arms now stack rather
-// than cross.
-const BACK_GRIPS = [
-      { role: 'A', hand: 'L', point: 'lapelR' },
-      { role: 'B', hand: 'R', point: 'sleeveL' },
-          { role: 'A', hand: 'R', point: 'wristL', self: true },
-      { role: 'B', hand: 'L', point: 'sleeveL' },
-];
-const RNC_HOLD = [
-      { of: 'A.chest', above: 'B.hips', by: 0.2 },
-      { of: 'A.chest', near: 'B.chest', within: 0.34 },
-      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
-];
-const RNC_GRIPS = [
-      { role: 'A', hand: 'L', point: 'neck' },
-      { role: 'A', hand: 'R', point: 'headBack' },
-      { role: 'B', hand: 'L', point: 'sleeveL' },
-      { role: 'B', hand: 'R', point: 'sleeveL' },
-];
-const HALF_GUARD_HOLD = [
-      { of: 'A.chest', above: 'B.chest', by: 0.16 },
-      { of: 'A.chest', near: 'B.chest', within: 0.36 },
-];
-// The cross-collar, not the back of the head. Measured from where this pose
-// puts the top man's shoulder, the back of the head is 105% of his arm away —
-// the rig lets go of a grip it cannot make, and the hand hangs by the ear. The
-// far lapel is 51% away, and flattening a man out with a cross-collar grip is
-// what half guard top does anyway.
-const HALF_GUARD_GRIPS = [
-      { role: 'B', hand: 'L', point: 'sleeveR' },
-      { role: 'A', hand: 'L', point: 'lapelR' },
-          { role: 'A', hand: 'R', point: 'lapelL' },
-      { role: 'B', hand: 'R', point: 'lapelL' },
-];
-const MOUNT_HOLD = [
-      { of: 'A.hips', above: 'B.hips', by: 0.17 },
-      { of: 'A.hips', near: 'B.hips', within: 0.17 },
-      { straddle: 'B.chest', with: ['A.shinL', 'A.shinR'], by: 0.13 },
-];
-// The man underneath frames on the near hip and fights the far sleeve. Both
-// hips was the authored intent and only one of them is inside his arm: the far
-// one measures 104%, so that hand was holding nothing.
-const MOUNT_GRIPS = [
-      { role: 'A', hand: 'L', point: 'lapelR' },
-      { role: 'A', hand: 'R', point: 'lapelL' },
-          { role: 'B', hand: 'L', point: 'hipR' },
-      { role: 'B', hand: 'R', point: 'sleeveL' },
-];
-const SIDE_CONTROL_HOLD = [
-      { of: 'A.chest', above: 'B.chest', by: 0.16 },
-      { of: 'A.chest', near: 'B.chest', within: 0.3 },
-];
-const SIDE_CONTROL_GRIPS = [
-      { role: 'A', hand: 'L', point: 'headBack' },
-      { role: 'A', hand: 'R', point: 'lapelL' },
-          { role: 'B', hand: 'L', point: 'neck' },
-      { role: 'B', hand: 'R', point: 'hipL' },
-];
-
 export const POSES = {
 
   STANDING: P('STANDING', {
@@ -265,8 +193,21 @@ export const POSES = {
         thighR: [-62.8, -38.9, -27.7], shinR: [84.8, -13.4, 13.5], footR: [-14, 0, 0],
       },
     },
-    hold: HALF_GUARD_HOLD,
-    grips: HALF_GUARD_GRIPS,
+    hold: [
+      { of: 'A.chest', above: 'B.chest', by: 0.16 },
+      { of: 'A.chest', near: 'B.chest', within: 0.36 },
+    ],
+    // The cross-collar, not the back of the head. Measured from where this pose
+    // puts the top man's shoulder, the back of the head is 105% of his arm away —
+    // the rig lets go of a grip it cannot make, and the hand hangs by the ear. The
+    // far lapel is 51% away, and flattening a man out with a cross-collar grip is
+    // what half guard top does anyway.
+    grips: [
+      { role: 'B', hand: 'L', point: 'sleeveR' },
+      { role: 'A', hand: 'L', point: 'lapelR' },
+          { role: 'A', hand: 'R', point: 'lapelL' },
+      { role: 'B', hand: 'R', point: 'lapelL' },
+    ],
   }),
 
   /* --------------------------------------------------------- top control - */
@@ -295,8 +236,16 @@ export const POSES = {
         thighR: [-16, -6, -10], shinR: [34, 0, 0], footR: [-16, 0, 0],
       },
     },
-    hold: SIDE_CONTROL_HOLD,
-    grips: SIDE_CONTROL_GRIPS,
+    hold: [
+      { of: 'A.chest', above: 'B.chest', by: 0.16 },
+      { of: 'A.chest', near: 'B.chest', within: 0.3 },
+    ],
+    grips: [
+      { role: 'A', hand: 'L', point: 'headBack' },
+      { role: 'A', hand: 'R', point: 'lapelL' },
+          { role: 'B', hand: 'L', point: 'neck' },
+      { role: 'B', hand: 'R', point: 'hipL' },
+    ],
   }),
 
   KNEE_ON_BELLY: P('KNEE_ON_BELLY', {
@@ -359,8 +308,20 @@ export const POSES = {
         thighR: [-26.9, -6.7, -2.4], shinR: [36.3, 0, 0], footR: [-14, 0, 0],
       },
     },
-    hold: MOUNT_HOLD,
-    grips: MOUNT_GRIPS,
+    hold: [
+      { of: 'A.hips', above: 'B.hips', by: 0.17 },
+      { of: 'A.hips', near: 'B.hips', within: 0.17 },
+      { straddle: 'B.chest', with: ['A.shinL', 'A.shinR'], by: 0.13 },
+    ],
+    // The man underneath frames on the near hip and fights the far sleeve. Both
+    // hips was the authored intent and only one of them is inside his arm: the far
+    // one measures 104%, so that hand was holding nothing.
+    grips: [
+      { role: 'A', hand: 'L', point: 'lapelR' },
+      { role: 'A', hand: 'R', point: 'lapelL' },
+          { role: 'B', hand: 'L', point: 'hipR' },
+      { role: 'B', hand: 'R', point: 'sleeveL' },
+    ],
   }),
 
   BACK: P('BACK', {
@@ -387,8 +348,23 @@ export const POSES = {
         thighR: [-56, -8, -14], shinR: [86, 0, 0], footR: [-10, 0, 0],
       },
     },
-    hold: BACK_HOLD,
-    grips: BACK_GRIPS,
+    hold: [
+      { of: 'A.chest', above: 'B.hips', by: 0.2 },
+      { of: 'A.chest', near: 'B.chest', within: 0.34 },
+      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
+    ],
+    // Both men used to hold the same wrist, and both hands landed on the same four
+    // centimetres of it — so the two forearms had to come from the same direction
+    // and passed straight through each other, thirteen centimetres of it. The
+    // defender takes the choking arm instead: two hands on the sleeve, which is
+    // what anybody does with a seatbelt on them, and the arms now stack rather
+    // than cross.
+    grips: [
+      { role: 'A', hand: 'L', point: 'lapelR' },
+      { role: 'B', hand: 'R', point: 'sleeveL' },
+          { role: 'A', hand: 'R', point: 'wristL', self: true },
+      { role: 'B', hand: 'L', point: 'sleeveL' },
+    ],
   }),
 
   TURTLE: P('TURTLE', {
@@ -453,8 +429,17 @@ export const POSES = {
         thighR: [-52, -8, -14], shinR: [92, 0, 0], footR: [-10, 0, 0],
       },
     },
-    hold: RNC_HOLD,
-    grips: RNC_GRIPS,
+    hold: [
+      { of: 'A.chest', above: 'B.hips', by: 0.2 },
+      { of: 'A.chest', near: 'B.chest', within: 0.34 },
+      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.1 },
+    ],
+    grips: [
+      { role: 'A', hand: 'L', point: 'neck' },
+      { role: 'A', hand: 'R', point: 'headBack' },
+      { role: 'B', hand: 'L', point: 'sleeveL' },
+      { role: 'B', hand: 'R', point: 'sleeveL' },
+    ],
   }),
 
   ARMBAR: P('ARMBAR', {
@@ -657,8 +642,7 @@ export const POSES = {
     // A тянет сиденье ремня и подбирает крюки выше; B прячет шею и
     // разворачивается к обхватывающей руке.
     name: 'Спина — работа',
-    label: 'BACK CONTROL',
-    points: 4, top: 'A', ground: true, variantOf: 'BACK',
+    variantOf: 'BACK',
     A: {
       root: { p: [0.023, 0.384, -0.46], r: [-22, 8, 6] },
       j: {
@@ -681,17 +665,13 @@ export const POSES = {
         shinR: [86, 0, 0], footR: [-10, 0, 0],
       },
     },
-    hold: BACK_HOLD,
-    grips: BACK_GRIPS,
   }),
 
   RNC_WORK: P('RNC_WORK', {
     // Сжатие: A подтягивает предплечья и уводит голову вниз, у B
     // выгибается спина и руки тянут захват от горла.
     name: 'Удушение — сжатие',
-    label: 'REAR NAKED CHOKE',
-    points: 4, top: 'A', ground: true, variantOf: 'RNC',
-    submission: 'choke', from: 'BACK',
+    variantOf: 'RNC',
     A: {
       root: { p: [0.004, 0.423, -0.409], r: [-26, 8, 8] },
       j: {
@@ -714,16 +694,13 @@ export const POSES = {
         shinR: [92, 0, 0], footR: [-10, 0, 0],
       },
     },
-    hold: RNC_HOLD,
-    grips: RNC_GRIPS,
   }),
 
   HALF_GUARD_WORK: P('HALF_GUARD_WORK', {
     // A продавливает колено наружу и наваливается плечом; B ставит
     // раму и уходит на бок, поднимая щит коленом.
     name: 'Полугард — проход',
-    label: 'HALF GUARD',
-    points: 0, top: 'A', ground: true, variantOf: 'HALF_GUARD',
+    variantOf: 'HALF_GUARD',
     A: {
       root: { p: [0.202, 0.47, -0.13], r: [0, 24, 0] },
       j: {
@@ -746,8 +723,6 @@ export const POSES = {
         shinR: [84.1, -14.1, 14.3], footR: [-14, 0, 0],
       },
     },
-    hold: HALF_GUARD_HOLD,
-    grips: HALF_GUARD_GRIPS,
   }),
 
   MOUNT_WORK: P('MOUNT_WORK', {
@@ -755,8 +730,7 @@ export const POSES = {
     // не вперёд: маунт и так стоит на границе своего замысла, а тяжёлый
     // маунт это низкий таз и грудь над грудью. B ставит мост.
     name: 'Маунт — колени вверх',
-    label: 'MOUNT',
-    points: 4, top: 'A', ground: true, variantOf: 'MOUNT',
+    variantOf: 'MOUNT',
     A: {
       root: { p: [0.042, 0.548, 0.075], r: [0, 0, 0] },
       j: {
@@ -779,16 +753,13 @@ export const POSES = {
         shinR: [42.1, -0.7, 0], footR: [-14, 0, 0],
       },
     },
-    hold: MOUNT_HOLD,
-    grips: MOUNT_GRIPS,
   }),
 
   SIDE_CONTROL_WORK: P('SIDE_CONTROL_WORK', {
     // A меняет бедро и вжимает плечо в челюсть; B ставит раму и
     // подтягивает колено, чтобы креветкой уйти.
     name: 'Сторона — смена бедра',
-    label: 'SIDE CONTROL',
-    points: 3, top: 'A', ground: true, variantOf: 'SIDE_CONTROL',
+    variantOf: 'SIDE_CONTROL',
     A: {
       root: { p: [0.26, 0.325, 0.22], r: [8, 100, 0] },
       j: {
@@ -811,11 +782,474 @@ export const POSES = {
         shinR: [34, 0, 0], footR: [-16, 0, 0],
       },
     },
-    hold: SIDE_CONTROL_HOLD,
-    grips: SIDE_CONTROL_GRIPS,
+  }),
+
+  STANDING_WORK: P('STANDING_WORK', {
+    // Оба меняют уровень и тянутся за захватом: передняя рука вперёд,
+    // колени глубже, B заходит по кругу.
+    name: 'Стойка — борьба за захват',
+    variantOf: 'STANDING',
+    A: {
+      root: { p: [0, 0.84, -0.57], r: [0, -5, 0] },
+      j: {
+        hips: [-3.5, 0, 0], spine: [13, 0, 0], chest: [7, 0, 0],
+        neck: [-2, 0, 0], clavL: [6, 0, 12], armL: [-72, 18, -10],
+        foreL: [-66, 0, 0], handL: [-18, 0, 0], clavR: [0, 0, -8],
+        armR: [-64, -14, 20], foreR: [-92, 0, 0], handR: [-12, 0, 0],
+        thighL: [-24, 10, 5], shinL: [36, 0, 0], footL: [-12, -8, 0],
+        thighR: [2, -12, -5], shinR: [28, 0, 0], footR: [-30, 10, 0],
+      },
+    },
+    B: {
+      root: { p: [0.1, 0.855, 0.61], r: [0, 186, 0] },
+      j: {
+        hips: [-3, 8, 0], spine: [12, -6, 0], chest: [6, 6, 0],
+        neck: [-2, 0, 0], clavL: [0, 0, 8], armL: [-62, 14, -13],
+        foreL: [-92, 0, 0], handL: [-12, 0, 0], clavR: [6, 0, -12],
+        armR: [-74, -16, 10], foreR: [-68, 0, 0], handR: [-18, 0, 0],
+        thighL: [-22, 10, 5], shinL: [34, 0, 0], footL: [-12, -8, 0],
+        thighR: [3, -12, -5], shinR: [26, 0, 0], footR: [-30, 10, 0],
+      },
+    },
+  }),
+
+  CLINCH_WORK: P('CLINCH_WORK', {
+    // Пуммелинг: A вкручивает правую руку под плечо, B отвечает своей.
+    // Головы меняются местами, ноги подшагивают.
+    name: 'Клинч — перехват подхвата',
+    variantOf: 'CLINCH',
+    A: {
+      root: { p: [-0.007, 0.838, -0.234], r: [0, 6, 0] },
+      j: {
+        hips: [-11.5, -10, -5.2], spine: [19.5, 3.5, 0], chest: [15.3, 0, 10.6],
+        neck: [-28.1, 8.4, 11.6], head: [2, 0, 0], clavL: [22.7, -3.7, 23.8],
+        armL: [-97.2, 43.6, 14.6], foreL: [-127.7, 15.2, 25.8], clavR: [15.4, 28.9, 18],
+        armR: [-93.7, -33, 27.7], foreR: [-88, 0, 9.5], thighL: [-34, 12, 6],
+        shinL: [48, 0, 0], footL: [-18, -8, 0], thighR: [16, -14, -6],
+        shinR: [30, 0, 0], footR: [-46, 12, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.118, 0.821, 0.281], r: [0, 186, 0] },
+      j: {
+        hips: [-10, -14.7, 6], spine: [15, -1.4, 0.8], chest: [4.3, 3, 6.1],
+        neck: [10, -0.6, 4.8], head: [-11.4, 0, 1.6], clavL: [33.3, -0.7, 24.9],
+        armL: [-83.1, 35.4, 7], foreL: [-95.2, -31.3, -33.6], clavR: [7.3, 3.2, 2.8],
+        armR: [-93.3, -14.3, 25.6], foreR: [-76.4, -2.2, 1.6], thighL: [-26, 12, 6],
+        shinL: [40, 0, 0], footL: [-18, -8, 0], thighR: [8, -14, -6],
+        shinR: [38, 0, 0], footR: [-46, 12, 0],
+      },
+    },
+  }),
+
+  CLOSED_GUARD_WORK: P('CLOSED_GUARD_WORK', {
+    // A выпрямляется и вжимает бёдра вниз, B уходит на бок и подбирает
+    // угол, перекрещивая ноги выше.
+    name: 'Закрытый гард — осанка против угла',
+    variantOf: 'CLOSED_GUARD',
+    A: {
+      root: { p: [-0.06, 0.604, -0.372], r: [0, 0, 0] },
+      j: {
+        hips: [24, -30.7, 27.1], spine: [35, 6.9, 15.1], chest: [16.1, -7.4, 15.2],
+        neck: [1.8, 0, 0], head: [-2, 0, 0], clavL: [29.4, -5.1, -27.3],
+        armL: [-26.2, 11.2, 31.2], foreL: [-57.6, -13.2, -27.5], clavR: [-44, 69.9, 6.6],
+        armR: [-86.9, -19.1, 34.4], foreR: [-35.5, 9.9, 23.4], thighL: [16.3, 8.3, 14],
+        shinL: [92, 0, 0], footL: [24, 0, 0], thighR: [29.1, -15.7, -26.7],
+        shinR: [92, 0, 0], footR: [24, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.001, 0.373, -0.04], r: [-84, 168, 0] },
+      j: {
+        hips: [18.3, 30, 12], spine: [13.1, 31.8, 21.1], chest: [6.5, 20.1, -23],
+        neck: [-18, 0, 0], head: [10, 0, 0], clavL: [-0.7, -0.7, -5.8],
+        armL: [-100.6, 28.8, -30.4], foreL: [-75.4, 1.6, 1.6], clavR: [-35, 24.8, -18.6],
+        armR: [-118, -33.2, 11.1], foreR: [-80.5, 19.1, 15.3], thighL: [-67.6, 14.6, 5.4],
+        shinL: [149.1, -2.9, -10.7], footL: [-10, 0, 0], thighR: [-114.6, 23.9, 5.3],
+        shinR: [141.7, -2.1, 13.2], footR: [-10, 0, 0],
+      },
+    },
+  }),
+
+  OPEN_GUARD_WORK: P('OPEN_GUARD_WORK', {
+    // B выпрямляет ноги и отталкивает A от себя, дотягивая рукава;
+    // A садится ниже и сбивает колени вниз.
+    name: 'Открытый гард — толчок стопами',
+    variantOf: 'OPEN_GUARD',
+    A: {
+      root: { p: [-0.083, 0.6, -0.538], r: [0, 0, 0] },
+      j: {
+        hips: [4.3, 0.1, -18.7], spine: [29.6, -8.2, -0.7], chest: [22, 1.5, 3.8],
+        neck: [14, 0, 0], clavL: [-5.2, -16.5, 24.4], armL: [-97.1, 35.1, -20.9],
+        foreL: [-28.7, -0.7, 12.2], clavR: [-12.7, 35.3, -14.5], armR: [-85.8, -21.4, 25.6],
+        foreR: [-37, 0, -2.9], thighL: [-26, 6.5, 10], shinL: [98, 0, 0],
+        footL: [16, 0, 0], thighR: [-47, -7.2, -8], shinR: [74.8, 0, -3],
+        footR: [-20, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0.03, 0.294, 0.066], r: [-78, 180, 0] },
+      j: {
+        hips: [32.8, -6, 0.8], spine: [6.8, -3.7, -11.2], chest: [6.8, 6, 3.8],
+        neck: [-20, 0, 0], head: [12, 0, 0], clavL: [-1.4, -20.9, 3.1],
+        armL: [-93.7, 33.1, -25.4], foreL: [-93.2, -5.1, -4.4], clavR: [-5.1, 19.5, -4.5],
+        armR: [-84.9, -30.7, 32.3], foreR: [-93.5, -4.4, -4.4], thighL: [-95.7, 18.1, 14.3],
+        shinL: [24.1, -2.9, 0.1], footL: [-24, 0, 0], thighR: [-101.5, -7.7, -11.2],
+        shinR: [26.4, 3.8, 2.3], footR: [-20, 0, 0],
+      },
+    },
+  }),
+
+  KNEE_ON_BELLY_WORK: P('KNEE_ON_BELLY_WORK', {
+    // A переносит колено дальше поперёк и шире ставит опорную ногу;
+    // B ставит раму в колено и подбирает своё, чтобы креветкой уйти.
+    name: 'Колено на животе — вес вниз',
+    variantOf: 'KNEE_ON_BELLY',
+    A: {
+      root: { p: [0.065, 0.606, 0.075], r: [-6, 100, 0] },
+      j: {
+        hips: [-26.2, -18, 4], spine: [-6.7, -14.2, 52.8], chest: [-17.2, -2.2, 35.3],
+        neck: [17.5, 0, -0.7], head: [-16, 0, 0], clavL: [6.1, 12.9, 10.3],
+        armL: [-59.6, 17.9, -28.4], foreL: [-84.7, -0.7, -2.1], clavR: [-7.4, -17.9, 4],
+        armR: [-58.2, -1.8, 36.3], foreR: [-50.8, 30.2, 22.7], thighL: [-108, 16, 22],
+        shinL: [48, 0, 0], footL: [8, 0, 0], thighR: [-26, -21.5, -54.2],
+        shinR: [27.6, -0.7, -18], footR: [-30, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.165, 0.253, 0.053], r: [-90, 180, 0] },
+      j: {
+        hips: [12, 52.5, -4.5], spine: [-15.5, -10.9, 15], chest: [4.5, 26, 21],
+        neck: [-22, 0, 0], head: [20, -24, 0], clavL: [1.5, 22.5, 30.4],
+        armL: [-99.4, 46.1, -24.6], foreL: [-95.7, -4.5, -2.9], clavR: [-20.8, -11.1, -32.8],
+        armR: [-61.4, -23.1, 26.9], foreR: [-90, 0, 0], thighL: [-50, 6, 12],
+        shinL: [68, 0, 0], footL: [-16, 0, 0], thighR: [-20, -6, -10],
+        shinR: [40, 0, 0], footR: [-16, 0, 0],
+      },
+    },
+  }),
+
+  TURTLE_WORK: P('TURTLE_WORK', {
+    // A обходит к ближнему боку и заводит крюк коленом; B шагает вперёд
+    // и подбирает локти к коленям, закрываясь плотнее.
+    name: 'Черепаха — крюк против движения вперёд',
+    variantOf: 'TURTLE',
+    A: {
+      root: { p: [0.056, 0.69, -0.515], r: [10, 26, 0] },
+      j: {
+        hips: [2.3, 28.1, 25.7], spine: [44.8, 14.8, 12.8], chest: [74.4, 19.3, 6],
+        neck: [16.8, 0, 1.5], head: [-15.7, 2.3, 0.8], clavL: [61, -29.8, 49.1],
+        armL: [-54.5, 30.9, -27.5], foreL: [-85.1, 19.6, 23.3], clavR: [-14.2, 21.8, -26.5],
+        armR: [-102.2, -14.6, 60.9], foreR: [-59.2, -11.7, -11.2], thighL: [-30, 10, 14],
+        shinL: [96, 0, 0], footL: [8, 0, 0], thighR: [-38, -22, -22],
+        shinR: [96, 0, 0], footR: [14, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.055, 0.398, 0.04], r: [64, 176, 0] },
+      j: {
+        hips: [16.5, 15, 11.4], spine: [-36.5, 29.4, 30.8], chest: [-51.9, 48.9, -38.9],
+        neck: [-40.7, 0, 0.8], head: [30.5, -0.7, 3], clavL: [12.9, 34.8, 20.1],
+        armL: [-68.2, 21.3, -20.5], foreL: [-126, 0, 0], clavR: [43.7, -23.8, 22.2],
+        armR: [-23.6, 2.8, 31.8], foreR: [-117, 2.3, 3.8], thighL: [32.5, 63.1, 41.9],
+        shinL: [170.4, -18.6, 11.3], footL: [12.8, 0, 0], thighR: [15.9, 4.7, -52.9],
+        shinR: [165.9, 24.8, -8.2], footR: [12, 0, 0],
+      },
+    },
+  }),
+
+  ARMBAR_WORK: P('ARMBAR_WORK', {
+    // A сводит колени и поднимает таз; B доворачивает большой палец вверх
+    // и тянется свободной рукой на замок — рука при этом остаётся прямой.
+    name: 'Рычаг локтя — сведение колен',
+    variantOf: 'ARMBAR',
+    A: {
+      root: { p: [-0.408, 0.271, 0.39], r: [-90, 90, 0] },
+      j: {
+        hips: [20.8, -6, 8.3], spine: [4, 27.8, 56.3], chest: [14, -2.9, 21.8],
+        neck: [-10, 0, 0], head: [22, 0, 0], clavL: [-20.9, -26.1, 35.1],
+        armL: [-117.7, 16.8, -36.9], foreL: [-94.2, -6, -0.7], clavR: [-0.7, 6.8, -19.9],
+        armR: [-111.2, -16, 40], foreR: [-108.6, -3, 3.1], thighL: [-43.2, 1.5, 51.1],
+        shinL: [27.6, 1.6, -0.7], footL: [-12, 0, 0], thighR: [-14, -5.2, -22.2],
+        shinR: [35.5, -6, 0], footR: [-12, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.056, 0.151, -0.01], r: [-90, 180, 0] },
+      j: {
+        hips: [22.3, 1.6, 6], spine: [4.1, 13.3, 0], chest: [19.3, 8.8, 0.1],
+        neck: [-8, 0, 0], head: [4, 0, 0], clavL: [9.8, 6.1, 56],
+        armL: [-78, 49.8, -12], foreL: [-48.4, 0.1, 15.5], clavR: [54.8, 45.9, -53.9],
+        armR: [-60.4, -20.7, 25.7], foreR: [-73.3, 7.7, 4.6], thighL: [-18, 21.1, 15.3],
+        shinL: [56, 0, 0], footL: [-12, 0, 0], thighR: [-16.2, -6, -8],
+        shinR: [38, 0, 0], footR: [-12, 0, 0],
+      },
+    },
+  }),
+
+  TRIANGLE_WORK: P('TRIANGLE_WORK', {
+    // B уходит на угол, подрезает голеностоп и тянет голову вниз;
+    // A выпрямляется и уводит плечо от петли.
+    name: 'Треугольник — угол и подтяг головы',
+    variantOf: 'TRIANGLE',
+    A: {
+      root: { p: [-0.007, 0.52, -0.304], r: [30, 0, 0] },
+      j: {
+        hips: [-4, 12, -4.5], spine: [12.5, 16.5, 18], chest: [6.8, 21, 15.8],
+        neck: [11.8, 0.8, -4.5], head: [-11.5, -0.7, 0], clavL: [10.6, 0.8, 56.1],
+        armL: [-178.1, -1.5, -61], foreL: [-46.6, 0.1, -4.4], clavR: [-6.5, 34.6, -24.7],
+        armR: [-83.4, -25.9, 36], foreR: [-47.3, 15.8, 15.1], thighL: [8.6, 31.4, 10.1],
+        shinL: [96, 0, 0], footL: [20, 0, 0], thighR: [-10.1, -8.6, -12.9],
+        shinR: [96, 0, 0], footR: [20, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0.064, 0.35, 0.085], r: [-58, 190, 0] },
+      j: {
+        hips: [28.8, 16, -10], spine: [-17.5, -49, -18.7], chest: [-8.5, -0.7, 8.4],
+        neck: [-22, 0, 0], head: [14, 0, 0], clavL: [21.8, -6.6, 24.3],
+        armL: [-117.1, 34.7, -27.1], foreL: [-112.5, 11.4, 3.9], clavR: [0.8, 7.6, -15.1],
+        armR: [-104.7, -24, 34], foreR: [-98, 0, 0], thighL: [-163.9, 15.8, 6.1],
+        shinL: [136, -3.7, -0.7], footL: [-10, 0, 0], thighR: [-57.9, -9.6, -21.2],
+        shinR: [139.5, 0.8, 9.3], footR: [-10, 0, 0],
+      },
+    },
+  }),
+
+  KIMURA_WORK: P('KIMURA_WORK', {
+    // A доворачивает кисть вверх по спине и наваливается; B тянет руку
+    // вниз к своему поясу и вкручивается в него боком.
+    name: 'Кимура — доворот кисти за спину',
+    variantOf: 'KIMURA',
+    A: {
+      root: { p: [0.33, 0.355, 0.245], r: [12, 116, 0] },
+      j: {
+        hips: [-33.5, -14.2, -12.7], spine: [38.3, -8.2, 6.8], chest: [34.9, -10.5, 10.6],
+        neck: [30, 0, 0], head: [-34, 0, 0], clavL: [10.3, 7.6, -44.1],
+        armL: [-89.1, 39.1, -48.5], foreL: [-126.9, -1.5, -0.7], clavR: [-32.3, 0.2, -7.5],
+        armR: [-86.4, -59.6, 32.6], foreR: [-125.2, -6, -4.5], thighL: [-66, 14, 20],
+        shinL: [118, 0, 0], footL: [14, 0, 0], thighR: [-12, 8.1, -16],
+        shinR: [101.8, 1.5, -1.5], footR: [18, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.101, 0.226, -0.011], r: [-90, 180, 8] },
+      j: {
+        hips: [14, 14, 6], spine: [-5.7, 9, 6], chest: [0.8, 7.3, 6],
+        neck: [-26.7, -0.7, 0.8], head: [-6.5, -27.5, 6], clavL: [-7.4, 18.2, 52.6],
+        armL: [-135.9, 53.9, -42.9], foreL: [-93.1, -7.4, 0], clavR: [-26, -43.3, -22.6],
+        armR: [-68.7, -19.7, 33], foreR: [-84, 0, 0], thighL: [-42, 6, 12],
+        shinL: [60, 0, 0], footL: [-16, 0, 0], thighR: [-18, -6, -10],
+        shinR: [36, 0, 0], footR: [-16, 0, 0],
+      },
+    },
+  }),
+
+  GUILLOTINE_WORK: P('GUILLOTINE_WORK', {
+    // B прогибается назад и сводит локти; A подставляет руку и уводит
+    // подбородок в сторону, подшагивая ближе.
+    name: 'Гильотина — прогиб и сведение локтей',
+    variantOf: 'GUILLOTINE',
+    A: {
+      root: { p: [0.041, 0.386, -0.364], r: [50, 0, 0] },
+      j: {
+        hips: [-2.7, -11.2, -6], spine: [28, 6, -6], chest: [5.8, -6.7, -9],
+        neck: [-48.8, -26.9, -16.4], head: [-20, 2.6, -7.5], clavL: [-56, -37.2, 6.7],
+        armL: [-122.7, 95, 45.3], foreL: [-79.8, 24.3, 49.6], clavR: [53.4, 14.5, 4.9],
+        armR: [-54.3, -32.3, 0.8], foreR: [-4, 10, -27.6], thighL: [-9.5, 11.8, 15.1],
+        shinL: [108, 0, 0], footL: [20, 0, 0], thighR: [-1.7, -8, -10.5],
+        shinR: [98, 0, 0], footR: [20, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0, 0.368, 0.15], r: [-48, 180, 0] },
+      j: {
+        hips: [19.3, 17.3, 24.8], spine: [-10, -12.7, -9.7], chest: [-26.5, -10.5, -13.5],
+        neck: [-28, 0, 0], head: [22, 0, 0], clavL: [15.8, 10.5, 18],
+        armL: [-138.3, 62.6, -8.6], foreL: [-134.2, 13.6, 66.6], clavR: [-10.4, -10.4, -35.4],
+        armR: [-154.9, -18.5, 37.1], foreR: [-99.4, -2.9, -8.9], thighL: [-169.2, -22.6, -14.9],
+        shinL: [94.4, -15.7, 14.5], footL: [-10, 0, 0], thighR: [-182.1, -19, 20.4],
+        shinR: [86.1, 23.3, -23.2], footR: [-10, 0, 0],
+      },
+    },
+  }),
+
+  /* ------------------------------------------- and a second lap of it -- */
+  //
+  // A loop between two poses is a metronome, and a long hold reads as one.
+  // Each of the five positions the fight actually lives in gets a second thing
+  // to be doing, so the cycle runs position -> first -> position -> second and
+  // comes back round changed.
+
+  BACK_WORK2: P('BACK_WORK2', {
+    // A ведёт руку к подбородку и подбирает крюки; B отрывает захват
+    // двумя руками и сползает вниз, пряча подбородок.
+    name: 'Спина — охота за рукой',
+    variantOf: 'BACK',
+    A: {
+      root: { p: [0.008, 0.41, -0.38], r: [-22, 8, 6] },
+      j: {
+        hips: [6, 9, -16.6], spine: [24, -12, 6], chest: [22, -3, 15],
+        neck: [24, 0, 0], head: [-20, 14, 0], clavL: [4.5, -4.4, 2.1],
+        armL: [-150.6, 34, -50], foreL: [-104.2, -1.3, 0.8], clavR: [7.5, 18.1, -17.7],
+        armR: [-91.7, -45.3, 3.1], foreR: [-110.4, -55.4, -40.4], thighL: [-62, 12.8, 24.3],
+        shinL: [84, 0, 0], footL: [-14, 0, 0], thighR: [-64.2, -26.2, -31],
+        shinR: [84, -2.2, 0.8], footR: [-14, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0.03, 0.32, -0.026], r: [-16, 4, 4] },
+      j: {
+        hips: [0, -15, -4.5], spine: [-3.4, 1.4, -6], chest: [-1.4, 0.6, -52.4],
+        neck: [2, 10, 0], head: [14, -8, 0], clavL: [-26.8, 3.1, 27.5],
+        armL: [-124.1, 10.2, -35.6], foreL: [-46.4, -2.2, -13.3], clavR: [3.2, 18.2, -45.7],
+        armR: [-83.3, -31.5, 33.6], foreR: [-70.4, 3.9, 3.9], thighL: [-64, 8, 14],
+        shinL: [86, 0, 0], footL: [-10, 0, 0], thighR: [-64, -8, -14],
+        shinR: [86, 0, 0], footR: [-10, 0, 0],
+      },
+    },
+  }),
+
+  RNC_WORK2: P('RNC_WORK2', {
+    // A переставляет замок выше и заводит вторую руку глубже; B прячет
+    // подбородок, вкручивается в душащую руку и упирается пятками.
+    name: 'Удушение — перехват выше',
+    variantOf: 'RNC',
+    A: {
+      root: { p: [-0.026, 0.44, -0.388], r: [-26, 8, 8] },
+      j: {
+        hips: [0, -6.7, -10.5], spine: [24, 0, 6], chest: [-1.4, -12, 3.1],
+        neck: [26, 0, 0], head: [-22, 10, 0], clavL: [13.3, 1.6, 23],
+        armL: [-161.1, 48.6, -25.6], foreL: [-120.4, 5.3, 6], clavR: [9.1, -13.3, -32.1],
+        armR: [-132.6, -27.2, 63.6], foreR: [-121.6, 0.8, 0], thighL: [-66.7, 18.8, 27.1],
+        shinL: [72, 0, 0], footL: [-14, 0, 0], thighR: [-67.5, -16.5, -24],
+        shinR: [75.8, 0, 0], footR: [-14, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.026, 0.39, -0.06], r: [-10, 4, 4] },
+      j: {
+        hips: [2, 8.6, -12.7], spine: [-2, 0.8, -3.7], chest: [-1.5, 8.1, -15.7],
+        neck: [-16, -13.7, -22.2], head: [-13, 21.8, 3.2], clavL: [-9.6, 14.4, 24.3],
+        armL: [-131.7, 36.8, -44.6], foreL: [-106.7, -7.3, -0.7], clavR: [4.8, 3.1, -3.1],
+        armR: [-120.3, -41.8, 35.2], foreR: [-105.2, -5.9, -1.5], thighL: [-62, 8, 14],
+        shinL: [100, 0, 0], footL: [-10, 0, 0], thighR: [-62, -8, -14],
+        shinR: [100, 0, 0], footR: [-10, 0, 0],
+      },
+    },
+  }),
+
+  HALF_GUARD_WORK2: P('HALF_GUARD_WORK2', {
+    // B поднимает щит коленом и отталкивает бедро; A выдёргивает
+    // зажатую ногу назад и роняет бедро на мат.
+    //
+    // Работа тут в ногах, и это второй заход. Первым был написан подхват
+    // против кросс-фейса — он вёл предплечья двоих навстречу друг другу
+    // (правое A держит лацкан B, левое B держит рукав A: они и так лежат
+    // вдоль), и на середине петли предплечья менялись сторонами: 14 см,
+    // которые дуга не умела свести ниже десяти. Дефект замысла, а не дуги.
+    // Здесь руки расходятся, а не сходятся: правая A опускается, левая B
+    // идёт вверх.
+    name: 'Полугард — щит коленом',
+    variantOf: 'HALF_GUARD',
+    A: {
+      root: { p: [0.221, 0.45, -0.08], r: [0, 24, 0] },
+      j: {
+        hips: [3, -24, 24], spine: [25.3, -18, 27], chest: [4.8, -9, 13.1],
+        neck: [15, 0, -0.7], head: [-16, 0, 0], clavL: [-24.5, 13.6, 40.4],
+        armL: [-115.8, 66.7, 7.4], foreL: [-49.3, 8.4, -7.3], clavR: [18.8, -23.2, -5.2],
+        armR: [-31.4, 5.7, -6.1], foreR: [-63.6, 41.4, 18.2], thighL: [-40.7, 10, 14.8],
+        shinL: [112, 0, 0], footL: [10, 0, 0], thighR: [-8.7, 35.7, -13.7],
+        shinR: [108.4, 4.6, -3.7], footR: [18, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.111, 0.253, 0.055], r: [-72, 156, -22] },
+      j: {
+        hips: [23, 2.5, 3.5], spine: [1.8, 24.8, 26.3], chest: [19.6, 4, -9.7],
+        neck: [-8.7, 0, 0], head: [8, 0, 5.3], clavL: [4.7, 10.6, -20.6],
+        armL: [-102.8, 54.4, -16], foreL: [-85.7, -7.2, -4.3], clavR: [2.5, 15.1, -54.1],
+        armR: [-31.3, 37.9, 19.2], foreR: [-26.3, 32.4, 12.2], thighL: [-96, 8, 18],
+        shinL: [98, 0, 0], footL: [-14, 0, 0], thighR: [-52, -39.6, -30.7],
+        shinR: [77.6, -11.9, 12.8], footR: [-14, 0, 0],
+      },
+    },
+  }),
+
+  MOUNT_WORK2: P('MOUNT_WORK2', {
+    // A уводит одну ногу в обвив и садится на бедро; B ставит раму
+    // и подбирает колено, отбирая полугард.
+    name: 'Маунт — обвив против креветки',
+    variantOf: 'MOUNT',
+    A: {
+      root: { p: [-0.039, 0.538, 0.115], r: [0, 0, 0] },
+      j: {
+        hips: [23.1, 22.5, 9.5], spine: [10.2, 33.1, -34.6], chest: [50.2, -19.3, -7.3],
+        neck: [18, 0, 0], head: [-10, 0, 0], clavL: [4.7, -23, -13.4],
+        armL: [-100.8, 13.1, -26.7], foreL: [-94.5, 4.8, 1.6], clavR: [13.1, 3.3, 42],
+        armR: [-96.6, -6.8, 36.7], foreR: [-98.3, -3.6, 3.2], thighL: [-18.7, 16.8, 71.3],
+        shinL: [110, 0, 0], footL: [18, 0, 0], thighR: [18, -16.5, -15.5],
+        shinR: [86, 0, 0], footR: [18, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0.055, 0.275, 0.255], r: [-90, 180, 0] },
+      j: {
+        hips: [22, -16.5, -9], spine: [12.8, 13.3, -5.2], chest: [19.1, 13.8, 18.1],
+        neck: [-14, 0, 0], head: [6, 0, 0], clavL: [-10.2, -46.4, 7.8],
+        armL: [-142.8, 46.4, 12.4], foreL: [-110.1, 9.2, 7.6], clavR: [12.9, 25.6, -17.4],
+        armR: [-178.1, 4.1, 24.6], foreR: [-82.9, 3.2, 0.1], thighL: [-37.6, -9.6, -9.4],
+        shinL: [49.4, 0, 0], footL: [-14, 0, 0], thighR: [-18.9, -6.7, -2.4],
+        shinR: [28.3, 0, 0], footR: [-14, 0, 0],
+      },
+    },
+  }),
+
+  SIDE_CONTROL_WORK2: P('SIDE_CONTROL_WORK2', {
+    // A обходит ногами к голове; B встаёт на мост и вкручивается внутрь,
+    // отбирая место под подхват.
+    name: 'Сторона — шаг на север-юг',
+    variantOf: 'SIDE_CONTROL',
+    A: {
+      root: { p: [0.294, 0.31, 0.17], r: [10, 128, 0] },
+      j: {
+        hips: [-38, -23.7, -19.5], spine: [51.8, -13.7, 22.6], chest: [64, -22, 17.3],
+        neck: [19.3, 4.6, -5.2], head: [-36, 0, 0], clavL: [-8.9, -38.2, -16.6],
+        armL: [-79.9, 41.1, -54], foreL: [-125.9, 8.4, 7.6], clavR: [24.8, -36.6, -16.4],
+        armR: [-40.7, -30, 32.7], foreR: [-138.8, 5.3, -8.8], thighL: [-38.4, 10.3, 15],
+        shinL: [106.6, -8.2, 8.3], footL: [16, 0, 0], thighR: [-20, -29.4, -16.8],
+        shinR: [106, 0, 0], footR: [20, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.12, 0.275, -0.03], r: [-90, 180, 0] },
+      j: {
+        hips: [20, -25.5, 12], spine: [0, -13.2, 6], chest: [16, -5.7, 12],
+        neck: [5.8, 32.4, 6.8], head: [26, 15.4, -10.4], clavL: [-23.8, 0.1, 17],
+        armL: [-123.7, 22.5, -38.4], foreL: [-92.1, 13.6, 3.8], clavR: [3.9, -21, 10.4],
+        armR: [-61.1, -31.7, 10.8], foreR: [-65.1, 5.5, -5.8], thighL: [-42, 6, 12],
+        shinL: [60, 0, 0], footL: [-16, 0, 0], thighR: [-26, -6, -10],
+        shinR: [44, 0, 0], footR: [-16, 0, 0],
+      },
+    },
   }),
 
 };
+
+// A variant is its position doing something, so everything that says *which*
+// position it is comes from the position itself: the label on the HUD, the
+// points it is worth, who is on top, what makes it that position and where the
+// hands are. A variant declares only what it is a variant of and what the two
+// of them look like. Written out twice, the two copies drift — and a variant
+// that has quietly become a different position is exactly the failure the
+// `hold` block exists to catch.
+const VARIANT_OWN = new Set(['id', 'name', 'A', 'B', 'variantOf']);
+for (const p of Object.values(POSES)) {
+  if (!p.variantOf) continue;
+  const base = POSES[p.variantOf];
+  if (!base) throw new Error(`${p.id} is a variant of ${p.variantOf}, which does not exist`);
+  for (const k of Object.keys(base)) if (!VARIANT_OWN.has(k)) p[k] = base[k];
+}
 
 export const POSE_IDS = Object.keys(POSES);
 

@@ -19,9 +19,29 @@ import { POSES, HOLD_LOOPS } from '../src/game/poses.js';
 import { TRANSITIONS } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
+import { JUDGE_STEPS } from './grid.mjs';
 
 const ALL = process.argv.includes('--all');
-const STEPS = 13;
+// Forty-one samples, not thirteen.
+//
+// Thirteen was chosen because a blend is short and the deep part of it is
+// broad. It is not: the deepest moment of a transition is often a single
+// crossing a couple of hundredths of the blend wide, and a grid that coarse
+// steps straight over it. Measured against a sixty-one point sweep, this file
+// was under-reporting eight of the forty-three transitions by seven
+// centimetres or more — TURTLE>STANDING said 7 cm and was 19 — and the worst
+// moment in the whole graph was 25 cm while the summary line said 19.
+//
+// Worse, arc-solve searched on the same thirteen points, so the solver could
+// and did push a collision into the gap between two of them and call it fixed:
+// the mount's second hold loop came out of the solver three centimetres deeper
+// than it went in, and both tools agreed it was clean.
+//
+// Different-sized grids do not fix that — tried, and the solver still came out
+// five centimetres better than this file measured. The solver's grid has to be
+// a *refinement* of this one, which is why both numbers live in grid.mjs and
+// that file refuses to load if they stop lining up.
+const STEPS = JUDGE_STEPS;
 const MAT_Y = 0.05;
 // Two thresholds, because a moment in flight is not a pose.
 //
@@ -82,7 +102,7 @@ for (const tr of BLENDS) {
 }
 
 rows.sort((a, b) => b.worst - a.worst);
-let bad = 0, fails = 0;
+const bad = { hold: 0, move: 0 }, fails = { hold: 0, move: 0 };
 for (const r of rows) {
   // A hold is judged against its own ends, not against a number.
   //
@@ -95,8 +115,9 @@ for (const r of rows) {
   const limit = r.kind === 'hold' ? r.ends + 0.02 : LIMIT;
   const fail = r.kind === 'hold' ? r.ends + 0.03 : FAIL;
   const flag = r.worst > limit || r.sunk > 0.04;
-  if (flag) bad++;
-  if (r.worst > fail || r.sunk > 0.06) fails++;
+  const bucket = r.kind === 'hold' ? 'hold' : 'move';
+  if (flag) bad[bucket]++;
+  if (r.worst > fail || r.sunk > 0.06) fails[bucket]++;
   if (!ALL && !flag) continue;
   const line =
     `${flag ? '!' : ' '} ${r.key.padEnd(28)} worst ${(r.worst * 100).toFixed(0).padStart(3)}cm ` +
@@ -112,12 +133,18 @@ const worstOverall = rows.length ? rows[0].worst : 0;
 const holds = rows.filter((r) => r.kind === 'hold');
 const worstHold = holds.reduce((m, r) => Math.max(m, r.worst), 0);
 const overEnds = holds.reduce((m, r) => Math.max(m, r.worst - r.ends), 0);
+// Two counts, two lines. They were one, and a run with five unsolved hold
+// loops in it reported "43 transitions — 5 too deep to ship" while every
+// transition in the list was fine.
+const verdict = (n, f, b) =>
+  f ? `${f} too deep to ship` : b ? `${b} on the work list, none too deep` : 'all clean';
 console.log(
   `\n${holds.length} hold loops, worst moment ${(worstHold * 100).toFixed(0)}cm — ` +
-  `${(overEnds * 100).toFixed(0)}cm deeper than the poses they run between`
+  `${(overEnds * 100).toFixed(0)}cm deeper than the poses they run between, ` +
+  verdict(holds.length, fails.hold, bad.hold)
 );
 console.log(
   `${rows.length - holds.length} transitions, worst moment ${(worstOverall * 100).toFixed(0)}cm — ` +
-  (fails ? `${fails} too deep to ship` : bad ? `${bad} on the work list, none too deep` : 'all clean')
+  verdict(rows.length - holds.length, fails.move, bad.move)
 );
-if (fails) process.exitCode = 1;
+if (fails.hold + fails.move) process.exitCode = 1;
