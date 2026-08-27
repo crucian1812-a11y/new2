@@ -12,6 +12,7 @@
 
 import { createGL, program, vao, texture, framebuffer, QUAD } from './gl.js';
 import { giWeave, skinTex, tatamiTex, uploadPacked } from './textures.js';
+import { markAtlas, cellRect, MAT_MARKS, GI_PATCHES } from './marks.js';
 import { buildArena } from './arena.js';
 import { BONE_COUNT } from './skeleton.js';
 import { m4, m4mul, m4perspective, m4ortho, m4lookAt, clamp } from '../core/m4.js';
@@ -214,6 +215,29 @@ const OUTLINE_FS = COMMON + `
 out vec4 o;
 void main() { o = vec4(0.012, 0.014, 0.022, 1.0); }`;
 
+// The club marks, sampled out of one atlas.
+//
+// Premultiplied, which is the whole reason a patch can sit on a lit surface
+// without a dark rim: the colour has already been multiplied by its own alpha,
+// so the composite is one multiply-add and bilinear filtering between a letter
+// and the transparency around it stays the colour of the letter.
+const MARKS = `
+uniform sampler2D u_marks;
+
+// The k argument tints the ink without touching its coverage, and every caller
+// has the same use for it: a mark is printed or sewn onto a surface that has a
+// tone, so it takes that surface's scuffs and weave rather than sitting on top
+// of them like a sticker.
+vec3 decal(vec3 base, vec4 cell, vec2 q, float k) {
+  // Sampled unconditionally and masked afterwards: a texture fetch inside a
+  // branch has no defined derivatives, and undefined derivatives on a surface
+  // this size is a mip level chosen per pixel at random.
+  vec4 m = texture(u_marks, cell.xy + clamp(q, 0.0, 1.0) * cell.zw);
+  float on = step(0.0, min(q.x, q.y)) * step(max(q.x, q.y), 1.0);
+  return base * (1.0 - m.a * on) + m.rgb * on * k;
+}
+`;
+
 const SKIN_VS = COMMON + `
 in vec3 a_pos;
 in vec3 a_nrm;
@@ -249,7 +273,7 @@ void main() {
   gl_Position = u_viewProj * p;
 }`;
 
-const SKIN_FS = COMMON + LIGHTING + `
+const SKIN_FS = COMMON + LIGHTING + MARKS + `
 in vec3 v_world;
 in vec3 v_nrm;
 in vec2 v_uv;
@@ -262,6 +286,8 @@ uniform vec3 u_giCol;
 uniform vec3 u_beltCol;
 uniform vec3 u_skinCol;
 uniform float u_flash;   // hit flash, 0..1
+uniform vec4 u_patch[3];      // centre u, half width, centre v, half height
+uniform vec4 u_patchCell[3];
 
 void main() {
   int m = int(v_mat + 0.5);
@@ -367,6 +393,22 @@ void main() {
     // V is most of what says gi rather than pyjamas at any distance.
     if (m == 4) base *= 0.86;
     albedo = base * t.a;
+
+    // Patches. The baker's UV runs round the body — the middle of the chest is
+    // +1.79, the middle of the back is -1.88 — and up it in metres times eight,
+    // both measured in the bind pose, so a patch stays sewn to the same square
+    // of cloth however the fighter is folded up. u winds one way round the
+    // body, so on the back and on the chest alike the outward-facing direction
+    // is falling u, which is why both patches read the right way round from a
+    // single sign.
+    if (m == 1 || m == 2) {
+      for (int i = 0; i < 3; i++) {
+        vec2 q = vec2(0.5 - (v_uv.x - u_patch[i].x) / (2.0 * u_patch[i].y),
+                      0.5 + (v_uv.y - u_patch[i].z) / (2.0 * u_patch[i].w));
+        albedo = decal(albedo, u_patchCell[i], q, t.a);
+      }
+    }
+
     // Light does not reach the bottom of a crease. This is the half of a fold
     // that survives at distance, after the normal has stopped being resolvable.
     albedo *= 1.0 - max(0.0, -fold) * 0.055;
@@ -403,7 +445,7 @@ void main() {
   gl_Position = u_viewProj * vec4(a_pos, 1.0);
 }`;
 
-const STATIC_FS = COMMON + LIGHTING + `
+const STATIC_FS = COMMON + LIGHTING + MARKS + `
 in vec3 v_world;
 in vec3 v_nrm;
 in vec2 v_uv;
@@ -415,6 +457,9 @@ uniform vec3 u_matInner;
 uniform vec3 u_matOuter;
 uniform float u_area;
 uniform float u_time;
+uniform vec4 u_cell[3];    // crest, corner roundel, wordmark
+uniform vec4 u_matMark;    // crest size, corner offset, corner size, edge offset
+uniform vec2 u_matEdge;    // wordmark length and height, metres
 
 void main() {
   int m = int(v_mat + 0.5);
@@ -430,6 +475,37 @@ void main() {
     N = applyBump(N, v_world, v_uv * 0.5, t.rgb * 2.0 - 1.0, 1.15);
     float inArea = step(max(abs(v_world.x), abs(v_world.z)), u_area * 0.5);
     albedo = mix(u_matOuter, u_matInner, inArea) * t.a;
+
+    // What is printed on the mat. Laid out the way a competition area is: the
+    // club crest in the middle of the fighting square, the affiliation in the
+    // four corners of the safety border, the club's name along each edge.
+    //
+    // Nothing here is mirrored. Folding the world with abs() would give all
+    // four corners for one sample and reverse the lettering on two of them,
+    // which is the difference between a mat and a mat seen in a mirror. So the
+    // corner is reached by translation — sign() picks the quadrant, and the
+    // local frame keeps its handedness.
+    //
+    // Printed, so it wears with the mat (t.a is the tatami's own scuffing) and
+    // it is never brighter than the painted boundary line — 0.86 — because
+    // nothing on a mat is brighter than the paint on it.
+    float ink = t.a * 0.93;
+    vec2 crest = vec2(v_world.x / u_matMark.x + 0.5, 0.5 - v_world.z / u_matMark.x);
+    albedo = decal(albedo, u_cell[0], crest, ink);
+
+    vec2 rel = v_world.xz - sign(v_world.xz) * u_matMark.y;
+    albedo = decal(albedo, u_cell[1], vec2(rel.x / u_matMark.z + 0.5, 0.5 - rel.y / u_matMark.z), ink);
+
+    // The edge strips read from outside the mat, which means the tops of the
+    // letters point inwards: standing in the stands you are looking at the far
+    // side of the type, not the near side.
+    float ax = abs(v_world.x), az = abs(v_world.z);
+    bool onX = ax > az;
+    float along = onX ? -v_world.z * sign(v_world.x) : v_world.x * sign(v_world.z);
+    float across = onX ? ax : az;
+    albedo = decal(albedo, u_cell[2],
+      vec2(along / u_matEdge.x + 0.5, 0.5 - (across - u_matMark.w) / u_matEdge.y), ink);
+
     // The white boundary line, painted on.
     float d = max(abs(v_world.x), abs(v_world.z));
     float line = smoothstep(0.06, 0.03, abs(d - u_area * 0.5));
@@ -626,6 +702,18 @@ export class Renderer {
     uploadPacked(gl, skinTex(256), this.texSkin);
     this.texTatami = texture(gl, { width: 1, height: 1, mips: true });
     uploadPacked(gl, tatamiTex(512), this.texTatami);
+    // The marks are the only texture that must not tile: it is an atlas, and a
+    // wrapped fetch would pull the corner of one crest into the edge of another.
+    const marks = markAtlas();
+    this.texMarks = texture(gl, {
+      width: marks.size, height: marks.size, data: marks.data,
+      wrap: gl.CLAMP_TO_EDGE, mips: true,
+    });
+    this.markCells = new Float32Array([
+      ...cellRect('aresRound'), ...cellRect('olavoRound'), ...cellRect('wordmark'),
+    ]);
+    this.patchRects = new Float32Array(GI_PATCHES.flatMap((p) => [p.u, p.du, p.v, p.dv]));
+    this.patchCells = new Float32Array(GI_PATCHES.flatMap((p) => cellRect(p.cell)));
 
     this.arena = buildArena();
     this.arenaVAO = vao(gl, this.progStatic.p, [
@@ -806,6 +894,13 @@ export class Renderer {
     gl.uniform3f(this.progStatic.u.u_matOuter, 0.40, 0.235, 0.045);
     gl.uniform1f(this.progStatic.u.u_area, 8);
     gl.uniform1f(this.progStatic.u.u_time, time);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.texMarks);
+    gl.uniform1i(this.progStatic.u.u_marks, 2);
+    gl.uniform4fv(this.progStatic.u.u_cell, this.markCells);
+    gl.uniform4f(this.progStatic.u.u_matMark,
+      MAT_MARKS.crest.size, MAT_MARKS.corner.at, MAT_MARKS.corner.size, MAT_MARKS.edge.at);
+    gl.uniform2f(this.progStatic.u.u_matEdge, MAT_MARKS.edge.len, MAT_MARKS.edge.height);
     gl.bindVertexArray(this.arenaVAO);
     gl.drawElements(gl.TRIANGLES, this.arena.count, gl.UNSIGNED_INT, 0);
 
@@ -835,6 +930,11 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.texSkin);
     gl.uniform1i(this.progSkin.u.u_skin, 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, this.texMarks);
+    gl.uniform1i(this.progSkin.u.u_marks, 2);
+    gl.uniform4fv(this.progSkin.u.u_patch, this.patchRects);
+    gl.uniform4fv(this.progSkin.u.u_patchCell, this.patchCells);
     for (const f of fighters) {
       gl.uniformMatrix4fv(this.progSkin.u.u_bones, false, f.skeleton.skin);
       gl.uniform3fv(this.progSkin.u.u_giCol, f.giCol);

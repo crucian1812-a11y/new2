@@ -17,6 +17,7 @@ const steps = [
   ['pose lint', 'pose-check.mjs', []],
   ['transition lint', 'blend-check.mjs', []],
   ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
+  ['club marks', 'mark-check.mjs', []],
   ['match simulation', 'sim-check.mjs', ['400']],
 ];
 if (withBrowser) steps.push(['browser smoke', 'smoke.mjs', []]);
