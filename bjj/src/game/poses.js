@@ -432,45 +432,65 @@ export const POSES = {
     name: 'Рычаг локтя',
     label: 'ARMBAR',
     points: 4, top: 'A', ground: true, submission: 'joint', from: 'MOUNT',
+    // Authored, not relaxed into shape.
+    //
+    // The solver could satisfy every constraint on this position with the two
+    // of them lying side by side, because the thing that makes an armbar an
+    // armbar is a *layout*: the two spines cross at right angles, A's hips are
+    // jammed into the shoulder of the trapped arm, and A's legs run out across
+    // the man underneath — one over the chest, one over the face. That is a
+    // frame to be worked out on paper, not searched for.
+    //
+    // B lies along +Z with his head at the far end. A lies across him with his
+    // head at -X, which is the yaw that puts a supine fighter's head that way:
+    // pitch -90 lays him on his back with his head at -Z, and 90 degrees of yaw
+    // swings it round to -X. A's legs then leave his hips towards +X, which is
+    // straight over B, and rolling the thighs about their own axis — which for
+    // a fighter in this attitude is the world's vertical — splays one leg
+    // towards B's head and one towards his hips without lifting either.
     A: {
-      root: { p: [-0.004, 0.34, 0.36], r: [-54, 176, 0] },
+      root: { p: [-0.374, 0.27, 0.39], r: [-90, 90, 0] },
       j: {
-        hips: [14, 15.8, 6], spine: [-28.7, 20.3, 21.1], chest: [-12, 28.5, 29.4], neck: [-10, 0, 0], head: [8, 0, 0],
-        clavL: [-27.7, 29.4, 57.9], armL: [-97.2, 16, -42.1], foreL: [-122.8, 21.1, 31.6],
-        clavR: [-52.4, -12.7, -50.1], armR: [-68.1, -31.5, 34.1], foreR: [-116.9, -35, -34.5],
-        thighL: [-68.7, 9.5, 12], shinL: [26, 0, 0], footL: [-16, 0, 0],
-        thighR: [-66.7, -17, -20], shinR: [30, 0, 0], footR: [-16, 0, 0],
+        hips: [16, -12, 1.5], spine: [16, 27.8, 30], chest: [20, -0.7, 30], neck: [-16, 0, 0], head: [22, 0, 0],
+        clavL: [-11.2, -14.2, 30.5], armL: [-104.2, 22.8, -38.5], foreL: [-84, -6, -0.7],
+        clavR: [-3, 6.8, -21.5], armR: [-102, -22, 34], foreR: [-88.5, 2.3, 2.3],
+        thighL: [-32.2, 0, 51.3], shinL: [24.3, 0.8, -0.7], footL: [-12, 0, 0],
+        thighR: [-6, -4.5, -32.2], shinR: [42, -6, 0], footR: [-12, 0, 0],
       },
     },
     B: {
-      root: { p: [-0.052, 0.211, -0.326], r: [-90, 176, 18] },
+      root: { p: [-0.03, 0.14, 0.02], r: [-90, 180, 0] },
       j: {
-        hips: [-2, -3, -6], spine: [-6, 0, 0], chest: [-4, 0, 2.3], neck: [-17.5, 0.8, 0.8], head: [14, 0, 0],
-        clavL: [0, 0, 20], armL: [-176, 20, -26.2], foreL: [-6.7, 42.2, 0.8],
-        clavR: [-1.5, -17.2, -20.1], armR: [-87.3, -27.2, 29.5], foreR: [-105.4, 0, -0.7],
-        thighL: [-30, 6, 12], shinL: [50, 0, 0], footL: [-14, 0, 0],
-        thighR: [-22, -6, -10], shinR: [44, 0, 0], footR: [-14, 0, 0],
+        hips: [12, 6.8, 0], spine: [4, 11.3, 0], chest: [12, 6.8, 12.8], neck: [-14, 0, 0], head: [10, 0, 0],
+        // The trapped arm reaches across to A's chest, which is what pulls it
+        // straight; the free one is stacked under him where it can do nothing.
+        clavL: [1.5, -6, 44], armL: [-82, 38, -18], foreL: [-38, -3, 6],
+        clavR: [30, 30, -42], armR: [-55.7, -17, 30], foreR: [-59.2, 8.3, 9],
+        thighL: [-16, 6, 10], shinL: [42, 0, 0], footL: [-12, 0, 0],
+        thighR: [-16.2, -6, -8], shinR: [38, 0, 0], footR: [-12, 0, 0],
       },
     },
     hold: [
-      // The armbar is the hips, not the arms: they are pressed into the
-      // shoulder of the trapped arm, that arm is between the thighs, and both
-      // of A's legs are down across B — one over the chest, one over the face.
-      // Without the last two the solver is happy to leave A on his back with
-      // his legs in the air next to a man who is not being armbarred.
-      { of: 'A.hips', near: 'B.armL', within: 0.26 },
+      // The hips, not the arms. They are pressed into the shoulder of the
+      // trapped arm and that arm is between the thighs.
+      { of: 'A.hips', near: 'B.armL', within: 0.24 },
       { straddle: 'B.armL', with: ['A.thighL', 'A.thighR'], by: 0.07 },
-      // Lying across him, not lying next to him: one leg over the chest, one
-      // over the face, and both of them down.
+      // Straight, which is the technique — and stated as a distance rather
+      // than as a height, because an arm extended towards a man lying beside
+      // you is horizontal. The earlier version asked for it to point at the
+      // ceiling and got a pose nobody in this sport has ever been in.
+      { of: 'B.handL', far: 'B.armL', atLeast: 0.46 },
+      // Lying across him, not next to him, and neither leg in the air.
+      { of: 'A.chest', below: 0.44 },
       { of: 'A.shinL', near: 'B.chest', within: 0.3 },
-      { of: 'A.shinR', near: 'B.head', within: 0.32 },
+      { of: 'A.shinR', near: 'B.head', within: 0.34 },
       { of: 'A.shinL', below: 0.42 },
       { of: 'A.shinR', below: 0.42 },
     ],
     grips: [
       { role: 'A', hand: 'L', point: 'wristL' },
       { role: 'A', hand: 'R', point: 'wristL' },
-          { role: 'B', hand: 'R', point: 'wristL', self: true },
+      { role: 'B', hand: 'R', point: 'wristL', self: true },
     ],
   }),
 

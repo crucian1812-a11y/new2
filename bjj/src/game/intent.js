@@ -15,6 +15,7 @@
 //   above     one point is at least this far over another, vertically
 //   below     one point is no higher than this off the mat
 //   near      one point is within this far of another, along the mat
+//   far       one point is at least this far from another, in three dimensions
 //   straddle  two points are on opposite sides of a body's own left-right axis
 //
 // The pose solver pays for breaking them and pose-check reports them, so a pose
@@ -57,6 +58,11 @@ export function violations(skel, hold, slack = 0) {
       const a = point(skel, h.of);
       const miss = a[1] - h.below - slack;
       if (miss > 0) out.push({ miss, why: `${h.of} is ${(a[1] * 100).toFixed(0)}cm up in the air` });
+    } else if (h.far) {
+      const a = point(skel, h.of), b = point(skel, h.far);
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+      const miss = (h.atLeast ?? 0.4) - d - slack;
+      if (miss > 0) out.push({ miss, why: `${h.of} is only ${(d * 100).toFixed(0)}cm from ${h.far}` });
     } else if (h.near) {
       const a = point(skel, h.of), b = point(skel, h.near);
       const d = Math.hypot(a[0] - b[0], a[2] - b[2]);
