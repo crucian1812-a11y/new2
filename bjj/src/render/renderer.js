@@ -107,6 +107,35 @@ vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap,
 // Perturb the interpolated normal by a tangent-space map without a real
 // tangent frame. Screen-space derivatives give a frame that is correct enough
 // for cloth weave and skin pores, and it costs nothing to store.
+// The folds in a gi.
+//
+// The weave texture is right and it is not enough: at three metres a basket
+// weave averages out to a flat tone, and a gi at three metres is not flat — it
+// is a stiff cotton jacket with a fold at every elbow, a gathering at the belt
+// and a hang down the back. That large scale is what was missing and it is why
+// the cloth read as painted plastic.
+//
+// Three stretched waves whose frequencies do not divide each other, so nothing
+// repeats visibly down a sleeve, and no texture to upload. The v coordinate
+// runs along the limb in both bakers, so the creases come out across it, which
+// is the way cloth actually gathers.
+float giFold(vec2 uv) {
+  float a = sin(uv.y * 5.3 + sin(uv.x * 2.1) * 1.7);
+  float b = sin(uv.y * 8.9 - uv.x * 1.3 + 2.2);
+  float c = sin(uv.x * 3.7 - uv.y * 1.9 + 0.7);
+  return a * 0.5 + b * 0.3 + c * 0.2;
+}
+
+// Tilt a normal by the screen-space slope of a height field. No tangent frame
+// needed, which is what makes it worth doing for something procedural.
+vec3 bumpFromHeight(vec3 N, vec3 world, float h, float amount) {
+  vec3 dpx = dFdx(world), dpy = dFdy(world);
+  float hx = dFdx(h), hy = dFdy(h);
+  vec3 g = cross(dpy, N) * hx + cross(N, dpx) * hy;
+  float inv = inversesqrt(max(dot(dpx, dpx), dot(dpy, dpy)) + 1e-9);
+  return normalize(N - g * inv * amount);
+}
+
 vec3 applyBump(vec3 N, vec3 world, vec2 uv, vec3 tn, float amount) {
   vec3 dp1 = dFdx(world), dp2 = dFdy(world);
   vec2 duv1 = dFdx(uv), duv2 = dFdy(uv);
@@ -317,10 +346,19 @@ void main() {
   } else {
     vec4 t = texture(u_cloth, v_uv);
     N = applyBump(N, v_world, v_uv, t.rgb * 2.0 - 1.0, 0.9);
+
+    // Folds, on top of the weave. A belt is a tight roll and does not fold;
+    // everything else does.
+    float fold = m == 3 ? 0.0 : giFold(v_uv);
+    N = bumpFromHeight(N, v_world, fold, 0.0075);
+
     vec3 base = m == 3 ? u_beltCol : u_giCol;
     if (m == 2) base *= 0.97;                  // trousers, very slightly duller
     if (m == 4) base *= 1.04;                  // lapel, a doubled layer of cloth
     albedo = base * t.a;
+    // Light does not reach the bottom of a crease. This is the half of a fold
+    // that survives at distance, after the normal has stopped being resolvable.
+    albedo *= 1.0 - max(0.0, -fold) * 0.055;
     rough = m == 3 ? 0.72 : 0.88; spec = m == 3 ? 0.3 : 0.12; wrap = 0.32;
   }
 

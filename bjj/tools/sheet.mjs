@@ -26,14 +26,16 @@ const ids = await page.evaluate(() => Object.keys(window.__bjj.POSES));
 for (const id of ids) {
   await page.evaluate((p) => {
     window.__bjj.setPose(p);
-    // Park the camera on a fixed three-quarter angle so poses can be compared.
+    // Park the camera on a fixed three-quarter angle so poses can be compared,
+    // but leave the shot itself alone. A contact sheet shot on its own camera
+    // is a sheet of pictures nobody will ever see; the point is to judge the
+    // frame the player gets, so distance, height and lens come from the game's
+    // own shot for this position.
     const c = window.__bjj.camera;
     c.orbit = c.targetOrbit = 2.5;
     c.cutHold = 99;
-    c.dist = window.__bjj.POSES[p].ground ? 2.4 : 3.9;
-    c.height = window.__bjj.POSES[p].ground ? 0.85 : 1.6;
   }, id);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(900);
   await page.screenshot({ path: `${out}/${id}.png` });
   console.log(id);
 }

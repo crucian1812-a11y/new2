@@ -21,7 +21,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { readMixamo } from './mixamo.mjs';
 import { Skeleton, BONES, BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
-import { buildFighterMesh } from '../src/render/body.js';
+import { buildGiTrim } from '../src/render/body.js';
 
 const argv = process.argv.slice(2);
 const SRC = argv.find((a) => !a.startsWith('-')) || 'bjj/art/mixamo/body-block.fbx';
@@ -285,8 +285,8 @@ function classify(mesh, clusters) {
   // part that is wider than it is thick by a factor of two.
   if (bones.has('LeftHand') || bones.has('RightHand')) return { kind: 'body', mat: 0 };
   if (bot < 0.12 && top < 0.2) return { kind: 'shoes', mat: -1 };
-  if (bot > 0.42) return { kind: 'shirt', mat: NOGI ? 1 : -1 };
-  return { kind: 'trousers', mat: NOGI ? 2 : -1 };
+  if (bot > 0.42) return { kind: 'shirt', mat: 1 };
+  return { kind: 'trousers', mat: 2 };
 }
 
 const P = [], NRM = [], BONE = [], WT = [], MAT = [], IDX = [];
@@ -347,21 +347,203 @@ for (const p of parts) {
 
 /* ----------------------------------------------------------------- the gi */
 
-// Built in the rig's own bind pose, which is exactly the space the retargeted
-// body now lives in, so the two meet without any fitting step at all. That is
-// the payoff for warping the character onto our skeleton rather than adopting
-// theirs: everything else in the project already speaks this one rig.
+function normals(P, idx) {
+  const N = new Float64Array(P.length);
+  for (let t = 0; t < idx.length; t += 3) {
+    const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    for (const o of [a, b, c]) { N[o] += nx; N[o + 1] += ny; N[o + 2] += nz; }
+  }
+  let zero = 0;
+  for (let i = 0; i < N.length; i += 3) {
+    const l = Math.hypot(N[i], N[i + 1], N[i + 2]);
+    if (l < 1e-12) { N[i] = 0; N[i + 1] = 1; N[i + 2] = 0; zero++; }
+    else { N[i] /= l; N[i + 1] /= l; N[i + 2] /= l; }
+  }
+  if (zero) console.warn(`warning: ${zero} degenerate normals`);
+  return N;
+}
+
+
+// The gi is the body, pushed out.
+//
+// The first version wrapped the rig in body.js's tubes — a stack of twelve-sided
+// cylinders of fixed radius, sized for the procedural mannequin they were
+// written for. On an actual human body they read as a sack: barrel torso,
+// spherical shoulders, and a hard ring where one cylinder met the next. A gi is
+// loose, but it is loose *over a person*, and the shape it takes is the
+// person's shape plus a couple of centimetres of cotton.
+//
+// So the garment is built from the body's own triangles. Take the part of the
+// mesh the jacket covers, copy it, push every vertex out along its normal by
+// the thickness of the cloth, and hem the open edges back down to the skin. It
+// fits by construction, it carries the body's own skin weights so it deforms
+// with it for free, and it costs nothing to author.
+//
+// Only the pieces the body has no shape for come from body.js: the collar and
+// the belt, which are not offsets of anything.
+
+// The garment regions, in the bind pose. The rig stands with its arms down, so
+// every hem on a gi — the sleeve, the trouser cuff, the collar — is a
+// horizontal plane, and a plane gives a clean edge.
+function garmentOf(y, boneName, beltY, collarY, sleeveY, cuffY) {
+  const arm = ['clavL', 'clavR', 'armL', 'armR'].includes(boneName);
+  const fore = boneName === 'foreL' || boneName === 'foreR';
+  const torso = ['spine', 'chest', 'neck'].includes(boneName);
+  const leg = ['thighL', 'thighR', 'shinL', 'shinR'].includes(boneName);
+
+  if (y > collarY) return 0;                                   // bare neck and head
+  if (arm) return 1;
+  if (fore) return y > sleeveY ? 1 : 0;                        // mid-forearm sleeve
+  if (torso) return 1;
+  if (boneName === 'hips') return y > beltY - 0.14 ? 1 : 2;
+  if (leg) return y > cuffY ? 2 : 0;                           // bare ankles and feet
+  return 0;
+}
+
+function inflate(want, thickness, mat) {
+  // Triangles all of whose corners are in the region. A triangle straddling the
+  // hem is left out, and the boundary it leaves behind is what gets stitched.
+  const keep = [];
+  for (let t = 0; t < IDX.length; t += 3) {
+    const a = IDX[t], b = IDX[t + 1], c = IDX[t + 2];
+    if (MAT[a] !== 0 || MAT[b] !== 0 || MAT[c] !== 0) continue;   // skin only
+    if (want(a) && want(b) && want(c)) keep.push(a, b, c);
+  }
+  if (!keep.length) return 0;
+
+  // One offset copy per vertex used, and one un-offset copy for the hem, made
+  // only where the hem needs it.
+  const outer = new Map();
+  const addOuter = (v) => {
+    let n = outer.get(v);
+    if (n !== undefined) return n;
+    n = P.length / 3;
+    P.push(pos0(v, 0) + NRM0[v * 3] * thickness,
+           pos0(v, 1) + NRM0[v * 3 + 1] * thickness,
+           pos0(v, 2) + NRM0[v * 3 + 2] * thickness);
+    BONE.push(BONE[v * 2], BONE[v * 2 + 1]);
+    WT.push(WT[v * 2], WT[v * 2 + 1]);
+    MAT.push(mat);
+    outer.set(v, n);
+    return n;
+  };
+
+  const tris = [];
+  for (let t = 0; t < keep.length; t += 3) {
+    tris.push(addOuter(keep[t]), addOuter(keep[t + 1]), addOuter(keep[t + 2]));
+  }
+
+  // Boundary edges: used by exactly one kept triangle. Each becomes a quad
+  // running from the outer shell back to the skin, so the hem has a thickness
+  // and you never see the inside of the jacket through its own opening.
+  const edge = new Map();
+  const key = (a, b) => (a < b ? a * 1048576 + b : b * 1048576 + a);
+  for (let t = 0; t < keep.length; t += 3) {
+    for (let e = 0; e < 3; e++) {
+      const a = keep[t + e], b = keep[t + ((e + 1) % 3)];
+      const k = key(a, b);
+      const found = edge.get(k);
+      if (found) found.n++;
+      else edge.set(k, { a, b, n: 1 });
+    }
+  }
+  const inner = new Map();
+  const addInner = (v) => {
+    let n = inner.get(v);
+    if (n !== undefined) return n;
+    n = P.length / 3;
+    P.push(pos0(v, 0) + NRM0[v * 3] * 0.002,
+           pos0(v, 1) + NRM0[v * 3 + 1] * 0.002,
+           pos0(v, 2) + NRM0[v * 3 + 2] * 0.002);
+    BONE.push(BONE[v * 2], BONE[v * 2 + 1]);
+    WT.push(WT[v * 2], WT[v * 2 + 1]);
+    MAT.push(mat);
+    inner.set(v, n);
+    return n;
+  };
+  let hems = 0;
+  for (const { a, b, n } of edge.values()) {
+    if (n !== 1) continue;
+    const oa = outer.get(a), ob = outer.get(b);
+    const ia = addInner(a), ib = addInner(b);
+    tris.push(oa, ob, ib, oa, ib, ia);
+    hems++;
+  }
+
+  for (const v of tris) IDX.push(v);
+  return { verts: outer.size + inner.size, tris: tris.length / 3, hems };
+}
+
 if (!NOGI) {
+  // The body's own normals, needed before the merged mesh has any. Computed on
+  // the skin triangles only, which is all the offset uses.
+  var NRM0 = normals(new Float64Array(P), Uint32Array.from(IDX));
+  var pos0 = (v, k) => P[v * 3 + k];
+
+  const beltY = ourPos[BONE_INDEX.hips][1] + 0.05;
+  const collarY = ourPos[BONE_INDEX.neck][1] + 0.035;
+  const sleeveY = ourPos[BONE_INDEX.handL][1] + 0.05;
+  const cuffY = ourPos[BONE_INDEX.footL][1] + 0.055;
+  const boneName = (v) => BONES[BONE[v * 2]][0];
+  const region = (v) =>
+    garmentOf(P[v * 3 + 1], boneName(v), beltY, collarY, sleeveY, cuffY);
+
+  if (REPORT) {
+    const hist = {};
+    for (let v = 0; v < MAT.length; v++) {
+      if (MAT[v] !== 0) continue;
+      const k = `${boneName(v)}->${region(v)}`;
+      hist[k] = (hist[k] || 0) + 1;
+    }
+    console.log('region by bone:', Object.entries(hist).sort((a, b) => b[1] - a[1])
+      .slice(0, 20).map(([k, n]) => `${k}:${n}`).join(' '));
+  }
+  // Only the sleeves are inflated from the body.
+  //
+  // The character's own shirt and trousers are proper tailored garments and
+  // they stay — recoloured, they are the gi's body. What they are not is a gi's
+  // *sleeve*: the shirt stops at the shoulder. The body under it carries the
+  // arm, so the sleeve is that arm pushed out, from the shoulder down to
+  // mid-forearm where a gi's sleeve ends.
+  //
+  // Inflating the torso as well was the first attempt and it came out coarse:
+  // of the body mesh's seven thousand vertices, four and a half thousand are in
+  // the head. A character built to be dressed has a low-polygon body under the
+  // clothes, and the clothes are where the detail is.
+  const sleeve = inflate(
+    (v) => ['clavL', 'clavR', 'armL', 'armR'].includes(boneName(v)) ||
+           ((boneName(v) === 'foreL' || boneName(v) === 'foreR') && P[v * 3 + 1] > sleeveY),
+    0.03, 1
+  );
+  console.log(`sleeves: ${sleeve.tris} tris (${sleeve.hems} hem edges)`);
+
+  // The collar and the belt are not offsets of anything, so they still come
+  // from body.js, built in the rig's own bind pose — which is the space the
+  // retargeted body now lives in, so the two meet with no fitting step.
   const dressed = new Skeleton();
   dressed.pose();
-  const { gi } = buildFighterMesh(dressed);
-  const off = P.length / 3;
-  for (let i = 0; i < gi.pos.length; i++) P.push(gi.pos[i]);
-  for (let i = 0; i < gi.bone.length; i++) BONE.push(gi.bone[i]);
-  for (let i = 0; i < gi.wt.length; i++) WT.push(gi.wt[i]);
-  for (let i = 0; i < gi.mat.length; i++) MAT.push(gi.mat[i]);
-  for (let i = 0; i < gi.idx.length; i++) IDX.push(off + gi.idx[i]);
-  console.log(`gi: ${gi.pos.length / 3} verts  ${gi.idx.length / 3} tris`);
+  const gi = buildGiTrim(dressed);
+  const remap = new Map();
+  const take = (v) => {
+    let n = remap.get(v);
+    if (n !== undefined) return n;
+    n = P.length / 3;
+    P.push(gi.pos[v * 3], gi.pos[v * 3 + 1], gi.pos[v * 3 + 2]);
+    BONE.push(gi.bone[v * 2], gi.bone[v * 2 + 1]);
+    WT.push(gi.wt[v * 2], gi.wt[v * 2 + 1]);
+    MAT.push(gi.mat[v]);
+    remap.set(v, n);
+    return n;
+  };
+  let n = 0;
+  for (let t = 0; t < gi.idx.length; t += 3) {
+    IDX.push(take(gi.idx[t]), take(gi.idx[t + 1]), take(gi.idx[t + 2]));
+    n++;
+  }
+  console.log(`skirt, collar and belt: ${n} tris from body.js`);
 }
 
 const pos = new Float64Array(P);
@@ -387,25 +569,6 @@ if (Math.abs(minY) > 0.045) {
 }
 
 /* ----------------------------------------------------- normals and UVs */
-
-function normals(P, idx) {
-  const N = new Float64Array(P.length);
-  for (let t = 0; t < idx.length; t += 3) {
-    const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
-    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
-    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
-    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-    for (const o of [a, b, c]) { N[o] += nx; N[o + 1] += ny; N[o + 2] += nz; }
-  }
-  let zero = 0;
-  for (let i = 0; i < N.length; i += 3) {
-    const l = Math.hypot(N[i], N[i + 1], N[i + 2]);
-    if (l < 1e-12) { N[i] = 0; N[i + 1] = 1; N[i + 2] = 0; zero++; }
-    else { N[i] /= l; N[i + 1] /= l; N[i + 2] /= l; }
-  }
-  if (zero) console.warn(`warning: ${zero} degenerate normals`);
-  return N;
-}
 
 // Cylindrical about the body's own axis, which is all the noise textures need.
 function uvs(P) {

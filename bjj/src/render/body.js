@@ -355,6 +355,19 @@ function addSkirt(mb, sk) {
   }
 }
 
+// The parts of a gi that are not an offset of a body: the skirt that hangs
+// below the belt, the collar, and the belt itself. A baked character wears its
+// own tailored jacket and gets its sleeves from its own arms, so these three
+// are all it needs from here.
+export function buildGiTrim(sk) {
+  const mb = new MeshBuilder();
+  addSkirt(mb, sk);
+  addLapel(mb, sk, 1);
+  addLapel(mb, sk, -1);
+  addBelt(mb, sk);
+  return mb.build();
+}
+
 export function buildFighterMesh(sk) {
   const skinMB = new MeshBuilder();
   for (const seg of SKIN_SEGMENTS) addTube(skinMB, sk, seg, 0, 1.0);

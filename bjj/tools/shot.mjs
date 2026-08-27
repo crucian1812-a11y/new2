@@ -32,7 +32,7 @@ await page.goto(`http://127.0.0.1:${PORT}${PATH}`, { waitUntil: 'load' });
 await page.waitForTimeout(WAIT);
 if (POSE) {
   await page.evaluate((p) => { window.__bjj.match().start(); window.__bjj.setPose(p); }, POSE);
-  await page.waitForTimeout(700);
+  await page.waitForTimeout(1400);
 }
 if (PLAY) {
   // Start the match and play it the way a thumb would, so the frame that comes
