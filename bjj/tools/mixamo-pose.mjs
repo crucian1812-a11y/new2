@@ -22,7 +22,7 @@
 // poses drop out of it entirely. What is lost is twist about the bone's own
 // axis, which the pose library barely uses and no grappling position reads.
 
-import { readMixamo, readCurves, poseAt, clipLength } from './mixamo.mjs';
+import { readMixamo, readCurves, poseAt, clipLength, bare } from './mixamo.mjs';
 import { Skeleton, BONES, BONE_INDEX, BONE_COUNT, aimBone } from '../src/render/skeleton.js';
 import { v3, v3set, v3norm, qEuler } from '../src/core/m4.js';
 
@@ -61,7 +61,7 @@ const AIM = {
 const parsed = readMixamo(file);
 const curves = readCurves(file, parsed);
 const length = clipLength(curves);
-const byName = new Map([...parsed.bones.values()].map((b) => [b.name.replace('mixamorig:', ''), b.id]));
+const byName = new Map([...parsed.bones.values()].map((b) => [bare(b.name), b.id]));
 const now = poseAt(parsed, curves, AT);
 const posOf = (n) => {
   const id = byName.get(n);

@@ -259,3 +259,10 @@ export function poseAt(parsed, curves, seconds) {
   for (const id of bones.keys()) walk(id);
   return world;
 }
+
+// Mixamo numbers the rig. A character rigged once comes back with bones called
+// `mixamorig:Hips`; one that has been through the auto-rigger a few times comes
+// back as `mixamorig9:Hips`, and the number is per-character, not per-file.
+// Matching the literal prefix works until the second character you download,
+// and then it silently finds no bones at all — which is exactly how it failed.
+export const bare = (name) => String(name).replace(/^mixamorig\d*:/, '');

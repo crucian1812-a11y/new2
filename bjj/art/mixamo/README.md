@@ -1,6 +1,60 @@
-# Mixamo clips
+# Mixamo clips and characters
 
-Four Mixamo exports, re-downloaded **With Skin**. What they actually contain:
+Six Mixamo exports, all **With Skin**. Two of them are the game's two fighters;
+the rest are clips and a mannequin.
+
+| file | what it is | used for |
+|---|---|---|
+| `body-block.fbx` | a dressed man, Beta rig | **fighter A** — `assets/fighter.bin` |
+| `Ch31_nonPBR.fbx` | a dressed man, long hair | **fighter B** — `assets/fighter-b.bin` |
+| `passive-marker-man.fbx` | a mocap actor in a marker suit | nothing in the game; see below |
+| `standing.fbx` | neutral idle | clip |
+| `situp-to-idle.fbx` | lying down to standing, 4.4 s | clip |
+| `rockin-shackle-a.fbx` | a dance | clip |
+
+`Ch31_nonPBR.fbx` is 52 MB and is **not in git** — it lives in the repository's
+`assets` release, which is where files too big for the web upload go:
+
+```bash
+curl -sL -o bjj/art/mixamo/Ch31_nonPBR.fbx \
+  https://github.com/crucian1812-a11y/new2/releases/download/assets/Ch31_nonPBR.fbx
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/Ch31_nonPBR.fbx --out bjj/assets/fighter-b.bin
+```
+
+The baked `.bin` files are in git, so nothing here is needed to run the game —
+only to re-bake a fighter.
+
+## What each character bakes into
+
+```
+fighter A  body-block.fbx    16 851 verts  29 865 tris  455 KB
+fighter B  Ch31_nonPBR.fbx   28 854 verts  46 314 tris  750 KB
+```
+
+Fighter B costs more because a third of him is hair: 13 124 vertices of it,
+modelled as strands. That is also what makes him read as a different man from
+across the mat, which is the entire point of having him.
+
+Two things about him that are the source's and not the bake's:
+
+- **His bare feet are stumps**, 14 cm against fighter A's 18. His toes were
+  modelled inside his trainers, and the trainers are dropped — this sport is
+  barefoot. `asset-check` measures a foot against the rig's own 15 cm now rather
+  than against a range calibrated on fighter A, so both men pass, and the
+  original disaster this check was written for — 44 cm flippers — still fails.
+- **He came in long sleeves.** The baker inflates a gi sleeve out of the bare
+  arm; his arm was already covered, so there is nothing to inflate and the
+  report says so instead of printing `undefined`.
+
+## `passive-marker-man.fbx` is not a fighter
+
+It is a motion-capture actor in a black suit with reflective markers on it, and
+the markers are geometry: little spheres all over the limbs. Baked, he comes out
+as a man in a spotted leotard with a gi collar. He is worth keeping as a rig to
+test against — his skeleton is clean and his mesh is one piece — but he is not
+someone to put on the mat.
+
+## What these files actually contain
 
 ```
 objects: NodeAttribute:65 Geometry:2 Model:67 Pose:2 Material:2
@@ -10,19 +64,20 @@ Geometry "Beta_Joints"   10514 verts  20840 tris  39 clusters
 clusters: 129            bones: 65    units: centimetres, 181 cm tall
 ```
 
-| file | clip |
-|---|---|
-| `standing.fbx` | neutral idle |
-| `body-block.fbx` | a block |
-| `situp-to-idle.fbx` | lying down to standing, 4.4 s |
-| `rockin-shackle-a.fbx` | a dance |
+## A trap worth knowing: Mixamo numbers the rig
 
-## Why these still do not fix rigging
+`body-block.fbx` calls its bones `mixamorig:Hips`. `Ch31_nonPBR.fbx` calls them
+`mixamorig9:Hips`. The number is per character, and matching the literal prefix
+— which the baker did — finds no bones at all in the second file and stops with
+every bone reported missing. `mixamo.mjs` now exports `bare()`, which strips
+`mixamorig<any digits>:`, and everything matches names through it.
 
-The export setting was right this time — the mesh, the bind poses and the skin
-weights are all there. The character is the problem: it is Mixamo's **Beta
-mannequin**, not one of our sculpts. It wears no gi, so it cannot be a fighter,
-and its weights cannot be borrowed either:
+## Why the Beta mannequin still does not fix rigging
+
+The export setting was right — the mesh, the bind poses and the skin weights are
+all there. The character is the problem: it is Mixamo's **Beta mannequin**. It
+wears no gi, so it cannot be a fighter, and its weights cannot be borrowed
+either:
 
 ```
 Beta_Surface influences per vertex   1: 13367   2: 495   3: 370

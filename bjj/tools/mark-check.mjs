@@ -18,7 +18,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { GLYPHS, glyph } from '../src/render/glyphs.js';
-import { markAtlas, cellRect, CELLS, PAL, MAT_MARKS, MARK_TEXT, GI_PATCHES } from '../src/render/marks.js';
+import { markAtlas, cellRect, CELLS, PAL, MAT_MARKS, MARK_TEXT, fitPatches } from '../src/render/marks.js';
 import { ARENA_AREA, ARENA_HALF } from '../src/render/arena.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { atlasToPNG, encodePNG } from './png.mjs';
@@ -242,10 +242,16 @@ check(rimSoftTotal / Math.max(1, rimTotal) > 0.3, 'curved edges across the atlas
 
 /* --------------------------------------------------------------- the kimono */
 
-const path = 'bjj/assets/fighter.bin';
-if (!existsSync(path)) {
-  console.log(`no baked fighter at ${path} — skipping the patch checks`);
-} else {
+// Every fighter in the game, not just the first one. The patches are placed in
+// body UV, which every bake shares, but the body under that UV is a different
+// man each time: what is a 19 cm patch on one chest is another size on the next,
+// and a rectangle that clears one jacket's collar may sit on top of another's.
+const fighters = ['bjj/assets/fighter.bin', 'bjj/assets/fighter-b.bin'].filter((f) => existsSync(f));
+if (!fighters.length) {
+  console.log('no baked fighter on disk — skipping the patch checks');
+}
+for (const path of fighters) {
+  console.log(`--- patches on ${path.split('/').pop()}`);
   const raw = readFileSync(path);
   const m = decodeFighter(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
   const n = m.pos.length / 3;
@@ -275,7 +281,12 @@ if (!existsSync(path)) {
     return w0 >= -0.002 && w1 >= -0.002 && w0 + w1 <= 1.002;
   };
 
-  for (const p of GI_PATCHES) {
+  // The rectangles the game will actually use: the layout after it has been
+  // fitted to this body. Checking the authored numbers instead would be
+  // checking the wrong thing — and the measurement below is this tool's own,
+  // taken over a different window, so agreeing with the fitter is a result and
+  // not an arrangement.
+  for (const p of fitPatches(m)) {
     const label = `${p.cell} @ u ${p.u.toFixed(2)} v ${p.v.toFixed(2)}`;
     // Sample the rectangle and ask what is under each point.
     const N = 7;

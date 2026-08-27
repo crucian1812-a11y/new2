@@ -12,7 +12,7 @@
 
 import { createGL, program, vao, texture, framebuffer, QUAD } from './gl.js';
 import { giWeave, skinTex, tatamiTex, uploadPacked } from './textures.js';
-import { markAtlas, cellRect, MAT_MARKS, GI_PATCHES } from './marks.js';
+import { markAtlas, cellRect, MAT_MARKS, GI_PATCHES, fitPatches } from './marks.js';
 import { buildArena } from './arena.js';
 import { BONE_COUNT } from './skeleton.js';
 import { m4, m4mul, m4perspective, m4ortho, m4lookAt, clamp } from '../core/m4.js';
@@ -712,8 +712,9 @@ export class Renderer {
     this.markCells = new Float32Array([
       ...cellRect('aresRound'), ...cellRect('olavoRound'), ...cellRect('wordmark'),
     ]);
-    this.patchRects = new Float32Array(GI_PATCHES.flatMap((p) => [p.u, p.du, p.v, p.dv]));
     this.patchCells = new Float32Array(GI_PATCHES.flatMap((p) => cellRect(p.cell)));
+    // The fallback layout, for a body nobody has measured — the procedural one.
+    this.patchRects = new Float32Array(GI_PATCHES.flatMap((p) => [p.u, p.du, p.v, p.dv]));
 
     this.arena = buildArena();
     this.arenaVAO = vao(gl, this.progStatic.p, [
@@ -816,7 +817,15 @@ export class Renderer {
       count: m.count,
       type: m.idx instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT,
     });
-    return { parts: list.map(mk) };
+    // Where this particular man's patches go. Measured off the mesh that was
+    // just handed over, because the same rectangle in UV is a different number
+    // of centimetres on every chest.
+    const worn = list.find((m) => m.mat && m.uv && m.idx);
+    const rects = worn ? fitPatches(worn) : GI_PATCHES;
+    return {
+      parts: list.map(mk),
+      patches: new Float32Array(rects.flatMap((p) => [p.u, p.du, p.v, p.dv])),
+    };
   }
 
   render(scene) {
@@ -933,10 +942,10 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, this.texMarks);
     gl.uniform1i(this.progSkin.u.u_marks, 2);
-    gl.uniform4fv(this.progSkin.u.u_patch, this.patchRects);
     gl.uniform4fv(this.progSkin.u.u_patchCell, this.patchCells);
     for (const f of fighters) {
       gl.uniformMatrix4fv(this.progSkin.u.u_bones, false, f.skeleton.skin);
+      gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
       gl.uniform3fv(this.progSkin.u.u_giCol, f.giCol);
       gl.uniform3fv(this.progSkin.u.u_beltCol, f.beltCol);
       gl.uniform3fv(this.progSkin.u.u_skinCol, f.skinCol);

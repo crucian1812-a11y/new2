@@ -1,3 +1,6 @@
 node_modules/
 *.png
 .DS_Store
+
+# The 54 MB character source lives in the GitHub release, not in git.
+bjj/art/mixamo/Ch31_nonPBR.fbx

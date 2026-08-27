@@ -7,7 +7,7 @@
 
 import { readFileSync, existsSync } from 'fs';
 import { decodeFighter } from '../src/render/asset.js';
-import { BONE_COUNT, BONES, TIPS } from '../src/render/skeleton.js';
+import { BONE_COUNT, BONE_INDEX, BONES, TIPS } from '../src/render/skeleton.js';
 
 // A rigged fighter and a static prop are both valid assets and only one of
 // them has anything to say about bones.
@@ -107,7 +107,17 @@ if (rigged) {
 // was invented once and came out 9.9 cm against the rig's 16, so the warp scaled
 // everything weighted to the foot by 1.6 and the fighter grew flippers. It did
 // not fail any check, because nothing was checking the size of a foot.
+//
+// Measured against the rig's own foot rather than against a range in
+// centimetres. The range was calibrated on the first character baked and it was
+// really "as long as his": he cleared 17 cm by a millimetre, and the second
+// character — whose toes were modelled inside his trainers, so his bare foot
+// ends at the ball — failed at 14 without anything being wrong with the bake.
+// The question worth asking is whether the mesh covers the skeleton that moves
+// it, and that question has an answer in the rig: 15 cm from ankle to toe.
 {
+  const [, , dz] = BONES[BONE_INDEX.toeL][2];
+  const rigFoot = Math.abs(dz);
   const feet = [[], []];
   for (let i = 0; i < n; i++) {
     if (m.pos[i * 3 + 1] > lo[1] + 0.16) continue;
@@ -116,9 +126,10 @@ if (rigged) {
   const lengths = feet.filter((f) => f.length > 30).map((f) => Math.max(...f) - Math.min(...f));
   const worst = lengths.length ? Math.max(...lengths) : 0;
   check(
-    lengths.length === 2 && worst > 0.17 && worst < 0.34,
-    'the feet are foot-sized',
-    `${lengths.map((l) => (l * 100).toFixed(0) + 'cm').join(' / ') || 'not found'}`
+    lengths.length === 2 && worst > rigFoot * 0.8 && worst < rigFoot * 2.2,
+    'the feet cover the rig that moves them',
+    `${lengths.map((l) => (l * 100).toFixed(0) + 'cm').join(' / ') || 'not found'}` +
+    ` against ${(rigFoot * 100).toFixed(0)}cm of rig`
   );
 }
 

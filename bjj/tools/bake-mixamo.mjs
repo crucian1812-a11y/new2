@@ -19,7 +19,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { readMixamo } from './mixamo.mjs';
+import { readMixamo, bare as bareName } from './mixamo.mjs';
 import { Skeleton, BONES, BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
 
 const argv = process.argv.slice(2);
@@ -63,7 +63,7 @@ const FOLD = [
 ];
 
 function ourBoneFor(mixName) {
-  const bare = mixName.replace('mixamorig:', '');
+  const bare = bareName(mixName);
   for (const [our, their] of Object.entries(MAP)) if (their === bare) return our;
   for (const [prefix, our] of FOLD) if (bare.startsWith(prefix)) return our;
   return null;
@@ -106,7 +106,7 @@ const xform = (m, x, y, z) => [
 
 const parsed = readMixamo(SRC);
 const byName = new Map();
-for (const b of parsed.bones.values()) byName.set(b.name.replace('mixamorig:', ''), b);
+for (const b of parsed.bones.values()) byName.set(bareName(b.name), b);
 
 // Our canonical skeleton in its bind pose. This is the target.
 const rig = new Skeleton();
@@ -119,7 +119,7 @@ const theirBind = new Map();
 for (const list of parsed.skins.values()) {
   for (const c of list) {
     if (c.transformLink && !theirBind.has(c.boneName)) {
-      theirBind.set(c.boneName.replace('mixamorig:', ''), Float64Array.from(c.transformLink));
+      theirBind.set(bareName(c.boneName), Float64Array.from(c.transformLink));
     }
   }
 }
@@ -262,7 +262,7 @@ const sourceFloor = lo;
 // unnamed and in no particular order, so they are identified the way a person
 // would: by which bones move them and how far up the body they sit.
 function classify(mesh, clusters) {
-  const bones = new Set(clusters.map((c) => c.boneName.replace('mixamorig:', '')));
+  const bones = new Set(clusters.map((c) => bareName(c.boneName)));
   let lo = Infinity, hi = -Infinity;
   for (let i = 1; i < mesh.pos.length; i += 3) {
     lo = Math.min(lo, mesh.pos[i]); hi = Math.max(hi, mesh.pos[i]);
@@ -280,9 +280,12 @@ function classify(mesh, clusters) {
   // hull turns them into a black stripe across the face.
   if (bones.size <= 2 && bones.has('Head') && mesh.pos.length / 3 < 400) return { kind: 'brows', mat: 8 };
   if (bones.has('Head') && bot > 0.82) return { kind: 'hair', mat: 5 };
-  // The body is the only part the arms move, and in a T-pose it is the only
-  // part that is wider than it is thick by a factor of two.
-  if (bones.has('LeftHand') || bones.has('RightHand')) return { kind: 'body', mat: 0 };
+  // The body is the part that runs from the feet to the head. Nothing a person
+  // wears does that, and the obvious alternative — "the body is what the hand
+  // bones move" — is wrong for anyone in long sleeves: a shirt whose cuffs
+  // reach the wrists is skinned to the hands too, and Ch31 arrived wearing one
+  // and was baked with his shirt painted as bare skin.
+  if (top - bot > 0.6) return { kind: 'body', mat: 0 };
   if (bot < 0.12 && top < 0.2) return { kind: 'shoes', mat: -1 };
   if (bot > 0.42) return { kind: 'shirt', mat: 1 };
   return { kind: 'trousers', mat: 2 };
@@ -411,7 +414,9 @@ function inflate(want, thickness, mat) {
     if (MAT[a] !== 0 || MAT[b] !== 0 || MAT[c] !== 0) continue;   // skin only
     if (want(a) && want(b) && want(c)) keep.push(a, b, c);
   }
-  if (!keep.length) return 0;
+  // Nothing to inflate is a real answer, not a failure: a character who came
+  // wearing long sleeves has no bare arm to push out.
+  if (!keep.length) return { verts: 0, tris: 0, hems: 0 };
 
   // One offset copy per vertex used, and one un-offset copy for the hem, made
   // only where the hem needs it.
@@ -517,7 +522,9 @@ if (!NOGI) {
            ((boneName(v) === 'foreL' || boneName(v) === 'foreR') && P[v * 3 + 1] > sleeveY),
     0.03, 1
   );
-  console.log(`sleeves: ${sleeve.tris} tris (${sleeve.hems} hem edges)`);
+  console.log(sleeve.tris
+    ? `sleeves: ${sleeve.tris} tris (${sleeve.hems} hem edges)`
+    : 'sleeves: none needed — the character arrived in long sleeves');
 
   // The belt and the skirt are measured onto the jacket, not assumed.
   //

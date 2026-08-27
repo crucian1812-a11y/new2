@@ -93,14 +93,22 @@ check(totalPoints / N > 2, 'points are actually scored', `${(totalPoints / N).to
 function key(t) { return `${t.from}>${t.role}>${t.dir}>${t.to}`; }
 
 /* --- coverage: is any of the graph unreachable? -------------------------- */
+// The AI will never play a losing move, which is correct of it and useless for
+// coverage. A random agent walks the whole graph instead, and proves that every
+// edge in it can be run without the sim falling over.
+//
+// Both coverage questions are asked after it has run, and the position one used
+// to be asked before. That is why it failed about half the time, always on a
+// rare position — TRIANGLE, GUILLOTINE — and always on a different one: it was
+// really asking whether four hundred matches of competent play happened to pass
+// through a submission position, which is a question about luck. The random
+// agent is the thing that walks the graph, and it walks all of it.
+for (let i = 0; i < 120; i++) randomPlay(seenPos, seenTr);
+
 const allPos = Object.keys(POSES);
 const missPos = allPos.filter((p) => !seenPos.has(p));
 check(missPos.length === 0, 'every position is reached', missPos.join(',') || `${seenPos.size}/${allPos.length}`);
 
-// The AI will never play a losing move, which is correct of it and useless for
-// coverage. A random agent walks the whole graph instead, and proves that every
-// edge in it can be run without the sim falling over.
-for (let i = 0; i < 120; i++) randomPlay(seenPos, seenTr);
 const allTr = TRANSITIONS.map(key);
 const missTr = allTr.filter((t) => !seenTr.has(t));
 check(

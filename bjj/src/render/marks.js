@@ -483,3 +483,60 @@ export const GI_PATCHES = [
   { cell: 'olavoRound', u: 0.88, du: 0.20, v: 8.90, dv: 0.28, face: 30 },   // left chest, 7 cm
   { cell: 'wordmark', u: 0.30, du: 0.446, v: 5.05, dv: 0.11, face: 80 },    // left thigh, 15×3 cm
 ];
+
+// Fitting the patches to the man wearing them.
+//
+// The layout above is in UV, and UV is angular: the same rectangle is 19 cm
+// across the back of one fighter and 16 across the next, because the next one
+// is narrower. Sixteen by twenty-six is the same crest squeezed by a sixth,
+// which is a wrong crest — so the width is not a constant, it is measured off
+// whichever body the patch is being sewn onto.
+//
+// Cheap enough to do at load: one pass over the triangles under each patch.
+export function fitPatches(mesh) {
+  return GI_PATCHES.map((p) => {
+    const per = metric(mesh, p);
+    if (!per) return p;
+    const [, , cw, ch] = [0, 0, CELLS[p.cell][2], CELLS[p.cell][3]];
+    const aspect = cw / ch;
+    const tall = per.v * 2 * p.dv;
+    const du = (aspect * tall) / (2 * per.u);
+    // Never far from the authored size: if the measurement goes strange on some
+    // future character, a patch that is slightly the wrong shape beats one that
+    // has grown across his whole back.
+    return { ...p, du: Math.max(p.du * 0.6, Math.min(p.du * 1.5, du)) };
+  });
+}
+
+// Metres of surface per unit of u and per unit of v, under one patch. The
+// median over the mesh's own edges, which is robust to the handful that cross
+// from the outside of a jacket to its lining.
+function metric(mesh, p, grow = 1.0) {
+  const inWindow = (v) =>
+    (mesh.mat[v] === 1 || mesh.mat[v] === 2) &&
+    Math.abs(mesh.uv[v * 2] - p.u) <= p.du * grow &&
+    Math.abs(mesh.uv[v * 2 + 1] - p.v) <= p.dv * grow;
+  const perU = [], perV = [];
+  for (let t = 0; t < mesh.idx.length; t += 3) {
+    for (const [a, b] of [[0, 1], [1, 2], [2, 0]]) {
+      const va = mesh.idx[t + a], vb = mesh.idx[t + b];
+      if (!inWindow(va) || !inWindow(vb)) continue;
+      const d = Math.hypot(
+        mesh.pos[va * 3] - mesh.pos[vb * 3],
+        mesh.pos[va * 3 + 1] - mesh.pos[vb * 3 + 1],
+        mesh.pos[va * 3 + 2] - mesh.pos[vb * 3 + 2]
+      );
+      const du = Math.abs(mesh.uv[va * 2] - mesh.uv[vb * 2]);
+      const dv = Math.abs(mesh.uv[va * 2 + 1] - mesh.uv[vb * 2 + 1]);
+      if (du > 0.02 && dv < du * 0.25) perU.push(d / du);
+      if (dv > 0.02 && du < dv * 0.25) perV.push(d / dv);
+    }
+  }
+  // As local as the mesh allows: widen only when there are too few edges to
+  // take a median of. The scale of the map changes across a torso — the back is
+  // flatter than the ribs — so a window chosen for comfort measures the wrong
+  // place and the crest comes out a quarter too wide.
+  if (perU.length < 20 || perV.length < 20) return grow > 2.5 ? null : metric(mesh, p, grow * 1.4);
+  const mid = (a) => a.sort((x, y) => x - y)[a.length >> 1];
+  return { u: mid(perU), v: mid(perV) };
+}

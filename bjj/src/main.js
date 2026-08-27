@@ -42,17 +42,33 @@ const rig = new PairRig();
 // and the game still runs, and still looks like itself, with the assets folder
 // deleted.
 let meshes = buildFighterMesh(rig.skel.A);
-let gpuA = renderer.makeFighterGPU(meshes);
-let gpuB = gpuA;
+let gpuYou = renderer.makeFighterGPU(meshes);
+// Two men, and until there were two characters this was one mesh drawn twice.
+// The names matter: these belong to the fighters, not to the roles. A and B in
+// the pose system are positions — whoever is on top is A — and they change
+// hands several times a match, so a mesh held by role would swap bodies between
+// the two men every time somebody swept.
+let gpuOpp = gpuYou;
 let bodySource = 'procedural';
 
 try {
   const baked = await loadFighter(new URL('../assets/fighter.bin', import.meta.url).href);
-  gpuA = renderer.makeFighterGPU([baked]);
-  gpuB = gpuA;
+  gpuYou = renderer.makeFighterGPU([baked]);
+  gpuOpp = gpuYou;
   bodySource = `baked (${(baked.count / 3) | 0} tris)`;
 } catch (e) {
   console.info('using the procedural body:', e.message);
+}
+
+// The opponent is a second character when there is one. He is optional on
+// purpose: the game has to keep working with the assets folder deleted, and one
+// man in two kimonos is a worse demo than two men, not a broken one.
+try {
+  const other = await loadFighter(new URL('../assets/fighter-b.bin', import.meta.url).href);
+  gpuOpp = renderer.makeFighterGPU([other]);
+  bodySource += ` + opponent (${(other.count / 3) | 0} tris)`;
+} catch (e) {
+  console.info('the opponent is the same man in another gi:', e.message);
 }
 
 // The title-screen fighter.
@@ -312,15 +328,21 @@ function drawFrame(now) {
   const mode = match.state === 'sub' ? 'sub' : POSES[match.position].ground ? 'ground' : 'stand';
   camera.update(dt, focus, mode, match.intensity);
 
-  const fa = match.f[match.roleOf.indexOf('A')];
-  const fb = match.f[match.roleOf.indexOf('B')];
+  // Who is in which role, and therefore which skeleton each man is wearing this
+  // second. Everything about a fighter — his kimono, his belt, his skin and now
+  // his body — is looked up through this and never through the role.
+  const ia = match.roleOf.indexOf('A');
+  const ib = match.roleOf.indexOf('B');
+  const fa = match.f[ia];
+  const fb = match.f[ib];
+  const body = (i) => (i === 0 ? gpuYou : gpuOpp);
   renderer.render({
     camera,
     time: now / 1000,
     focus,
     fighters: [
-      { skeleton: rig.skel.A, gpu: gpuA, giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol, flash: fa.flash },
-      { skeleton: rig.skel.B, gpu: gpuB, giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol, flash: fb.flash },
+      { skeleton: rig.skel.A, gpu: body(ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol, flash: fa.flash },
+      { skeleton: rig.skel.B, gpu: body(ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol, flash: fb.flash },
     ],
   });
   hud.draw(match, input, 1 / 60, { level: LEVEL });
