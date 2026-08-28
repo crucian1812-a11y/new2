@@ -21,7 +21,10 @@ const steps = [
   ['club marks', 'mark-check.mjs', []],
   ['match simulation', 'sim-check.mjs', ['400']],
 ];
-if (withBrowser) steps.push(['browser smoke', 'smoke.mjs', []]);
+if (withBrowser) {
+  steps.push(['browser smoke', 'smoke.mjs', []]);
+  steps.push(['sound', 'sound-check.mjs', []]);
+}
 
 let failed = 0;
 for (const [name, script, args] of steps) {

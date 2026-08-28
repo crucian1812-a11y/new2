@@ -147,17 +147,23 @@ function onMatchEvent(e) {
       audio.swell(0.55);
     }
   } else if (e.kind === 'points') {
-    audio.beep(880, 0.1);
+    audio.confirm();
     audio.swell(0.4, 1.2);
   } else if (e.kind === 'submission') {
     camera.cut(Math.random() < 0.5 ? -1 : 1);
+    audio.lock();
     audio.swell(0.8, 2.4);
-    audio.cloth(1);
   } else if (e.kind === 'escape') {
+    audio.cloth(0.9);
     audio.swell(0.5, 1.4);
   } else if (e.kind === 'end') {
-    audio.whistle();
+    audio.bell();
+    audio.duck(0.2, 3.5);
     audio.swell(1, 3);
+    // The room goes up for a tap and settles for a decision, which is what
+    // actually happens in the hall.
+    if (e.by === 'submission') audio.tap();
+    audio.sting(e.winner === 0);
   }
 }
 
@@ -197,6 +203,31 @@ function control0() {
   };
 }
 
+// The bell, the whistle and the track that runs under the round. The bell is
+// the hall's; the whistle is the referee's, and they are half a second apart
+// because that is the order they happen in.
+function startBell() {
+  audio.bell();
+  audio.duck(0.25, 2.2);
+  setTimeout(() => audio.whistle(), 520);
+  beeped = 0;
+}
+
+// The last minute is its own track, and the last ten seconds are counted out
+// loud. `track` ignores a request for what is already playing, so this can be
+// asked every frame without a flag.
+let beeped = 0;
+function clockSound() {
+  if (match.state === 'ready') { audio.track('menu'); return; }
+  if (match.state === 'over') return;
+  audio.track(match.time <= 60 ? 'final' : 'match');
+  const left = Math.ceil(match.time);
+  if (left <= 10 && left > 0 && left !== beeped) {
+    beeped = left;
+    audio.timer();
+  }
+}
+
 function frame(now) {
   const raw = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -223,24 +254,24 @@ function frame(now) {
     }
     if (match.state === 'ready') {
       match.start();
-      audio.whistle();
+      startBell();
     } else if (match.state === 'over') {
       newMatch();
       match.start();
-      audio.whistle();
+      startBell();
     }
   }
 
   if (input.flick) {
     const r = match.input(0, input.flick);
-    if (r === 'deny') audio.beep(520, 0.09, 'triangle', 0.2);
+    if (r === 'deny') audio.click();
     else if (r === 'escape') audio.cloth(0.7);
     else if (r) audio.cloth(0.5);
   }
   if (input.tap) {
     if (match.state === 'sub' && match.sub.attacker === 0) {
       const r = match.subTap(0);
-      audio.beep(r === 'tight' ? 660 : 190, 0.07, 'square', 0.14);
+      if (r === 'tight') audio.tap(0.45); else audio.click();
     } else {
       const r = match.grip(0);
       if (r) audio.cloth(r === 'win' ? 0.9 : 0.4);
@@ -269,6 +300,7 @@ function frame(now) {
   /* --- sim -------------------------------------------------------------- */
   const c0 = control0();
   match.update(dt, [c0, ai.control]);
+  clockSound();
   rig.origin[0] = match.origin[0];
   rig.origin[2] = match.origin[2];
   rig.yaw = match.yaw;
