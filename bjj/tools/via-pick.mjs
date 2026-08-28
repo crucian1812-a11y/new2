@@ -18,13 +18,23 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
 import { POSITION_IDS } from '../src/game/poses.js';
-import { VIAS } from '../src/game/arcs.js';
+import { ARCS, VIAS } from '../src/game/arcs.js';
 import { TRANSITIONS } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { JUDGE_STEPS } from './grid.mjs';
 
 const WRITE = process.argv.includes('--write');
+// The routes as they stand, to tell afterwards which ones this run changed.
+const WAS = { ...VIAS };
+// Which transitions to reconsider. The default is all of them; --only names a
+// few, which is what you want after arc-solve has run and left one or two it
+// could not straighten — a curve is a bigger change than a shove and is worth
+// spending only where the shove failed.
+const ONLY = (() => {
+  const i = process.argv.indexOf('--only');
+  return i >= 0 && process.argv[i + 1] ? new Set(process.argv[i + 1].split(',')) : null;
+})();
 // The same grid blend-check judges on — thirteen stepped over the very
 // crossings this tool exists to route around. See grid.mjs.
 const STEPS = JUDGE_STEPS;
@@ -80,12 +90,29 @@ for (const tr of TRANSITIONS) {
 // a hip moved, so routing through one is routing through the pose you are
 // already at — twenty more candidates that cannot help and can win by noise.
 const poses = POSITION_IDS;
+// A transition this run is not reconsidering keeps the curve it has. Writing
+// out only what was chosen this time would drop the rest — the same accident
+// arc-solve had twice.
 const chosen = {};
+for (const key of keys) if (ONLY && !ONLY.has(key) && VIAS[key]) chosen[key] = VIAS[key];
+
 for (const key of keys) {
+  if (ONLY && !ONLY.has(key)) continue;
   const [from, to] = key.split('>');
   delete VIAS[key];
+  // And the arc comes off too, for the length of the comparison.
+  //
+  // The arc in the file was solved against whatever route this transition had
+  // when arc-solve last ran, so leaving it on measures every candidate route
+  // through a correction shaped for a different one. With it on, the two
+  // routes that are in the file right now both came out as "no pose helps" —
+  // their own incumbent among them — because the incumbent's arc was fighting
+  // them. Which way to go is a question about the path; the arc is what is
+  // added afterwards.
+  const arc = ARCS[key];
+  delete ARCS[key];
   const straight = walk(from, to).worst;
-  if (straight < TRIGGER) continue;
+  if (straight < TRIGGER) { if (arc) ARCS[key] = arc; continue; }
 
   let best = null, bestWorst = straight;
   for (const p of poses) {
@@ -95,6 +122,7 @@ for (const key of keys) {
     if (m.apart > TOGETHER) continue;   // they came apart on the way
     if (m.worst < bestWorst - GAIN) { bestWorst = m.worst; best = p; }
   }
+  if (arc) ARCS[key] = arc;
   if (best) {
     VIAS[key] = best;
     chosen[key] = best;
@@ -113,6 +141,26 @@ console.log(`\n${Object.keys(chosen).length} transitions curved`);
 if (WRITE) {
   const path = new URL('../src/game/arcs.js', import.meta.url);
   let src = readFileSync(path, 'utf8');
+
+  // A transition whose route changed loses its arc.
+  //
+  // The arc was solved against the old path, and on the new one it pulls the
+  // pair towards where nobody is any more: giving SIDE_CONTROL>HALF_GUARD a
+  // curve and leaving its old arc in place took it from 19 cm to 22, past the
+  // line. Better a transition with no correction — that is only as bad as the
+  // straight line — than one carrying somebody else's. arc-solve puts it back:
+  //   node bjj/tools/arc-solve.mjs --write --fresh --only <keys>
+  const moved = [...new Set([...Object.keys(WAS), ...Object.keys(chosen)])]
+    .filter((k) => WAS[k] !== chosen[k]);
+  for (const k of moved) {
+    src = src.replace(new RegExp(`\n  '${k}': \[[\s\S]*?\n  \],`), '');
+  }
+  if (moved.length) {
+    console.log(
+      `\ndropped the arc of ${moved.length} transition(s) whose route changed — ` +
+      `re-solve them:\n  node bjj/tools/arc-solve.mjs --write --fresh --only ${moved.join(',')}`
+    );
+  }
   const body = Object.entries(chosen)
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
     .map(([k, v]) => `  '${k}': '${v}',`)
