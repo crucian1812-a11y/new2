@@ -50,6 +50,11 @@ function valueHere(match, i) {
   return match.isDominant(i) ? v[0] : v[1];
 }
 
+// Where the ring's beat is tight, copied from match.js. The AI aims at it, so
+// the two have to agree; if they ever stop agreeing the belts stop meaning
+// anything and nothing else says so.
+const SUB_WINDOW = [0.64, 0.86];
+
 export class AI {
   constructor(index, level = 'blue') {
     this.i = index;
@@ -59,6 +64,7 @@ export class AI {
     this.reactTimer = -1;
     this.reactDir = null;
     this.subTapTimer = 0;
+    this.subWant = 0.74;
     this.control = { mx: 0, mz: 0, turn: 0, drive: 0 };
     this.wander = Math.random() * 10;
   }
@@ -103,13 +109,32 @@ export class AI {
       const s = match.sub;
       this.subTapTimer -= dt;
       if (s.attacker === this.i) {
-        // Tap on the beat, with a skill-scaled error. A white belt cranks
-        // arrhythmically and gets nowhere, which is the correct simulation.
-        const err = (1 - this.level.tapSkill) * 0.34;
-        const want = 0.74 + (Math.random() - 0.5) * err * 2;
-        if (s.phase > want && this.subTapTimer <= 0) {
+        // How often he catches the beat, stated rather than derived.
+        //
+        // It used to be an error width — `want` drawn around the middle of the
+        // window with a spread of (1 - tapSkill) — and that made the ladder
+        // saturate. By purple the spread was already narrower than the window,
+        // so purple, brown and black all hit essentially every beat while
+        // their defence went on improving, and the middle belts came out with
+        // an attack far ahead of anything opposite it: purple finished 97% of
+        // his matches. Skill is a hit rate, and a hit rate is what this says.
+        // The ladder is measured, not chosen. It has to clear two things at
+        // once: every belt under 85% of matches ending in a tap, and a black
+        // belt still finishing far more than a white one against the same
+        // opponent. At a white-belt hit rate of 0.53 nobody at the bottom
+        // could finish anything (white 13%); at 0.69 the bottom finished
+        // almost everything again (white 91%). 0.58 is where all four belts
+        // come in under target and the fight still ends in a tap often enough
+        // to be jiu-jitsu.
+        const hit = 0.32 + this.level.tapSkill * 0.652;
+        if (this.subTapTimer <= 0 && s.phase >= this.subWant) {
           onTap();
           this.subTapTimer = 0.12;
+          this.subWant = Math.random() < hit
+            ? SUB_WINDOW[0] + Math.random() * (SUB_WINDOW[1] - SUB_WINDOW[0])
+            : Math.random() < 0.5
+              ? Math.random() * SUB_WINDOW[0]
+              : SUB_WINDOW[1] + Math.random() * (1 - SUB_WINDOW[1]);
         }
       } else if (this.subTapTimer <= 0) {
         // The defence has a rhythm too, and it is the same rhythm: an escape
