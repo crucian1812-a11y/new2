@@ -28,7 +28,14 @@ const browser = await chromium.launch({
 const page = await browser.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto(`http://127.0.0.1:${PORT}/bjj/index.html`, { waitUntil: 'domcontentloaded' });
+// Not the game's own page.
+//
+// `index.html` starts the render loop, and a ScriptProcessorNode — which is
+// what the tap on the master output below is — runs on the main thread. With
+// WebGL drawing on the same thread it starves, and the same UI click measured
+// -21 dBFS on one run and -73 on the next. A bare directory listing on the
+// same origin loads the module, serves the pack, and renders nothing.
+await page.goto(`http://127.0.0.1:${PORT}/bjj/assets/`, { waitUntil: 'domcontentloaded' });
 
 const { result, fallback } = await page.evaluate(async () => {
   // One harness, used twice: once with the pack reachable and once with every
@@ -70,8 +77,15 @@ const { result, fallback } = await page.evaluate(async () => {
       if (quiet) a.crowdGain.gain.value = 0;
       await new Promise((r) => setTimeout(r, 120));
       peak = 0;
-      fn();
-      await new Promise((r) => setTimeout(r, ms));
+      // Fired several times inside the window, not once. The probe cannot miss
+      // a sound it renders, but a headless browser renders in bursts and can
+      // hand back a block that happens to fall between two of them; four
+      // firings and the loudest sample of all of them is a floor test that
+      // does not depend on that luck.
+      for (let k = 0; k < 4; k++) {
+        fn();
+        await new Promise((r) => setTimeout(r, ms / 4));
+      }
       const got = peak;
       if (quiet) a.crowdGain.gain.value = before;
       return got;
@@ -86,6 +100,15 @@ const { result, fallback } = await page.evaluate(async () => {
       for (let k = 0; k < passes; k++) best = Math.max(best, await once(fn, ms, quiet));
       return best;
     };
+
+    // The room first, before anything else has sounded.
+    //
+    // It used to be measured after the twelve one-shots, and the last of them
+    // — a whoosh, nearly a second long, fired four times — was still ringing:
+    // the bed read -10 dBFS against a true -30, and every event was then
+    // judged against a room twenty decibels too loud.
+    await new Promise((r) => setTimeout(r, 1200));
+    const room = await level(() => {}, 500, false);
 
     const events = {};
     for (const [name, fn] of [
@@ -103,7 +126,6 @@ const { result, fallback } = await page.evaluate(async () => {
     ]) events[name] = await level(fn);
 
     // The swell is the room getting louder, so it is measured with the room on.
-    const room = await level(() => {}, 500, false);
     events.swell = await level(() => a.swell(0.9, 1.4), 900, false);
 
     let music = 0;
@@ -135,11 +157,40 @@ const { result, fallback } = await page.evaluate(async () => {
   // ogg still hears a match. That is a claim about a path nobody walks in
   // testing, so it is walked here: every request for a sample is refused and
   // the same events are asked for again.
+  //
+  // Asked for, and counted — not listened to. The tap on the master output
+  // measures the sampled half fine and is useless on this one: everything
+  // synthesised is *scheduled*, and a ScriptProcessor in a headless build
+  // hands back silent input buffers for scheduled sources often enough that
+  // the same bell measured -8 dBFS and -80 on consecutive runs. A source that
+  // fed the probe directly measured silence too, which is how it was pinned on
+  // the probe rather than on the game. So the question this half asks is the
+  // one it can answer: with the pack refused, does every event still build the
+  // oscillators and buffers it is supposed to build?
   const real = window.fetch;
   window.fetch = (u, ...rest) =>
     String(u).includes('/assets/audio/') ? Promise.reject(new Error('offline'))
                                          : real.call(window, u, ...rest);
-  const fallback = await probeAudio(Audio, false);
+  const { Audio: Audio2 } = await import('/bjj/src/core/audio.js?offline=' + Math.random());
+  const a2 = new Audio2();
+  a2.start();
+  await new Promise((r) => setTimeout(r, 1500));
+  let built = 0;
+  const osc = a2.ctx.createOscillator.bind(a2.ctx);
+  const src = a2.ctx.createBufferSource.bind(a2.ctx);
+  a2.ctx.createOscillator = () => { built++; return osc(); };
+  a2.ctx.createBufferSource = () => { built++; return src(); };
+  const fallback = { samples: Object.keys(a2.sfx).length, events: {} };
+  for (const [name, fn] of [
+    ['thud', () => a2.thud(1)], ['cloth', () => a2.cloth(1)], ['whistle', () => a2.whistle()],
+    ['bell', () => a2.bell()], ['tap', () => a2.tap()], ['click', () => a2.click()],
+    ['confirm', () => a2.confirm()], ['timer', () => a2.timer()],
+  ]) {
+    built = 0;
+    fn();
+    fallback.events[name] = built;
+  }
+  await a2.ctx.close();
   window.fetch = real;
 
   return { result, fallback };
@@ -163,13 +214,21 @@ let problems = 0;
 console.log(`  pack ${result.loaded ? 'loaded' : 'DID NOT load in 30s'} — ${result.samples}/20 samples decoded`);
 if (!result.loaded || result.samples < 20) problems++;
 
+// And too loud is a fault as well as too quiet. Nothing should reach the top of
+// the scale on its own: the room, the music and two or three of these play at
+// once, and a one-shot that peaks at 0 dBFS by itself is a one-shot that
+// crackles in company. Both of the levels raised earlier in this project were
+// raised on a meter that was reading twenty decibels low, and they came out at
+// +1 dBFS.
+const HOT = Math.pow(10, -1 / 20);
 for (const [name, peak] of Object.entries(result.events)) {
   const silent = peak <= HEARD;
   // The swell is the room, so it is not judged against the room.
   const quiet = !silent && name !== 'swell' && peak < result.room * 1.4;
-  if (silent || quiet) problems++;
-  console.log(`${silent || quiet ? '!' : ' '} ${name.padEnd(10)} peak ${db(peak).padStart(6)} dBFS` +
-    (silent ? '   silent' : quiet ? '   lost under the crowd' : ''));
+  const hot = peak > HOT;
+  if (silent || quiet || hot) problems++;
+  console.log(`${silent || quiet || hot ? '!' : ' '} ${name.padEnd(10)} peak ${db(peak).padStart(6)} dBFS` +
+    (silent ? '   silent' : quiet ? '   lost under the crowd' : hot ? '   clips against everything else' : ''));
 }
 
 console.log(`  the room on its own       ${db(result.room).padStart(6)} dBFS`);
@@ -182,19 +241,11 @@ console.log(`  muted                     ${db(result.muted).padStart(6)} dBFS`);
 if (result.muted > HEARD) { console.log('! mute does not mute'); problems++; }
 
 console.log(`\n  with the pack unreachable — ${fallback.samples} samples, synthesis only:`);
-// This half is a liveness test, not a level test, and the difference is worth
-// stating. Everything synthesised is *scheduled*, and a headless browser
-// renders the graph in long bursts, so a scheduled envelope is partly mixed
-// before the main thread's clock catches up and reads back ten to twenty
-// decibels under what a real device plays. The crowd bed is a constant gain
-// and is measured properly, which makes comparing the two here unfair in a
-// direction that would fail honest sounds. So: does anything come out at all.
-for (const name of ['thud', 'cloth', 'whistle', 'bell', 'swell']) {
-  const ok = fallback.events[name] > HEARD;
+for (const [name, built] of Object.entries(fallback.events)) {
+  const ok = built > 0;
   if (!ok) problems++;
-  console.log(`${ok ? ' ' : '!'}   ${name.padEnd(8)} peak ${db(fallback.events[name]).padStart(6)} dBFS`);
+  console.log(`${ok ? ' ' : '!'}   ${name.padEnd(8)} ${built} source(s) built`);
 }
-console.log(`    the room                ${db(fallback.room).padStart(6)} dBFS`);
 if (fallback.samples) { console.log('! samples decoded despite the network being refused'); problems++; }
 
 if (errors.length) {

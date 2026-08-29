@@ -228,6 +228,27 @@ function clockSound() {
   }
 }
 
+// A foot on the mat, when there is one.
+//
+// Tied to ground covered rather than to a timer: standing, the pair moves at
+// something over a metre a second and a stride is about half of that, so a
+// step every forty centimetres is two men circling. On the ground nobody
+// steps, and the pack's two tatami samples are detuned against each other so a
+// long exchange does not turn into a metronome.
+let walked = 0;
+const STRIDE = 0.4;
+function footsteps(dt) {
+  if (POSES[match.position].ground || match.state !== 'live') { walked = 0; return; }
+  walked += Math.hypot(match.origin[0] - lastOrigin[0], match.origin[2] - lastOrigin[2]);
+  lastOrigin[0] = match.origin[0];
+  lastOrigin[2] = match.origin[2];
+  if (walked >= STRIDE) {
+    walked -= STRIDE;
+    audio.step(0.5 + Math.random() * 0.3);
+  }
+}
+const lastOrigin = [0, 0];
+
 function frame(now) {
   const raw = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -301,6 +322,7 @@ function frame(now) {
   const c0 = control0();
   match.update(dt, [c0, ai.control]);
   clockSound();
+  footsteps(dt);
   rig.origin[0] = match.origin[0];
   rig.origin[2] = match.origin[2];
   rig.yaw = match.yaw;

@@ -68,7 +68,8 @@ export class Audio {
     this.crowdGain = null;
     this.master = null;
     this.sfx = {};            // name -> AudioBuffer, as they arrive
-    this.music = null;        // { key, gain, sources, timer }
+    this.music = null;        // { key, gain, timer } — what is playing
+    this.wanted = null;       // and what was last asked for, which may still be downloading
     this.musicVol = 0.34;
     this.loaded = false;
   }
@@ -271,7 +272,7 @@ export class Audio {
 
   whistle() {
     if (!this.ctx || this.muted) return;
-    if (this._play('whistle', 0.8)) return;
+    if (this._play('whistle', 0.45)) return;
     const t = this._at();
     const o = this.ctx.createOscillator();
     o.type = 'sine';
@@ -289,18 +290,24 @@ export class Audio {
     o.stop(t + 0.4);
   }
 
-  // The gains are not taste. Every one of these was measured at match volume
-  // against the crowd bed by `tools/sound-check.mjs`, and the two short dry
-  // ones — the tap and the UI click — came in three decibels *under* the room
-  // at the level their own files suggest. A finish nobody hears is not a
-  // finish.
-  bell() { if (!this._play('bell', 0.75)) this.beep(1180, 0.5, 'sine', 0.34); }
-  tap(force = 1) { if (!this._play('tap', 2.2 * force)) this.beep(300, 0.08, 'square', 0.2); }
+  // The gains are not taste: every one is measured at match volume by
+  // `tools/sound-check.mjs`, which puts a tap on the master output and reads
+  // the peak. They all sit in a band a few decibels wide, above the crowd bed
+  // at -29 dBFS and clear of the top of the scale — because the bed, the music
+  // and two or three of these play at once.
+  //
+  // The tap and the UI click were once at 2.2, on the strength of a meter that
+  // was reading twenty decibels low: a ScriptProcessor runs on the main thread
+  // and starves behind a WebGL loop, so measuring the game's own page under-
+  // reported everything short. On a page that renders nothing they came out at
+  // +1 dBFS, which is not loud, it is clipping.
+  bell() { if (!this._play('bell', 0.55)) this.beep(1180, 0.5, 'sine', 0.34); }
+  tap(force = 1) { if (!this._play('tap', 0.8 * force)) this.beep(300, 0.08, 'square', 0.2); }
   lock() { if (!this._play('lock', 0.85)) this.cloth(1); }
   whoosh() { this._play('whoosh', 0.5); }
-  click() { if (!this._play('click', 2.2)) this.beep(760, 0.05, 'square', 0.1); }
-  confirm() { if (!this._play('confirm', 0.6)) this.beep(980, 0.1, 'triangle', 0.14); }
-  timer() { if (!this._play('beepTimer', 0.6)) this.beep(880, 0.08, 'square', 0.12); }
+  click() { if (!this._play('click', 0.9)) this.beep(760, 0.05, 'square', 0.1); }
+  confirm() { if (!this._play('confirm', 0.9)) this.beep(980, 0.1, 'triangle', 0.14); }
+  timer() { if (!this._play('beepTimer', 0.8)) this.beep(880, 0.08, 'square', 0.12); }
 
   beep(freq, dur = 0.12, type = 'square', peak = 0.18) {
     if (!this.ctx || this.muted) return;
@@ -356,21 +363,31 @@ export class Audio {
   // last minute without thinking about it.
   async track(key) {
     if (!this.ctx || !MUSIC[key]) return;
-    if (this.music && this.music.key === key) return;
-    this._stopMusic();
-    this.music = { key, loading: true };
+    if (this.wanted === key) return;
+    this.wanted = key;
+    // The old track keeps playing while the new one downloads.
+    //
+    // Stopping first and fetching afterwards left half a second of nothing
+    // between the match theme and the last minute — and it is the last minute,
+    // which is the one moment in a match where a hole in the sound is heard.
+    // What arrives fades in over what is already there; what was there fades
+    // out under it.
     let buf;
     try {
       const res = await fetch(BASE + MUSIC[key]);
       if (!res.ok) return;
       buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
     } catch { return; }
-    // The track may have been changed again while this was downloading.
-    if (!this.music || this.music.key !== key) return;
+    // It may have been asked for something else again while this downloaded.
+    if (this.wanted !== key) return;
     const gain = this.ctx.createGain();
-    gain.gain.value = 1;
+    const t = this.ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.linearRampToValueAtTime(1, t + SEAM);
     gain.connect(this.musicGain);
-    this.music = { key, gain, timer: this._loopCrossfaded(buf, gain) };
+    const next = { key, gain, timer: this._loopCrossfaded(buf, gain) };
+    this._stopMusic(SEAM);
+    this.music = next;
   }
 
   // The two stings are not tracks: they play once, over whatever is there,
@@ -403,7 +420,7 @@ export class Audio {
     g.linearRampToValueAtTime(this.musicVol, t + dur);
   }
 
-  _stopMusic() {
+  _stopMusic(over = 0.5) {
     if (!this.music) return;
     if (this.music.timer) clearInterval(this.music.timer);
     if (this.music.gain) {
@@ -412,10 +429,10 @@ export class Audio {
       const g = node.gain;
       g.cancelScheduledValues(t);
       g.setValueAtTime(g.value, t);
-      g.linearRampToValueAtTime(0.0001, t + 0.5);
+      g.linearRampToValueAtTime(0.0001, t + over);
       // Unplugged after the fade, not during it: disconnecting now would cut
       // the very ramp that is there to stop it clicking.
-      setTimeout(() => node.disconnect(), 700);
+      setTimeout(() => node.disconnect(), (over + 0.2) * 1000);
     }
     this.music = null;
   }
