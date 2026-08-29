@@ -681,6 +681,93 @@ export const POSES = {
     ],
   }),
 
+  // The other two halves of the same problem.
+  //
+  // ACROSS is the middle of a hip switch and it won exactly one route, which
+  // said what was wrong with it rather than with the idea: the seven that were
+  // left are not all one movement. Coming to mount and coming to side control
+  // are different shapes, and neither is a hip switch.
+  //
+  // MOUNT_ENTRY is the middle of a knee slide: hips high and turned, the far
+  // leg already posted wide on the other side, and the driving knee travelling
+  // over the belt line rather than through the legs it is leaving.
+  //
+  // SIDE_ENTRY is a sprawl: hips back and low, both legs long and wide behind
+  // the man on top, chest coming down across. Every transition that ends in
+  // side control fails in the same place — the right thigh through the legs —
+  // and a sprawl is the shape in which that thigh is nowhere near them.
+  MOUNT_ENTRY: P('MOUNT_ENTRY', {
+    name: 'Заход в маунт',
+    label: 'MOUNT',
+    points: 0, top: 'A', ground: true, waypoint: true,
+    A: {
+      root: { p: [0.07, 0.6, 0.05], r: [6, 46, 0] },
+      j: {
+        hips: [19, 8, 6], spine: [42, -2, -14], chest: [40, -8, -4],
+        neck: [14, 0, 0], head: [-14, 0, 0], clavL: [0.5, -25.2, -28.2],
+        armL: [-79.2, 11, -35.5], foreL: [-96, 7.5, 4], clavR: [4, 10, 27.5],
+        armR: [-105.7, 11.8, 53.8], foreR: [-100.2, 17.8, 25.8], thighL: [-22, 12, 62],
+        shinL: [96, 0, 0], footL: [14, 0, 0], thighR: [-86.2, 10.1, -13.2],
+        shinR: [54, 6, -3.7], footR: [10, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [0.05, 0.305, 0.234], r: [-90, 180, 0] },
+      j: {
+        hips: [26, -8, -17.2], spine: [12, -5.9, -7.4], chest: [16.8, 23.3, 15.1],
+        neck: [-20, 0, 0], head: [14, 0, 0], clavL: [-8, -48.7, 9.3],
+        armL: [-151.3, 44.1, 11.6], foreL: [-122.1, 9.2, 7.6], clavR: [17.4, 23.3, -16.7],
+        armR: [-186.6, 4.1, 24.6], foreR: [-92.9, 2.4, 0.1], thighL: [-17.1, -12.6, -10.1],
+        shinL: [33.4, 0, 0], footL: [-14, 0, 0], thighR: [-29.1, -5.9, -1.6],
+        shinR: [34.1, 0, 0], footR: [-14, 0, 0],
+      },
+    },
+    hold: [
+      { of: 'A.hips', above: 'B.hips', by: 0.26 },
+      { of: 'A.hips', near: 'B.hips', within: 0.3 },
+    ],
+    grips: [
+      { role: 'A', hand: 'L', point: 'lapelR' },
+    ],
+  }),
+
+  SIDE_ENTRY: P('SIDE_ENTRY', {
+    name: 'Заход в сторону',
+    label: 'SIDE CONTROL',
+    points: 0, top: 'A', ground: true, waypoint: true,
+    A: {
+      root: { p: [0.27, 0.42, 0.26], r: [10, 104, 0] },
+      j: {
+        hips: [-36, -26, 0], spine: [56, -24, 22], chest: [52, -24, 20],
+        neck: [16, 8, -6], head: [-26, 0, 0], clavL: [-14, -30, -16.2],
+        armL: [-75.2, 36, -56], foreL: [-113.7, 5.8, 3.8], clavR: [12, -34, -12],
+        armR: [-44, -30, 37.8], foreR: [-124.5, 7.5, -8], thighL: [-12, 14, 34],
+        shinL: [30, 0, 0], footL: [10, 0, 0], thighR: [-6, -14, -34],
+        shinR: [26, 0, 0], footR: [10, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.12, 0.275, -0.03], r: [-90, 180, 0] },
+      j: {
+        hips: [16, -7.5, 6], spine: [-2, -11.2, 6], chest: [8, -6.7, 12],
+        neck: [-3.7, 30.1, 16.5], head: [23.5, 13.1, -11.1], clavL: [-31.3, -3.6, 17],
+        armL: [-141.2, 26.3, -38.4], foreL: [-110.1, 7.6, 3.8], clavR: [4.6, -21, 4.4],
+        armR: [-51.1, -31.7, 10.8], foreR: [-75.9, 6.2, -5.8], thighL: [-28, 6, 12],
+        shinL: [46, 0, 0], footL: [-16, 0, 0], thighR: [-16, -6, -10],
+        shinR: [34, 0, 0], footR: [-16, 0, 0],
+      },
+    },
+    hold: [
+      { of: 'A.chest', above: 'B.chest', by: 0.22 },
+      { of: 'A.chest', near: 'B.chest', within: 0.36 },
+    ],
+    grips: [
+      { role: 'A', hand: 'L', point: 'headBack' },
+      { role: 'A', hand: 'R', point: 'lapelL' },
+    ],
+  }),
+
+
   /* ------------------------------------------------- the same, working - */
   //
   // A held position is a photograph with breathing on it, and the fight

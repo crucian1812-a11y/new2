@@ -14,6 +14,38 @@
      mark is the club's: an orange A on black. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230e0e11'/%3E%3Cpath d='M7 26 L14 6 h4 l7 20 h-5 l-1.4-4.4 h-5.2 L12 26z M15.1 17.4 h1.8 L16 13.2z' fill='%23ef9420'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
+<!-- The module graph, asked for all at once.
+     Twenty-three ES modules with no build step are twenty-three requests, and
+     a browser only learns about the deep ones after it has parsed the ones
+     above them: on a 300 ms line that is four round trips of nothing
+     happening. These are the same files main.js imports — no bundle, no
+     duplication, just the list stated up front. net-check measures what it is
+     worth; if a module is renamed and the link goes stale the browser fetches
+     an unused file and says so in the console, which is why the list is short
+     enough to read.
+     Preload, not import: the order below is the order they are wanted in. -->
+<link rel="modulepreload" href="src/core/m4.js">
+<link rel="modulepreload" href="src/core/input.js">
+<link rel="modulepreload" href="src/core/audio.js">
+<link rel="modulepreload" href="src/render/gl.js">
+<link rel="modulepreload" href="src/render/glyphs.js">
+<link rel="modulepreload" href="src/render/marks.js">
+<link rel="modulepreload" href="src/render/textures.js">
+<link rel="modulepreload" href="src/render/skeleton.js">
+<link rel="modulepreload" href="src/render/body.js">
+<link rel="modulepreload" href="src/render/asset.js">
+<link rel="modulepreload" href="src/render/arena.js">
+<link rel="modulepreload" href="src/render/renderer.js">
+<link rel="modulepreload" href="src/game/poses.js">
+<link rel="modulepreload" href="src/game/positions.js">
+<link rel="modulepreload" href="src/game/arcs.js">
+<link rel="modulepreload" href="src/game/intent.js">
+<link rel="modulepreload" href="src/game/collide.js">
+<link rel="modulepreload" href="src/game/rig.js">
+<link rel="modulepreload" href="src/game/match.js">
+<link rel="modulepreload" href="src/game/ai.js">
+<link rel="modulepreload" href="src/game/camera.js">
+<link rel="modulepreload" href="src/ui/hud.js">
 </head>
 <body>
   <canvas id="gl"></canvas>

@@ -51,8 +51,9 @@ let gpuYou = renderer.makeFighterGPU(meshes);
 let gpuOpp = gpuYou;
 let bodySource = 'procedural';
 
+let baked = null;
 try {
-  const baked = await loadFighter(new URL('../assets/fighter.bin', import.meta.url).href);
+  baked = await loadFighter(new URL('../assets/fighter.bin', import.meta.url).href);
   gpuYou = renderer.makeFighterGPU([baked]);
   gpuOpp = gpuYou;
   bodySource = `baked (${(baked.count / 3) | 0} tris)`;
@@ -63,13 +64,22 @@ try {
 // The opponent is a second character when there is one. He is optional on
 // purpose: the game has to keep working with the assets folder deleted, and one
 // man in two kimonos is a worse demo than two men, not a broken one.
-try {
-  const other = await loadFighter(new URL('../assets/fighter-b.bin', import.meta.url).href);
-  gpuOpp = renderer.makeFighterGPU([other]);
-  bodySource += ` + opponent (${(other.count / 3) | 0} tris)`;
-} catch (e) {
-  console.info('the opponent is the same man in another gi:', e.message);
-}
+//
+// And he is not awaited. He is 768 KB, he is not on the title card, and he is
+// not needed until the bell; awaiting him here put him in front of the first
+// frame, which net-check measured as 11.3 seconds of loading card on a 1.5
+// Mbit line against 1.5 MB of assets. Until he lands, `gpuOpp` is the same man
+// in another gi, which is exactly what happens when the file is missing.
+// Fetched here rather than from the first frame. Deferring it until after the
+// loading card goes was tried, on the theory that it was sharing the pipe with
+// the code and the first fighter; net-check says it is not — the first frame
+// landed at 6.9 seconds either way — so it starts as early as it can.
+loadFighter(new URL('../assets/fighter-b.bin', import.meta.url).href)
+    .then((other) => {
+      gpuOpp = renderer.makeFighterGPU([other]);
+      bodySource += ` + opponent (${(other.count / 3) | 0} tris)`;
+    })
+    .catch((e) => console.info('the opponent is the same man in another gi:', e.message));
 
 // The title-screen fighter.
 //
@@ -82,10 +92,11 @@ try {
 // the first thing anybody sees.
 //
 // So it is the match fighter, held in the game's own standing pose. A stance is
-// a few degrees from the bind pose and skins cleanly.
+// a few degrees from the bind pose and skins cleanly — and it is the same mesh
+// on the GPU, not a second upload of the same file: it used to fetch and
+// re-upload fighter.bin a second time for the sake of one static figure.
 let hero = null;
-try {
-  const mesh = await loadFighter(new URL('../assets/fighter.bin', import.meta.url).href);
+if (baked) {
   const skeleton = new Skeleton();
   poseToQuats(skeleton.local, POSES.STANDING.A);
   qEuler(skeleton.rootRot, 0, 26, 0);
@@ -96,14 +107,12 @@ try {
   skeleton.finishSkin();
   hero = {
     skeleton,
-    gpu: renderer.makeFighterGPU([mesh]),
+    gpu: gpuYou,
     giCol: new Float32Array([0.9, 0.905, 0.885]),
     beltCol: new Float32Array([0.035, 0.035, 0.04]),
     skinCol: new Float32Array([0.6, 0.42, 0.31]),
     flash: 0,
   };
-} catch (e) {
-  console.info('no title-screen fighter:', e.message);
 }
 
 const input = new Input(uiCanvas);

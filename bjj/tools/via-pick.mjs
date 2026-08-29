@@ -118,12 +118,26 @@ for (const key of keys) {
   let best = null, bestWorst = straight;
   for (const p of poses) {
     if (p === from || p === to) continue;
-    VIAS[key] = p;
-    const m = walk(from, to);
-    if (m.apart > TOGETHER) continue;   // they came apart on the way
-    if (m.worst < bestWorst - GAIN) { bestWorst = m.worst; best = p; }
+    // Each candidate is tried three times: leaning through the middle, and the
+    // same pose biting a third of the way in or two thirds. Ranking the
+    // candidates for the nine that were left said their worst moment is at
+    // 0.6-0.72 of the blend, and a bump that peaks at 0.5 is two thirds gone
+    // by then. See VIA_PLAN in rig.js.
+    for (const at of ['', '@early', '@late', '@mid+A', '@early+A', '@late+A',
+                      '@mid+B', '@early+B', '@late+B']) {
+      VIAS[key] = p + at;
+      const m = walk(from, to);
+      if (m.apart > TOGETHER) continue;   // they came apart on the way
+      // Strictly the best, and the margin applied once at the end. Applied
+      // between candidates it hid better routes behind worse ones: whichever
+      // came first held the lead until something beat it by two centimetres,
+      // so KNEE_ON_BELLY>MOUNT kept a 23 cm route while a 22 cm one was
+      // measured three candidates later and thrown away.
+      if (m.worst < bestWorst) { bestWorst = m.worst; best = p + at; }
+    }
   }
   if (arc) ARCS[key] = arc;
+  if (best && bestWorst > straight - GAIN) best = null;   // not worth a curve
   if (best) {
     VIAS[key] = best;
     chosen[key] = best;
@@ -153,8 +167,16 @@ if (WRITE) {
   //   node bjj/tools/arc-solve.mjs --write --fresh --only <keys>
   const moved = [...new Set([...Object.keys(WAS), ...Object.keys(chosen)])]
     .filter((k) => WAS[k] !== chosen[k]);
+  // Built from a plain string, not a template literal: `\[` and `\s` inside
+  // one are not escapes at all, they are the letters, and the pattern this
+  // used to build — `[[sS]*?` — matched nothing an arc has ever contained. It
+  // dropped no arcs and said nothing, which is the worst of the three
+  // possible behaviours.
   for (const k of moved) {
-    src = src.replace(new RegExp(`\n  '${k}': \[[\s\S]*?\n  \],`), '');
+    const lit = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp("\\n  '" + lit + "': \\[[\\s\\S]*?\\n  \\],");
+    if (!re.test(src) && ARCS[k]) console.log(`  (${k} had an arc and it was not found to drop)`);
+    src = src.replace(re, '');
   }
   if (moved.length) {
     console.log(

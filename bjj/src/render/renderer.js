@@ -12,7 +12,7 @@
 
 import { createGL, program, vao, texture, framebuffer, QUAD } from './gl.js';
 import { giWeave, skinTex, tatamiTex, uploadPacked } from './textures.js';
-import { markAtlas, cellRect, MAT_MARKS, GI_PATCHES, fitPatches } from './marks.js';
+import { markAtlas, cellRect, MAT_MARKS, ARENA_MARKS, GI_PATCHES, fitPatches } from './marks.js';
 import { buildArena } from './arena.js';
 import { BONE_COUNT } from './skeleton.js';
 import { m4, m4mul, m4perspective, m4ortho, m4lookAt, clamp } from '../core/m4.js';
@@ -228,6 +228,10 @@ uniform sampler2D u_marks;
 // has the same use for it: a mark is printed or sewn onto a surface that has a
 // tone, so it takes that surface's scuffs and weave rather than sitting on top
 // of them like a sticker.
+// q.y runs UP the cell: cellRect hands over the cell's bottom-left corner in
+// GL texture space, and the atlas is written flipped so that row is the bottom
+// of the artwork. Written the other way round the type comes out upside down —
+// which is how the boards and the ribbon first shipped.
 vec3 decal(vec3 base, vec4 cell, vec2 q, float k) {
   // Sampled unconditionally and masked afterwards: a texture fetch inside a
   // branch has no defined derivatives, and undefined derivatives on a surface
@@ -491,6 +495,8 @@ uniform vec3 u_matOuter;
 uniform float u_area;
 uniform float u_time;
 uniform vec4 u_cell[3];    // crest, corner roundel, wordmark
+uniform vec4 u_boardMark;  // top, height, start, width — see ARENA_MARKS
+uniform vec4 u_jumboMark;  // top, size
 uniform vec4 u_matMark;    // crest size, corner offset, corner size, edge offset
 uniform vec2 u_matEdge;    // wordmark length and height, metres
 
@@ -584,7 +590,12 @@ void main() {
     // middle where the lettering would be. Read at this distance it is a ring
     // of colour separating a white mat from a black crowd, and that ring is
     // what makes the hall a hall.
-    float run = abs(v_world.x) > abs(v_world.z) ? v_world.z : v_world.x;
+    // Read from the mat, not from the seats. A hoarding faces inwards — it is
+    // there for the cameras and the people on the tatami — and taking the
+    // ribbon's outward direction put the club's name on backwards along the
+    // whole of the far wall, which is the wall the game camera looks at.
+    float ax7 = abs(v_world.x), az7 = abs(v_world.z);
+    float run = ax7 > az7 ? v_world.z * sign(v_world.x) : -v_world.x * sign(v_world.z);
     float board = floor(run / 2.5);
     float k = fract(sin(board * 91.7 + 3.1) * 43758.5453);
     vec3 face = k < 0.3 ? vec3(0.22, 0.055, 0.07)
@@ -597,6 +608,14 @@ void main() {
     float seam = smoothstep(0.0, 0.03, fract(run / 2.5)) *
                  (1.0 - smoothstep(0.97, 1.0, fract(run / 2.5)));
     vec3 c = mix(face, face * 0.35 + vec3(0.55), band * 0.8) * seam;
+    // And the club's name on the plate, dark on pale, the way a printed board
+    // carries it. Same wordmark as the mat and the ribbon, same atlas cell:
+    // the hall belongs to one club and nothing in it is named after anyone
+    // else. 640x128 in the atlas, so 1.35 m across a 2.5 m board at the
+    // plate's own 27 cm — written any wider it stops being the same mark.
+    c = decal(c, u_cell[2],
+      vec2((fract(run / 2.5) - u_boardMark.z) / u_boardMark.w,
+           (v_world.y - u_boardMark.x + u_boardMark.y) / u_boardMark.y), 0.06);
     // Lit from inside, so it holds up when the key light is not on it. Only
     // the top face of the board takes the room's shading.
     emis += c * 0.8;
@@ -613,11 +632,12 @@ void main() {
   } else if (m == 10) {
     // The LED ribbon along the top of the boards, and the one thing out here
     // that carries lettering — the club's own wordmark, off the same atlas the
-    // mat is printed from. Read from outside, like the mat's edge strips, so
-    // the type faces the seats.
+    // mat is printed from. Read from the mat, the way the boards under it are:
+    // the mat's own edge strips face the seats because they are read from the
+    // seats, and a ribbon board is read by the camera, which is inside.
     float ax = abs(v_world.x), az = abs(v_world.z);
     bool onX = ax > az;
-    float along = onX ? -v_world.z * sign(v_world.x) : v_world.x * sign(v_world.z);
+    float along = onX ? v_world.z * sign(v_world.x) : -v_world.x * sign(v_world.z);
     // Lit, and the type is what is dark on it — a ribbon board is a lamp with
     // letters masked out of it, not letters painted on a black strip. Written
     // the other way round it read as a black stripe along the top of the
@@ -625,15 +645,24 @@ void main() {
     vec3 base = vec3(0.055, 0.115, 0.30);
     vec3 c = decal(base, u_cell[2],
       vec2(fract(along / u_matEdge.x * 0.75 + u_time * 0.045),
-           (1.055 - v_world.y) / 0.15), 0.22);
+           (v_world.y - 0.905) / 0.15), 0.22);
     float pulse = 0.86 + 0.14 * sin(u_time * 1.6 + along * 0.35);
     emis += c * 2.2 * pulse;
     albedo = c * 0.3; rough = 0.5; spec = 0.2; ao = 0.85;
   } else {
     // The jumbotron's screens. Bright enough to read as a display and to feed
-    // the bloom, dim enough that they are not a second key light.
+    // the bloom, dim enough that they are not a second key light — and with
+    // the club's crest on them, which is what a screen over a mat shows
+    // between rounds. The small screen on the referee's table shares this
+    // material and is nowhere near this height, so the decal masks itself off
+    // it rather than needing a material of its own.
     float band = 0.5 + 0.5 * sin(v_world.y * 42.0 + u_time * 2.2);
-    outColor = vec4(vec3(0.20, 0.34, 0.62) * (1.35 + band * 0.25), 1.0);
+    vec3 scr = vec3(0.20, 0.34, 0.62) * (1.35 + band * 0.25);
+    float ax6 = abs(v_world.x), az6 = abs(v_world.z);
+    float a6 = ax6 > az6 ? -v_world.z * sign(v_world.x) : v_world.x * sign(v_world.z);
+    outColor = vec4(decal(scr, u_cell[0],
+      vec2((a6 + u_jumboMark.y * 0.5) / u_jumboMark.y,
+           (v_world.y - u_jumboMark.x + u_jumboMark.y) / u_jumboMark.y), 1.15), 1.0);
     return;
   }
   outColor = vec4(shade(v_world, N, albedo, rough, spec, 0.15, ao) + emis, 1.0);
@@ -971,6 +1000,9 @@ export class Renderer {
     gl.uniform4f(this.progStatic.u.u_matMark,
       MAT_MARKS.crest.size, MAT_MARKS.corner.at, MAT_MARKS.corner.size, MAT_MARKS.edge.at);
     gl.uniform2f(this.progStatic.u.u_matEdge, MAT_MARKS.edge.len, MAT_MARKS.edge.height);
+    gl.uniform4f(this.progStatic.u.u_boardMark, ARENA_MARKS.board.top, ARENA_MARKS.board.height,
+      ARENA_MARKS.board.at, ARENA_MARKS.board.width);
+    gl.uniform4f(this.progStatic.u.u_jumboMark, ARENA_MARKS.jumbo.top, ARENA_MARKS.jumbo.size, 0.0, 0.0);
     gl.bindVertexArray(this.arenaVAO);
     gl.drawElements(gl.TRIANGLES, this.arena.count, gl.UNSIGNED_INT, 0);
 

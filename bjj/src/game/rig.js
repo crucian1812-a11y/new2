@@ -16,6 +16,47 @@
 
 import { POSES, HOLD_LOOPS } from './poses.js';
 import { ARCS, VIAS } from './arcs.js';
+
+// Where along the path a via bites.
+//
+// A via used to be one pose leaned through at the exact middle, and the routes
+// it fixed were the ones whose collision was there. Ranking every candidate
+// for the nine transitions still on the work list said the rest are not:
+// their worst moment is at t = 0.6 to 0.72, past the middle, where a bump
+// peaking at 0.5 has already faded to a third of itself. A better pose in the
+// middle cannot help a path that goes wrong after it.
+//
+// So a via may say when as well as what. `POSE@late` and `POSE@early` are
+// cubics with a doubled endpoint — control points (A, A, V, B) and
+// (A, V, B, B) — whose weight for V peaks at two thirds and one third
+// respectively. Plain `POSE` is the quadratic it always was, evaluated by the
+// same three slerps, so none of the routes already solved move by a hair.
+//
+// Parsed on demand and memoised by the string itself, not snapshotted at load.
+// via-pick and arc-solve try candidates by assigning into VIAS and blending,
+// and a table built once at import time ignores them: the first version of
+// this took every route in the file as final and reported that no pose helps
+// anywhere. Keying the memo on the value means a changed route is a changed
+// plan, and an unchanged one costs a map lookup.
+const _plans = new Map();
+function planFor(key) {
+  const v = VIAS[key];
+  if (v === undefined) return null;
+  let p = _plans.get(v);
+  if (!p) {
+    const at = v.indexOf('@');
+    const bits = v.split('@');
+    // `POSE`, `POSE@late`, `POSE@late+A`. The role suffix says the curve is
+    // one man's: in every transition still on the work list it is the top
+    // man's leg that has to travel round, and the man underneath is lying
+    // still. Leaning him through a third pose as well moves him out from
+    // under his own legs and invents a collision that was not there.
+    const plus = bits[1] ? bits[1].split('+') : [];
+    p = { pose: bits[0], at: plus[0] || 'mid', role: plus[1] || null };
+    _plans.set(v, p);
+  }
+  return p;
+}
 import { GRIP_POINTS } from '../render/body.js';
 import {
   Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone,
@@ -33,6 +74,10 @@ const _b1 = quat();
 const _b2 = quat();
 const _p1 = v3();
 const _p2 = v3();
+const _p3 = v3();
+const _b3 = quat();
+const _c1 = quat();
+const _c2 = quat();
 
 // Cache the quaternion form of every authored pose once. Converting fifteen
 // poses' worth of degrees to quaternions every frame is pure waste, and the
@@ -144,7 +189,9 @@ export class PairRig {
     // position has to start the cycle again.
     if (!inPlace) this.heldId = null;
     const arc = ARCS[from + '>' + to];
-    const via = inPlace ? null : VIAS[from + '>' + to];
+    const plan = inPlace ? null : planFor(from + '>' + to);
+    const late = plan ? plan.at === 'late' : false;
+    const early = plan ? plan.at === 'early' : false;
     const bell = from === to ? 0 : Math.sin(clamp(t, 0, 1) * Math.PI);
     const w0 = bell * (1 - t) * 2;
     const w1 = bell * t * 2;
@@ -155,6 +202,8 @@ export class PairRig {
     const gap = inPlace ? 0 : bell * (arc ? 0 : 0.062);
     for (const role of ['A', 'B']) {
       const sk = this.skel[role];
+      // A role-restricted via is a straight line for the other man.
+      const via = plan && (!plan.role || plan.role === role) ? plan.pose : null;
       const qa = quatsOf(from, role);
       const qb = quatsOf(to, role);
       const qv = via ? quatsOf(via, role) : null;
@@ -172,10 +221,25 @@ export class PairRig {
         // built the way a Bézier is: slerp to the middle pose, slerp from it,
         // slerp between those. The middle pose is only ever pulled to half
         // weight, so the pair leans through it rather than visiting it.
-        for (let i = 0; i < BONE_COUNT; i++) {
-          qSlerp(_b1, qa[i], qv[i], e);
-          qSlerp(_b2, qv[i], qb[i], e);
-          qSlerp(sk.local[i], _b1, _b2, e);
+        if (late || early) {
+          // De Casteljau on four control points, two of which are the same
+          // pose. (A, A, V, B) leans late; (A, V, B, B) leans early.
+          for (let i = 0; i < BONE_COUNT; i++) {
+            const p1 = late ? qa[i] : qv[i];
+            const p2 = late ? qv[i] : qb[i];
+            qSlerp(_b1, qa[i], p1, e);
+            qSlerp(_b2, p1, p2, e);
+            qSlerp(_b3, p2, qb[i], e);
+            qSlerp(_c1, _b1, _b2, e);
+            qSlerp(_c2, _b2, _b3, e);
+            qSlerp(sk.local[i], _c1, _c2, e);
+          }
+        } else {
+          for (let i = 0; i < BONE_COUNT; i++) {
+            qSlerp(_b1, qa[i], qv[i], e);
+            qSlerp(_b2, qv[i], qb[i], e);
+            qSlerp(sk.local[i], _b1, _b2, e);
+          }
         }
       } else {
         for (let i = 0; i < BONE_COUNT; i++) qSlerp(sk.local[i], qa[i], qb[i], e);
@@ -185,9 +249,20 @@ export class PairRig {
       const rb = POSES[to][role].root;
       if (via) {
         const rv = POSES[via][role].root;
-        v3lerp(_p1, ra.p, rv.p, e);
-        v3lerp(_p2, rv.p, rb.p, e);
-        v3lerp(_t, _p1, _p2, e);
+        if (late || early) {
+          const c1 = late ? ra.p : rv.p;
+          const c2 = late ? rv.p : rb.p;
+          v3lerp(_p1, ra.p, c1, e);
+          v3lerp(_p2, c1, c2, e);
+          v3lerp(_p3, c2, rb.p, e);
+          v3lerp(_p1, _p1, _p2, e);
+          v3lerp(_p2, _p2, _p3, e);
+          v3lerp(_t, _p1, _p2, e);
+        } else {
+          v3lerp(_p1, ra.p, rv.p, e);
+          v3lerp(_p2, rv.p, rb.p, e);
+          v3lerp(_t, _p1, _p2, e);
+        }
       } else {
         v3lerp(_t, ra.p, rb.p, e);
       }
@@ -198,10 +273,21 @@ export class PairRig {
       qEuler(_rq, rb.r[0], rb.r[1], rb.r[2]);
       if (via) {
         const rv = POSES[via][role].root;
-        qEuler(_b1, rv.r[0], rv.r[1], rv.r[2]);
-        qSlerp(_b2, _q, _b1, e);
-        qSlerp(_b1, _b1, _rq, e);
-        qSlerp(sk.rootRot, _b2, _b1, e);
+        qEuler(_b3, rv.r[0], rv.r[1], rv.r[2]);
+        if (late || early) {
+          const c1 = late ? _q : _b3;
+          const c2 = late ? _b3 : _rq;
+          qSlerp(_b1, _q, c1, e);
+          qSlerp(_b2, c1, c2, e);
+          qSlerp(_c1, c2, _rq, e);
+          qSlerp(_c2, _b1, _b2, e);
+          qSlerp(_b2, _b2, _c1, e);
+          qSlerp(sk.rootRot, _c2, _b2, e);
+        } else {
+          qSlerp(_b2, _q, _b3, e);
+          qSlerp(_b1, _b3, _rq, e);
+          qSlerp(sk.rootRot, _b2, _b1, e);
+        }
       } else {
         qSlerp(sk.rootRot, _q, _rq, e);
       }

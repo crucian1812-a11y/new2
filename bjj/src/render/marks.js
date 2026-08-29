@@ -462,6 +462,22 @@ export function markAtlas(scale = 1) {
 // camera never leaves, so this is laid out like a real competition area: the
 // club crest in the middle of the fighting square, the affiliation in the four
 // corners of the safety border, the name along the edges.
+// And the lettering that is not on the mat: the sponsor boards round it and the
+// jumbotron over it. Both are drawn in the arena shader and both are measured
+// by mark-check, so the sizes live here and are handed to the shader as
+// uniforms — a number typed into a GLSL string and again into a checker is two
+// numbers, and they drift.
+//
+//   board: the pale plate across a hoarding is `height` tall with its top at
+//   `top`; the wordmark sits on the middle `width` of each 2.5 m board,
+//   starting `at`. The seats are about `dist` away.
+//   jumbo: the crest on each screen of the cube over the mat, `size` across
+//   with its top at `top`.
+export const ARENA_MARKS = {
+  board: { top: 0.612, height: 0.27, at: 0.23, width: 0.54, dist: 8.0 },
+  jumbo: { top: 4.86, size: 0.82, dist: 5.5 },
+};
+
 export const MAT_MARKS = {
   crest: { size: 2.3 },                       // centred on the middle of the mat
   corner: { at: 5.55, size: 1.95 },           // ±at in x and z, inside the border

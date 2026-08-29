@@ -18,7 +18,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { GLYPHS, glyph } from '../src/render/glyphs.js';
-import { markAtlas, cellRect, CELLS, PAL, MAT_MARKS, MARK_TEXT, fitPatches } from '../src/render/marks.js';
+import { markAtlas, cellRect, CELLS, PAL, MAT_MARKS, ARENA_MARKS, MARK_TEXT, fitPatches } from '../src/render/marks.js';
 import { ARENA_AREA, ARENA_HALF } from '../src/render/arena.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { atlasToPNG, encodePNG } from './png.mjs';
@@ -416,6 +416,11 @@ for (const path of fighters) {
     ['mat edge, wordmark', (0.62 / 2.0) * MAT_MARKS.edge.height, 4.0],
     ['back patch, ARES', (0.26 / 2.16) * 0.26, 2.5],
     ['back patch, club line', (0.115 / 2.16) * 0.26, 2.5],
+    // Out in the hall. The wordmark is drawn in a canvas two units tall with a
+    // 0.62-unit cap, so the cap is 31% of however tall it is printed; the
+    // crest's ring lettering is the same fraction the mat's is.
+    ['hoardings, wordmark', (0.62 / 2.0) * ARENA_MARKS.board.height, ARENA_MARKS.board.dist],
+    ['jumbotron, crest ring', (0.115 / 2.08) * ARENA_MARKS.jumbo.size, ARENA_MARKS.jumbo.dist],
   ];
   for (const [what, cap, dist] of rows) {
     const p = px(cap, dist);
