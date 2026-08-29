@@ -555,6 +555,10 @@ window.__bjj = {
   still: (t) => { window.__still = t; },
   // Drive fatigue directly, with everything else held.
   gas: (v) => { window.__gas = v; },
+  // Pin the internal resolution. The adaptive one settles wherever the machine
+  // can hold sixty, which on a software rasteriser is 62% and upscaled — and a
+  // tool measuring how cloth reads would be measuring the upscaler.
+  quality: (q) => { state.quality = q; layout(); },
   // Hold a transition at one moment of its blend.
   setBlend: (from, to, t) => {
     window.__frozen = true;

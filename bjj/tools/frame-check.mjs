@@ -49,7 +49,7 @@ const DETAIL = process.argv.includes('--detail');
 const BUDGET = {
   draws: 16,        // draw calls in a frame
   programs: 10,     // program switches
-  uniforms: 90,     // uniform uploads
+  uniforms: 110,    // uniform uploads
   tris: 360000,     // triangles submitted, shadow pass included
   passes: 14,       // framebuffer switches
 };

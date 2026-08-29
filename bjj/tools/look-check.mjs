@@ -78,28 +78,36 @@ async function look(pose) {
     // arrives over a few frames.
     await wait(700);
     window.__bjj.still(3.0);
-    await wait(200);
+    // Full internal resolution: the adaptive one sits at 62% on a software
+    // rasteriser, and an upscaled frame measures the upscaler.
+    window.__bjj.quality(1);
+    await wait(400);
     const r = window.__bjj.renderer;
 
-    const grab = async (ao) => {
-      r.contactAO = ao;
+    const grab = async (opt) => {
+      r.contactAO = opt.contact !== false;
+      r.folds = opt.folds !== false;
       r.grabbed = null;
       r.want = true;
       for (let i = 0; i < 200 && !r.grabbed; i++) await wait(30);
       return r.grabbed;
     };
-    const on = await grab(true);
-    const off = await grab(false);
-    if (!on || !off) return { error: 'no frame came back' };
+    const on = await grab({});
+    const off = await grab({ contact: false });
+    const flatFrame = await grab({ folds: false });
+    r.contactAO = true; r.folds = true;
+    if (!on || !off || !flatFrame) return { error: 'no frame came back' };
 
     const { w, h, shaded, id } = on;
     const lum = (px, k) => 0.2126 * px[k] + 0.7152 * px[k + 1] + 0.0722 * px[k + 2];
     const L = new Float32Array(w * h);
     const L0 = new Float32Array(w * h);
+    const Lf = new Float32Array(w * h);
     const who = new Uint8Array(w * h);       // 0 nobody, 1 red, 2 green, 3 blue
     for (let i = 0, k = 0; i < shaded.length; i += 4, k++) {
       L[k] = lum(shaded, i);
       L0[k] = lum(off.shaded, i);
+      Lf[k] = lum(flatFrame.shaded, i);
       who[k] = id[i] > 127 ? 1 : id[i + 1] > 127 ? 2 : id[i + 2] > 127 ? 3 : 0;
     }
 
@@ -146,12 +154,82 @@ async function look(pose) {
       }
     }
 
+    // The body, minus its own edges.
+    //
+    // Every measurement of surface detail below is taken here rather than on
+    // the whole mask, because a silhouette is a step of a hundred levels and
+    // swamps a crease worth five. Four pixels of erosion is enough to lose the
+    // rim and keep the cloth.
+    const inner = new Uint8Array(w * h);
+    {
+      const E = 4;
+      const t1 = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let ok = 1;
+          for (let d = -E; d <= E && ok; d++) {
+            const j = x + d;
+            if (j < 0 || j >= w || who[y * w + j] !== 1) ok = 0;
+          }
+          t1[y * w + x] = ok;
+        }
+      }
+      for (let x = 0; x < w; x++) {
+        for (let y = 0; y < h; y++) {
+          let ok = 1;
+          for (let d = -E; d <= E && ok; d++) {
+            const j = y + d;
+            if (j < 0 || j >= h || !t1[j * w + x]) ok = 0;
+          }
+          inner[y * w + x] = ok;
+        }
+      }
+    }
+
+    // Structure at the scale of a crease.
+    //
+    // The first version of this counted pixels within two levels of their four
+    // neighbours and called the rest flat. It measures the wrong thing: a fold
+    // is a smooth gradient a centimetre or two across, which is ten pixels at
+    // this distance and almost nothing between one pixel and the next, so
+    // tripling the fold depth moved that number by one point in a hundred. A
+    // crease lives at its own scale, so this subtracts a local mean taken at
+    // that scale and reports what is left — the mean absolute deviation from a
+    // six-pixel blur, inside the mask, with pixels off the body excluded from
+    // the blur rather than counted as black.
+    const blurMask = (src) => {
+      const acc = new Float32Array(w * h), cnt = new Float32Array(w * h);
+      const B = 6;
+      for (let y = 0; y < h; y++) {
+        let sum = 0, c = 0;
+        for (let x = 0; x < w + B; x++) {
+          if (x < w && who[y * w + x] === 1) { sum += src[y * w + x]; c++; }
+          const o = x - B;
+          if (o - B - 1 >= 0 && who[y * w + o - B - 1] === 1) { sum -= src[y * w + o - B - 1]; c--; }
+          if (o >= 0 && o < w) { acc[y * w + o] = sum; cnt[y * w + o] = c; }
+        }
+      }
+      const out = new Float32Array(w * h);
+      for (let x = 0; x < w; x++) {
+        let sum = 0, c = 0;
+        for (let y = 0; y < h + B; y++) {
+          if (y < h) { sum += acc[y * w + x]; c += cnt[y * w + x]; }
+          const o = y - B;
+          if (o - B - 1 >= 0) { sum -= acc[(o - B - 1) * w + x]; c -= cnt[(o - B - 1) * w + x]; }
+          if (o >= 0 && o < h) out[o * w + x] = c > 0 ? sum / c : 0;
+        }
+      }
+      return out;
+    };
+    const blurOn = blurMask(L);
+    const blurOff = blurMask(Lf);
+
     // What the contact term did, pixel by pixel, near the other man and away
     // from him. A gradient darkens the near band and leaves the rest alone; a
     // global dimming darkens both and is worth nothing.
     let dNear = 0, nNear = 0, dFar = 0, nFar = 0;
     const vals = [];
-    let clipped = 0, n = 0, flatN = 0, flat = 0;
+    let clipped = 0, n = 0, flatN = 0, flat = 0, flatOff = 0, creaseOn = 0, creaseOff = 0, creaseN = 0, foldDelta = 0;
     for (let k = 0; k < who.length; k++) {
       if (who[k] !== 1) continue;
       n++;
@@ -164,12 +242,27 @@ async function look(pose) {
         flatN++;
         const mean = (L[nb[0]] + L[nb[1]] + L[nb[2]] + L[nb[3]]) / 4;
         if (Math.abs(L[k] - mean) < 2) flat++;
+        const meanF = (Lf[nb[0]] + Lf[nb[1]] + Lf[nb[2]] + Lf[nb[3]]) / 4;
+        if (Math.abs(Lf[k] - meanF) < 2) flatOff++;
+        if (inner[k]) {
+          creaseOn += Math.abs(L[k] - blurOn[k]);
+          creaseOff += Math.abs(Lf[k] - blurOff[k]);
+          // What the folds actually changed, pixel for pixel. Band-passing the
+          // frame cannot separate a crease from the curve of a forearm — both
+          // live at about ten pixels — but the same frame with the folds off
+          // can, and this is that difference.
+          foldDelta += Math.abs(L[k] - Lf[k]);
+          creaseN++;
+        }
       }
     }
     vals.sort((a, b) => a - b);
     const q = (f) => (vals.length ? vals[Math.floor(vals.length * f)] : 0);
 
-    // relief: the spread inside a disc on a limb, which is what a fold is.
+    // relief: the crease structure inside a disc on a limb, which is where
+    // cloth is cloth. The whole-body number is dominated by hair, faces and
+    // silhouette edges; a patch of sleeve is not, so this is the number that
+    // answers whether the gi has folds.
     const rel = (bone) => {
       const sk = window.__bjj.rig.skel.A;
       const mm = sk.world[window.__bjj.BONE_INDEX[bone]];
@@ -181,16 +274,18 @@ async function look(pose) {
       if (cw <= 0) return null;
       const px = ((cx / cw) * 0.5 + 0.5) * w;
       const py = ((cy / cw) * 0.5 + 0.5) * h;   // readPixels is bottom-up
-      const RR = Math.max(6, Math.round(h * 0.05));
-      let s = 0, s2 = 0, c = 0;
+      const RR = Math.max(6, Math.round(h * 0.045));
+      let on = 0, off = 0, c = 0;
       for (let y = Math.max(0, py - RR | 0); y < Math.min(h, py + RR); y++) {
         for (let x = Math.max(0, px - RR | 0); x < Math.min(w, px + RR); x++) {
           const k = y * w + x;
-          if (who[k] !== 1) continue;
-          s += L[k]; s2 += L[k] * L[k]; c++;
+          if (!inner[k]) continue;
+          on += Math.abs(L[k] - blurOn[k]);
+          off += Math.abs(Lf[k] - blurOff[k]);
+          c++;
         }
       }
-      return c > 40 ? Math.sqrt(Math.max(0, s2 / c - (s / c) ** 2)) : null;
+      return c > 60 ? { on: on / c, off: off / c, n: c } : null;
     };
 
     const out = {
@@ -199,14 +294,18 @@ async function look(pose) {
       far: nFar > 400 ? dFar / nFar : null,
       p5: q(0.05), p95: q(0.95), clipped: n ? clipped / n : 0,
       flat: flatN ? flat / flatN : 0,
-      relief: { foreL: rel('foreL'), foreR: rel('foreR'), thighL: rel('thighL') },
+      flatOff: flatN ? flatOff / flatN : 0,
+      fold: creaseN ? foldDelta / creaseN : 0,
+      crease: creaseN ? creaseOn / creaseN : 0,
+      creaseOff: creaseN ? creaseOff / creaseN : 0,
+      relief: { foreL: rel('foreL'), foreR: rel('foreR'), thighL: rel('thighL'), shinR: rel('shinR') },
     };
     if (window.__dump) { out.shaded = Array.from(shaded); out.id = Array.from(id); }
     return out;
   }, pose);
 }
 
-console.log('  frame            of A  | darkened near / away |  seam  merged | flat |  relief fore/thigh');
+console.log('  frame            of A  | darkened near / away |  seam  merged | fold crease | relief on/off');
 const rows = [];
 for (const pose of SHOTS) {
   if (dump) await page.evaluate(() => { window.__dump = true; });
@@ -217,8 +316,11 @@ for (const pose of SHOTS) {
   console.log(
     `  ${pose.padEnd(14)} ${String(r.pixels).padStart(6)} | ${f(r.near)} ${f(r.far)}` +
     `        | ${String(r.seam).padStart(5)} ${(r.merged * 100).toFixed(0).padStart(4)}%` +
-    ` | ${(r.flat * 100).toFixed(0).padStart(3)}% ` +
-    ` | ${['foreL', 'foreR', 'thighL'].map((b) => (r.relief[b] === null ? ' -- ' : r.relief[b].toFixed(1))).join(' ')}`
+    ` | ${r.fold.toFixed(1).padStart(4)} ${r.crease.toFixed(1).padStart(5)}` +
+    ` | ${['foreL', 'foreR', 'thighL', 'shinR'].map((b) => {
+      const v = r.relief[b];
+      return v ? `${v.on.toFixed(1)}/${v.off.toFixed(1)}` : '  --  ';
+    }).join(' ')}`
   );
   if (dump) {
     const png = (name, data) => {
@@ -262,9 +364,11 @@ console.log(`  (${(worst * 100).toFixed(0)}% of the longest seam is the same bri
   ' — at a contact line that is partly honest, which is why it is not a check)');
 const clip = Math.max(...rows.map((r) => r.clipped));
 check(clip < 0.01, 'nobody is clipped white', `${(clip * 100).toFixed(1)}%`);
-const flat = Math.max(...rows.map((r) => r.flat));
-check(flat < 0.55, 'a body is not a shell of one flat value',
-  `${(flat * 100).toFixed(0)}% of it is within two of its neighbours`);
+// What the folds put on the cloth, in levels of brightness, measured against
+// the same frame without them.
+const fold = med(rows.map((r) => r.fold));
+check(fold > 2.0, 'the folds are worth something on the cloth',
+  rows.map((r) => `${r.pose} ${r.fold.toFixed(1)}`).join(', '));
 
 if (errors.length) for (const e of errors) check(false, 'page error', e);
 console.log(fail ? `\n${fail} problem(s)` : '\nthe picture reads');

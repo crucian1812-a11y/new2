@@ -14,7 +14,7 @@ import { createGL, program, vao, texture, framebuffer, QUAD } from './gl.js';
 import { giWeave, skinTex, tatamiTex, uploadPacked } from './textures.js';
 import { markAtlas, cellRect, MAT_MARKS, ARENA_MARKS, GI_PATCHES, fitPatches } from './marks.js';
 import { OCCLUDERS } from '../game/collide.js';
-import { BONE_INDEX } from './skeleton.js';
+import { BONE_INDEX, BONES } from './skeleton.js';
 import { buildArena } from './arena.js';
 import { BONE_COUNT } from './skeleton.js';
 import { m4, m4mul, m4perspective, m4ortho, m4lookAt, clamp } from '../core/m4.js';
@@ -130,11 +130,30 @@ vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap,
 // repeats visibly down a sleeve, and no texture to upload. The v coordinate
 // runs along the limb in both bakers, so the creases come out across it, which
 // is the way cloth actually gathers.
-float giFold(vec2 uv) {
-  float a = sin(uv.y * 5.3 + sin(uv.x * 2.1) * 1.7);
-  float b = sin(uv.y * 8.9 - uv.x * 1.3 + 2.2);
-  float c = sin(uv.x * 3.7 - uv.y * 1.9 + 0.7);
-  return a * 0.5 + b * 0.3 + c * 0.2;
+// The bend is the half that was missing. Three waves in UV are wallpaper: they
+// put the same creases on a straight elbow and a folded one, which is the one
+// thing cloth never does. A jacket gathers where the limb folds and pulls flat
+// where it straightens, so the pattern is scaled by how bent the joint under
+// this piece of cloth is — and a tighter set of creases only appears once it is
+// properly folded.
+//
+// Shape matters as much as amplitude. Sine waves crossed with sine waves make
+// blotches, which is what this looked like when it was turned up far enough to
+// see: cloth creases in lines, mostly across the limb, with narrow dark valleys
+// between wide flat panels. So each train is a ridge function — flat at zero
+// with a sharp trough — and v runs along the limb in both bakers, which puts
+// the troughs across it.
+float creaseTrain(float t, float sharp) {
+  return -pow(1.0 - abs(sin(t)), sharp);
+}
+
+float giFold(vec2 uv, float bend) {
+  float wob = sin(uv.x * 2.1) * 0.7;
+  float across = creaseTrain(uv.y * 5.3 + wob, 2.0);
+  float along = creaseTrain(uv.x * 3.1 + uv.y * 0.4, 2.5);
+  float tight = creaseTrain(uv.y * 9.7 - uv.x * 0.9 + 1.3, 3.0);
+  return (across * 0.6 + along * 0.25) * (0.5 + 0.7 * bend)
+       + tight * 0.7 * smoothstep(0.2, 0.9, bend);
 }
 
 // Tilt a normal by the screen-space slope of a height field. No tangent frame
@@ -213,9 +232,18 @@ void main() {
   gl_Position = clip;
 }`;
 
+// Multiplied into what is behind it, not painted over it.
+//
+// An inked line is right where a body meets the room and wrong where it meets
+// another body: in a tangle the hulls poke into each other and the pass drew a
+// hard black seam between two men who are pressed together, which is the one
+// place a hard line does not belong. It cannot tell the two cases apart — the
+// depth buffer says nothing about whose pixel is behind it — but a line that
+// darkens instead of replacing does not need to: against the black room it is
+// invisible either way, and against cloth it reads as the shade in a crease.
 const OUTLINE_FS = COMMON + `
 out vec4 o;
-void main() { o = vec4(0.012, 0.014, 0.022, 1.0); }`;
+void main() { o = vec4(0.42, 0.42, 0.46, 1.0); }`;
 
 // The club marks, sampled out of one atlas.
 //
@@ -254,10 +282,15 @@ in float a_mat;
 
 uniform mat4 u_viewProj;
 uniform mat4 u_bones[${BONE_COUNT}];
+// How bent the joint at the head of each bone is, from nothing to a right
+// angle and past it. Cloth gathers where a limb folds, and this is how the
+// fragment shader finds out that it does.
+uniform float u_bend[${BONE_COUNT}];
 
 out vec3 v_world;
 out vec3 v_nrm;
 out vec2 v_uv;
+out float v_bend;
 // Flat, and it matters. A material id is a name, not a quantity: interpolate
 // between hair (5) and jacket (1) and the fragments in between round to belt
 // and lapel, which paints a rainbow seam along every hem on the body.
@@ -276,6 +309,7 @@ void main() {
   v_nrm = nl > 1e-6 ? nn / nl : vec3(0.0, 1.0, 0.0);
   v_uv = a_uv;
   v_mat = a_mat;
+  v_bend = u_bend[int(a_bone.x)] * a_wt.x + u_bend[int(a_bone.y)] * a_wt.y;
   gl_Position = u_viewProj * p;
 }`;
 
@@ -283,6 +317,7 @@ const SKIN_FS = COMMON + LIGHTING + MARKS + `
 in vec3 v_world;
 in vec3 v_nrm;
 in vec2 v_uv;
+in float v_bend;
 flat in float v_mat;
 out vec4 outColor;
 
@@ -305,6 +340,9 @@ uniform vec4 u_occB[OCC];
 // off, so what it reports is the effect of this and not of everything else
 // that happens to be darker inside a tangle.
 uniform float u_contact;
+// The same switch for the cloth, and for the same reason: the tool measures
+// the frame with the folds on and off and reports the difference.
+uniform float u_folds;
 
 // How much of the sky a point can still see, given those capsules. One minus
 // the product rather than a sum: two limbs pressing on the same patch of cloth
@@ -438,8 +476,8 @@ void main() {
 
     // Folds, on top of the weave. A belt is a tight roll and does not fold;
     // everything else does.
-    float fold = m == 3 ? 0.0 : giFold(v_uv);
-    N = bumpFromHeight(N, v_world, fold, 0.0075);
+    float fold = m == 3 ? 0.0 : giFold(v_uv, v_bend) * u_folds;
+    N = bumpFromHeight(N, v_world, fold, 0.17);
 
     vec3 base = m == 3 ? u_beltCol : u_giCol;
     if (m == 2) base *= 0.97;                  // trousers, very slightly duller
@@ -490,7 +528,7 @@ void main() {
 
     // Light does not reach the bottom of a crease. This is the half of a fold
     // that survives at distance, after the normal has stopped being resolvable.
-    albedo *= 1.0 - max(0.0, -fold) * 0.055;
+    albedo *= 1.0 - max(0.0, -fold) * (0.16 + 0.14 * v_bend);
     rough = mix(m == 3 ? 0.74 : 0.88, 0.36, wetGi);
     spec = mix(m == 3 ? 0.14 : 0.12, 0.46, wetGi);
     wrap = 0.32;
@@ -878,6 +916,8 @@ export class Renderer {
     // twelve, refilled per fighter per frame; a radius of zero is an empty slot.
     this.occA = new Float32Array(OCCLUDERS.length * 4);
     this.occB = new Float32Array(OCCLUDERS.length * 4);
+    // How bent each joint is, for the cloth. Refilled per fighter per frame.
+    this.bend = new Float32Array(BONE_COUNT);
     this.lightVP = m4();
     this.proj = m4();
     this.view = m4();
@@ -926,6 +966,30 @@ export class Renderer {
     this.canvas.width = Math.round(cssW * dpr);
     this.canvas.height = Math.round(cssH * dpr);
     this._buildTargets(w, h);
+  }
+
+  // How far each bone has turned away from the one it hangs off, from nothing
+  // to a right angle and past it.
+  //
+  // Taken from the posed matrices rather than from the pose angles, because the
+  // rig adds breathing, effort, grips and an arc on top of what was authored,
+  // and cloth answers the arm that is there, not the one that was written down.
+  // A bone's own axis is its local Y in the bind rig; in world space that is
+  // the second column of its matrix.
+  _bends(skeleton) {
+    const w = skeleton.world;
+    for (let i = 0; i < BONE_COUNT; i++) {
+      const p = BONES[i][1];
+      if (p < 0) { this.bend[i] = 0; continue; }
+      const a = w[i], b = w[p];
+      const ax = a[4], ay = a[5], az = a[6];
+      const bx = b[4], by = b[5], bz = b[6];
+      const la = Math.hypot(ax, ay, az) || 1, lb = Math.hypot(bx, by, bz) || 1;
+      const c = (ax * bx + ay * by + az * bz) / (la * lb);
+      // 0 for a straight limb, 1 at a right angle, and past 1 when it is
+      // folded tighter than that — which is most of this sport.
+      this.bend[i] = Math.min(1.6, Math.acos(Math.max(-1, Math.min(1, c))) / (Math.PI / 2));
+    }
   }
 
   // Fill the occluder arrays with whoever is close enough to press on this
@@ -1089,6 +1153,9 @@ export class Renderer {
     gl.uniformMatrix4fv(this.progOutline.u.u_viewProj, false, this.viewProj);
     gl.enable(gl.CULL_FACE);
     gl.cullFace(gl.FRONT);
+    // Multiply, so the rim darkens what is behind it rather than replacing it.
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ZERO, gl.SRC_COLOR);
     for (const f of fighters) {
       gl.uniformMatrix4fv(this.progOutline.u.u_bones, false, f.skeleton.skin);
       // Two and a bit pixels, in normalised device coordinates: the viewport is
@@ -1100,6 +1167,7 @@ export class Renderer {
       }
     }
     gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
 
     gl.useProgram(this.progSkin.p);
     setLights(this.progSkin);
@@ -1116,7 +1184,10 @@ export class Renderer {
     for (const f of fighters) {
       gl.uniformMatrix4fv(this.progSkin.u.u_bones, false, f.skeleton.skin);
       this._occluders(fighters, f);
+      this._bends(f.skeleton);
+      gl.uniform1fv(this.progSkin.u.u_bend, this.bend);
       gl.uniform1f(this.progSkin.u.u_contact, this.contactAO === false ? 0 : 1);
+      gl.uniform1f(this.progSkin.u.u_folds, this.folds === false ? 0 : 1);
       gl.uniform4fv(this.progSkin.u.u_occA, this.occA);
       gl.uniform4fv(this.progSkin.u.u_occB, this.occB);
       gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
