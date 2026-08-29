@@ -33,7 +33,7 @@ export const VIAS = {
   'OPEN_GUARD>SIDE_CONTROL': 'HALF_GUARD@early+B',
   'SIDE_CONTROL>HALF_GUARD': 'RNC@mid+B',
   'SIDE_CONTROL>KIMURA': 'ARMBAR@mid+B',
-  'SIDE_CONTROL>MOUNT': 'TURTLE',
+  'SIDE_CONTROL>MOUNT': 'TURTLE@early',
   'SIDE_CONTROL>TURTLE': 'RNC@mid+B',
   'TURTLE>SIDE_CONTROL': 'RNC@mid+B',
 };
@@ -209,9 +209,9 @@ export const ARCS = {
     { p: [0.043, 0.025, -0.012], r: { A: [8, 1, -1], B: [0, 2, 6] }, j: { A: { shinR: [-2.2, -2.8, -1.2], thighR: [0, -1.6, -1.1], chest: [-1.7, -1.2, 0], hips: [2.9, 0, 0], foreR: [-2.8, 0, 0], armR: [0.6, 0, 1.1] }, B: { armR: [5.1, -1.1, -0.6], clavR: [4, 1.2, 3.9], foreR: [6.8, 0, -1.1], chest: [1.1, 0, 1.7], foreL: [1.7, 0, 1.2], armL: [1.2, 1.2, 1.7], clavL: [0.6, 0.6, -0.6] } } },
   ],
   'SIDE_CONTROL>MOUNT': [
-    { p: [0.050, 0.050, -0.050], r: { A: [0, 8, 0], B: [0, -8, 0] }, j: { A: { thighR: [0, 2.8, 0], hips: [9, 0, 0], armR: [-1.7, 0, 2.8], thighL: [-1.1, -0.6, 1.1] }, B: { armR: [7.3, -1.7, -3.9], clavR: [7.9, -7.3, 3.4], foreR: [2.3, 0, -2.2], foreL: [0.6, 0, 1.1], armL: [-0.6, 1.1, -1.7], spine: [-10.1, -12.9, -5.1], thighL: [-9, 0, 0] } } },
-    { p: [0.000, 0.000, -0.050], j: { A: { thighR: [9, 0, 0], thighL: [-0.6, -0.6, 2.3] }, B: { armR: [2.8, -0.6, -1.7], clavR: [3.4, -4.5, 0], armL: [-0.6, 1.1, 0], spine: [-1.7, -5.1, -3.4], hips: [0, -4.5, 0], thighL: [0, -2.2, 0] } } },
-    { p: [0.000, 0.006, 0.006], r: { A: [0, 0, -8], B: [0, 0, -8] }, j: { A: { thighR: [0, 6.2, 9], hips: [0, -2.2, 0], armL: [1.1, -1.1, 1.7] }, B: { clavR: [0.6, -0.6, -0.6], spine: [-0.6, -1.1, -1.1] } } },
+    { p: [0.050, 0.050, -0.050], r: { A: [8, 8, -8], B: [-8, -8, -8] }, j: { A: { armR: [4.5, 0, 0.6], clavR: [3.4, 0, 0], spine: [-0.6, 0, -1.7], chest: [0.6, -1.7, 0], thighR: [0, -5.6, 0] }, B: { spine: [-7.3, -10.7, -9], chest: [2.8, -9, -4.5], armR: [-1.7, -3.4, -3.9], clavR: [-1.1, -8.4, 0], foreR: [-6.7, 0, -3.9], thighR: [0, 5.6, 0] } } },
+    { p: [0.000, 0.044, -0.050], r: { A: [0, 0, -8], B: [0, -1, -8] }, j: { A: { armR: [4.5, 0, 0.6], clavR: [3.4, 0, 0], spine: [-1.1, -1.1, 0], chest: [-0.6, 0, 1.7] }, B: { spine: [2.3, -6.2, -4.5], hips: [0, 0, 9], chest: [3.4, -6.7, -4.5], armR: [-1.1, -1.1, -1.1], clavR: [-1.1, -3.9, -0.6], foreR: [-2.8, 0, -1.1], thighR: [0, 1.1, 0] } } },
+    { p: [0.050, -0.025, -0.050], r: { A: [0, 3, 0], B: [0, -4, 8] }, j: { A: { armR: [1.1, 0, 0], clavR: [1.1, 0, 0], hips: [0, 0, -1.1], chest: [0.6, 0.6, 0.6], thighR: [0, -3.4, -3.4] }, B: { spine: [-0.6, -2.8, -0.6], hips: [0, 1.7, 0], chest: [-1.1, -2.2, -1.7], thighR: [0, -3.9, 0] } } },
   ],
   'SIDE_CONTROL>SIDE_CONTROL_WORK': [
     {  },
