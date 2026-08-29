@@ -79,7 +79,6 @@ const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
 
 function measure(from, to) {
   let sum = 0, worst = 0, where = null;
-  // eslint-disable-next-line no-unused-vars
   for (let i = 0; i < STEPS; i++) {
     const t = i / (STEPS - 1);
     rig.effort.A = rig.effort.B = 0;

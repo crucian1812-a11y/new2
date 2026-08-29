@@ -44,7 +44,6 @@ function planFor(key) {
   if (v === undefined) return null;
   let p = _plans.get(v);
   if (!p) {
-    const at = v.indexOf('@');
     const bits = v.split('@');
     // `POSE`, `POSE@late`, `POSE@late+A`. The role suffix says the curve is
     // one man's: in every transition still on the work list it is the top

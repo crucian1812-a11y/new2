@@ -208,7 +208,6 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
   let armed = false;
 
   function pick(match) {
-    // eslint-disable-next-line no-unused-vars
     const opts = match.options(0);
     const dirs = Object.keys(opts);
     if (cfg.play === 'random') {
@@ -256,7 +255,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
         st.matches.push({ ...cur, winner: m.winner, by: m.winBy,
           score: [m.f[0].points, m.f[1].points], adv: [m.f[0].advantages, m.f[1].advantages] });
         cur = null;
-        if (st.matches.length >= cfg.matches) { done(st); return; }
+        if (!cfg.drill && st.matches.length >= cfg.matches) { done(st); return; }
       }
       // The one thing still measured against the wall: nothing is running.
       if (now > started + 900) { started = now; armed = false; prevClock = null; tap(); }
@@ -376,9 +375,13 @@ if (out.denies >= 6 && out.denied / out.denies > 0.9) {
   console.log(`  note: ${out.denied} of ${out.denies} denials answered — the prompt answers itself` +
     ' for a player who is only watching for it');
 }
-check(out.tries > 0 && out.landed > 0, 'the thumb can make something happen',
-  `${out.landed} of ${out.tries}`);
-check(out.flicksIgnored < out.tries, 'most flicks mean something', `${out.flicksIgnored} ignored`);
+// In a drill there is no game to play: the pair is put into a lock and the
+// thumb works it, so nothing here started, landed or was ignored.
+if (!CFG.drill) {
+  check(out.tries > 0 && out.landed > 0, 'the thumb can make something happen',
+    `${out.landed} of ${out.tries}`);
+  check(out.flicksIgnored < out.tries, 'most flicks mean something', `${out.flicksIgnored} ignored`);
+}
 console.log(`  won ${won} of ${out.matches.length}, ${tapped} by submission, lost ${lostToTap} to one`);
 
 if (errors.length) for (const e of errors) check(false, 'page error', e);

@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { PairRig } from '../src/game/rig.js';
 import { POSITION_IDS, WAYPOINT_IDS } from '../src/game/poses.js';
-import { ARCS, VIAS } from '../src/game/arcs.js';
+import { VIAS } from '../src/game/arcs.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { JUDGE_STEPS as STEPS } from './grid.mjs';

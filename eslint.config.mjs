@@ -8,6 +8,10 @@ export default [
         window: 'readonly', document: 'readonly', console: 'readonly',
         performance: 'readonly', requestAnimationFrame: 'readonly',
         localStorage: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly',
+        setInterval: 'readonly', clearInterval: 'readonly',
+        // Used inside the strings the browser tools hand to page.evaluate, which
+        // eslint quite reasonably parses as code.
+        HTMLCanvasElement: 'readonly', PointerEvent: 'readonly',
         AudioContext: 'readonly', webkitAudioContext: 'readonly',
         Path2D: 'readonly', Image: 'readonly', devicePixelRatio: 'readonly',
         process: 'readonly', URL: 'readonly', fetch: 'readonly',
