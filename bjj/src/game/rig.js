@@ -79,6 +79,11 @@ function hash2(a, b) {
   return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
 }
 
+// What lags behind the skeleton, and by how much. A head weighs five kilos and
+// is held on by muscle that is not infinitely stiff; a forearm swings; a hand
+// arrives last. Everything else on this rig is bone against bone and does not.
+const LAG_BONES = [['head', 1.1], ['neck', 0.5], ['foreL', 1.3], ['foreR', 1.3], ['handL', 1.5], ['handR', 1.5]];
+
 const _p1 = v3();
 const _p2 = v3();
 const _p3 = v3();
@@ -120,6 +125,14 @@ export class PairRig {
     // going, not where it has been.
     this.vel = v3(0, 0, 0);
     this._lastOrigin = v3(0, 0, 0);
+    // What lags. See _inertia: soft parts do not arrive with the skeleton.
+    this.lag = true;
+    this.inert = { A: {}, B: {} };
+    for (const role of ['A', 'B']) {
+      for (const [bone] of LAG_BONES) {
+        this.inert[role][bone] = { set: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rx: 0, rz: 0 };
+      }
+    }
     this.feet = {
       A: [{ at: v3(0, 0, 0), from: v3(0, 0, 0), to: v3(0, 0, 0), t: 1, set: false },
           { at: v3(0, 0, 0), from: v3(0, 0, 0), to: v3(0, 0, 0), t: 1, set: false }],
@@ -208,6 +221,7 @@ export class PairRig {
 
   apply(from, to, t, dt) {
     this.time += dt;
+    this._dt = dt;
     if (dt > 1e-5) {
       const k = Math.min(1, dt * 8);
       this.vel[0] += ((this.origin[0] - this._lastOrigin[0]) / dt - this.vel[0]) * k;
@@ -544,8 +558,61 @@ export class PairRig {
   // Breathing, effort, and the sag of a broken posture. All of it is additive
   // on top of the authored pose, so a pose never has to be authored twice for
   // "tired" and "fresh".
+  // Nothing arrives at once.
+  //
+  // Every bone in this rig used to land exactly where the pose said, at exactly
+  // the moment it said, which is the difference between animation and a
+  // slideshow of positions: a head follows the shoulders it sits on, a forearm
+  // swings after the elbow that carries it. This is that lag, and it is taken
+  // from the frame before — the world matrices still hold last frame's pose
+  // when this runs, so the acceleration of each bone is already there to read.
+  //
+  // A spring chasing the acceleration rather than the acceleration itself: raw
+  // acceleration is a step function at the start of every movement and reads as
+  // a twitch. The response is bounded in degrees because the pose is the
+  // intent; this only ever says the body has not caught up with it yet.
+  _inertia(role, sk, dt) {
+    if (!this.lag || dt <= 1e-5) return;
+    const st = this.inert[role];
+    for (const [bone, k] of LAG_BONES) {
+      const m = sk.world[BONE_INDEX[bone]];
+      const p = st[bone];
+      const x = m[12], y = m[13], z = m[14];
+      if (!p.set) {
+        p.set = true; p.x = x; p.y = y; p.z = z;
+        continue;
+      }
+      // A jump is not a movement. The tooling steps from one pose straight to
+      // another, and a match cuts to a new position the same way; a quarter of
+      // a metre in one frame is a teleport, and answering it with inertia
+      // flings the hands for a tenth of a second afterwards — which is how
+      // this first showed up, as a centimetre and a half of extra overlap in
+      // a clinch that pose-check had never failed before.
+      if (Math.hypot(x - p.x, y - p.y, z - p.z) > 0.25) {
+        p.x = x; p.y = y; p.z = z;
+        p.vx = p.vy = p.vz = 0;
+        p.rx = p.rz = 0;
+        continue;
+      }
+      const vx = (x - p.x) / dt, vy = (y - p.y) / dt, vz = (z - p.z) / dt;
+      const ax = (vx - p.vx) / dt, az = (vz - p.vz) / dt;
+      p.x = x; p.y = y; p.z = z; p.vx = vx; p.vy = vy; p.vz = vz;
+      // A dead zone, so breathing is not an event. A held pose still moves —
+      // the chest rises, the head shifts a centimetre — and without this the
+      // lag answered that too and quietly deepened the contact in a clinch by
+      // a centimetre and a half, which pose-check duly failed. Real movement
+      // is five to twenty metres a second squared; a breath is under one.
+      const soften = (v) => (v > 1.2 ? v - 1.2 : v < -1.2 ? v + 1.2 : 0);
+      const c = Math.min(1, dt * 11);
+      p.rx += (clamp(-soften(az) * k * 0.6, -7, 7) - p.rx) * c;
+      p.rz += (clamp(soften(ax) * k * 0.6, -7, 7) - p.rz) * c;
+      if (Math.abs(p.rx) > 0.05 || Math.abs(p.rz) > 0.05) addEuler(sk, bone, p.rx, 0, p.rz);
+    }
+  }
+
   _life(role, sk, from, to, e) {
     const T = this.time;
+    this._inertia(role, sk, e === undefined ? 0 : this._dt);
     const eff = this.effort[role];
     const slack = this.slack[role];
     const gas = this.gas[role];

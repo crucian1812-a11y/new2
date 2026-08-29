@@ -203,6 +203,58 @@ console.log(
   'with effort and posture held'
 );
 
+/* ------------------------------------------------------ does anything lag? */
+
+// A skeleton where every bone arrives exactly when the pose says is a
+// slideshow of positions. Soft parts do not: a head follows the shoulders it
+// sits on, a forearm swings after the elbow.
+//
+// Measured by swinging the pair sideways and watching what the head and the
+// hands do that they would not do if the pose were the whole story — the same
+// run twice, once with the lag on and once with it off, and the difference in
+// degrees. Then the body is stopped and the same difference has to fall away,
+// because a spring that does not settle is a wobble.
+{
+  const STEP = 1 / 60;
+  const run = (lag) => {
+    rig.lag = lag;
+    rig.heldId = null;
+    rig.origin[0] = 0; rig.origin[2] = 0;
+    rig.vel[0] = 0; rig.vel[2] = 0;
+    rig.time = 0;
+    for (const role of ['A', 'B']) {
+      for (const b in rig.inert[role]) rig.inert[role][b].set = false;
+    }
+    const out = [];
+    for (let i = 0; i < 200; i++) {
+      const t = i * STEP;
+      // A metre and a half a second, side to side, then still.
+      rig.origin[0] = t < 2 ? Math.sin(t * 4.2) * 0.36 : Math.sin(2 * 4.2) * 0.36;
+      rig.hold('STANDING', STEP);
+      const row = {};
+      for (const b of ['head', 'handL', 'handR']) {
+        const m = rig.skel.A.world[BONE_INDEX[b]];
+        row[b] = [m[12], m[13], m[14]];
+      }
+      out.push(row);
+    }
+    return out;
+  };
+  const on = run(true);
+  const off = run(false);
+  rig.lag = true;
+  const diff = (i) => Math.max(...['head', 'handL', 'handR'].map((b) =>
+    Math.hypot(on[i][b][0] - off[i][b][0], on[i][b][1] - off[i][b][1], on[i][b][2] - off[i][b][2])));
+  let moving = 0;
+  for (let i = 30; i < 120; i++) moving = Math.max(moving, diff(i));
+  let settled = 0;
+  for (let i = 180; i < 200; i++) settled = Math.max(settled, diff(i));
+  const ok = moving > 0.012 && moving < 0.10 && settled < 0.006;
+  if (!ok) problems++;
+  console.log(`${ok ? ' ' : '!'} soft parts lag: ${(moving * 100).toFixed(1)}cm behind the pose while ` +
+    `he is moved about, ${(settled * 100).toFixed(1)}cm once he is still`);
+}
+
 /* --------------------------------------------------------- does he walk? */
 
 // Standing, the pair drifts around the mat at over a metre a second, and until
