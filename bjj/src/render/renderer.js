@@ -568,6 +568,34 @@ void main() {
     // the top face of the board takes the room's shading.
     emis += c * 0.8;
     albedo = c * 0.25; rough = 0.55; spec = 0.2; ao = 0.7;
+  } else if (m == 8) {
+    // The furniture round the mat: the referee's table, the judges' desks, the
+    // podium. Painted board, matte, a shade warmer than the hall so it does
+    // not read as more floor.
+    albedo = vec3(0.085, 0.078, 0.068); rough = 0.88; spec = 0.09; ao = 0.8;
+  } else if (m == 9) {
+    // The medals. The only warm metal in the building, and small enough that
+    // the specular is the whole of what is seen.
+    albedo = vec3(0.62, 0.46, 0.14); rough = 0.24; spec = 0.85; ao = 0.9;
+  } else if (m == 10) {
+    // The LED ribbon along the top of the boards, and the one thing out here
+    // that carries lettering — the club's own wordmark, off the same atlas the
+    // mat is printed from. Read from outside, like the mat's edge strips, so
+    // the type faces the seats.
+    float ax = abs(v_world.x), az = abs(v_world.z);
+    bool onX = ax > az;
+    float along = onX ? -v_world.z * sign(v_world.x) : v_world.x * sign(v_world.z);
+    // Lit, and the type is what is dark on it — a ribbon board is a lamp with
+    // letters masked out of it, not letters painted on a black strip. Written
+    // the other way round it read as a black stripe along the top of the
+    // boards, which is worse than not having one.
+    vec3 base = vec3(0.055, 0.115, 0.30);
+    vec3 c = decal(base, u_cell[2],
+      vec2(fract(along / u_matEdge.x * 0.75 + u_time * 0.045),
+           (1.055 - v_world.y) / 0.15), 0.22);
+    float pulse = 0.86 + 0.14 * sin(u_time * 1.6 + along * 0.35);
+    emis += c * 2.2 * pulse;
+    albedo = c * 0.3; rough = 0.5; spec = 0.2; ao = 0.85;
   } else {
     // The jumbotron's screens. Bright enough to read as a display and to feed
     // the bloom, dim enough that they are not a second key light.
