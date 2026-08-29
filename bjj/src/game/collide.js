@@ -57,6 +57,15 @@ const CAPSULES = [
   ['footR', 'toeR', 0.050, 0.034, 0.62, 0.55],
 ];
 
+// The subset of those the renderer uses to darken one body where the other
+// presses on it. Twelve rather than seventeen because it is a loop in a
+// fragment shader and hands and feet are small enough that their own shadow
+// map entry covers them; the radii are the same numbers, from the same table,
+// so the shape that occludes is the shape that collides.
+export const OCCLUDERS = CAPSULES.filter(([a]) =>
+  ['hips', 'spine', 'chest', 'head', 'armL', 'foreL', 'armR', 'foreR',
+   'thighL', 'shinL', 'thighR', 'shinR'].includes(a));
+
 const _a = v3(), _b = v3(), _n = v3();
 
 // The cross-section frame of a bone, built exactly the way body.js builds the

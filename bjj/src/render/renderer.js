@@ -13,6 +13,8 @@
 import { createGL, program, vao, texture, framebuffer, QUAD } from './gl.js';
 import { giWeave, skinTex, tatamiTex, uploadPacked } from './textures.js';
 import { markAtlas, cellRect, MAT_MARKS, ARENA_MARKS, GI_PATCHES, fitPatches } from './marks.js';
+import { OCCLUDERS } from '../game/collide.js';
+import { BONE_INDEX } from './skeleton.js';
 import { buildArena } from './arena.js';
 import { BONE_COUNT } from './skeleton.js';
 import { m4, m4mul, m4perspective, m4ortho, m4lookAt, clamp } from '../core/m4.js';
@@ -284,6 +286,48 @@ in vec2 v_uv;
 flat in float v_mat;
 out vec4 outColor;
 
+// Where the other man is, as twelve capsules.
+//
+// Ambient occlusion here used to be one line — a ramp on world height — so a
+// knee pressed into a ribcage was lit exactly like a knee in the air at the
+// same height, and tools/look-check.mjs put a number on what that costs: along
+// the boundary where the two bodies meet on screen, three quarters of the
+// pixels were the same brightness on both sides. Two men in a tangle read as
+// one white mass because nothing in the shading knew they were touching.
+//
+// The capsules are the collider's own (see OCCLUDERS in collide.js): the same
+// table, the same radii, so what darkens is the shape that collides. xyz is an
+// end of the segment, w its radius there.
+#define OCC 12
+uniform vec4 u_occA[OCC];
+uniform vec4 u_occB[OCC];
+// A switch, for the tool: look-check measures the same frame with it on and
+// off, so what it reports is the effect of this and not of everything else
+// that happens to be darker inside a tangle.
+uniform float u_contact;
+
+// How much of the sky a point can still see, given those capsules. One minus
+// the product rather than a sum: two limbs pressing on the same patch of cloth
+// should not darken it twice as far as black.
+float contactAO(vec3 p) {
+  float o = 1.0;
+  for (int i = 0; i < OCC; i++) {
+    float ra = u_occA[i].w;
+    if (ra <= 0.0) continue;
+    vec3 a = u_occA[i].xyz;
+    vec3 ab = u_occB[i].xyz - a;
+    vec3 ap = p - a;
+    float t = clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+    float d = length(ap - ab * t) - mix(ra, u_occB[i].w, t);
+    // 20 cm of reach: past that a body is near, not on you. Squared, because
+    // the linear falloff spread a thin grey over everything instead of a dark
+    // crease where the two of them actually meet.
+    float f = smoothstep(0.0, 0.20, d);
+    o *= f * f;
+  }
+  return o;
+}
+
 uniform sampler2D u_cloth;
 uniform sampler2D u_skin;
 uniform vec3 u_giCol;
@@ -456,6 +500,10 @@ void main() {
   // the few centimetres nearest it are where contact reads — this is stronger
   // and tighter than a generic ambient term would be.
   float ao = clamp(0.24 + v_world.y * 1.9, 0.0, 1.0);
+  // And the other man. Bounded at a third: a crease between two bodies is dark,
+  // not black, and an unbounded product turns the inside of every tangle into
+  // a hole.
+  ao *= mix(1.0, 0.28 + 0.72 * contactAO(v_world), u_contact);
   vec3 c = shade(v_world, N, albedo, rough, spec, wrap, ao);
   c += vec3(1.0, 0.45, 0.3) * u_flash * 0.6;
   // Belt and braces: anything that is not a sane positive number never reaches
@@ -826,6 +874,10 @@ export class Renderer {
     this.shadowFB = framebuffer(gl, null, this.shadowTex);
 
     this.viewProj = m4();
+    // The other man's capsules, as the skin shader wants them. Two arrays of
+    // twelve, refilled per fighter per frame; a radius of zero is an empty slot.
+    this.occA = new Float32Array(OCCLUDERS.length * 4);
+    this.occB = new Float32Array(OCCLUDERS.length * 4);
     this.lightVP = m4();
     this.proj = m4();
     this.view = m4();
@@ -874,6 +926,31 @@ export class Renderer {
     this.canvas.width = Math.round(cssW * dpr);
     this.canvas.height = Math.round(cssH * dpr);
     this._buildTargets(w, h);
+  }
+
+  // Fill the occluder arrays with whoever is close enough to press on this
+  // fighter — in practice the other man, since the referee stands two metres
+  // away and a body that far off cannot be touching anybody.
+  _occluders(fighters, self) {
+    this.occA.fill(0);
+    this.occB.fill(0);
+    const root = self.skeleton.world[0];
+    let near = null, best = 1.6 * 1.6;
+    for (const f of fighters) {
+      if (f === self) continue;
+      const o = f.skeleton.world[0];
+      const d = (o[12] - root[12]) ** 2 + (o[13] - root[13]) ** 2 + (o[14] - root[14]) ** 2;
+      if (d < best) { best = d; near = f; }
+    }
+    if (!near) return;
+    const w = near.skeleton.world;
+    OCCLUDERS.forEach(([bone, child, r0, r1], i) => {
+      const a = w[BONE_INDEX[bone]], b = w[BONE_INDEX[child]];
+      if (!a || !b) return;
+      const k = i * 4;
+      this.occA[k] = a[12]; this.occA[k + 1] = a[13]; this.occA[k + 2] = a[14]; this.occA[k + 3] = r0;
+      this.occB[k] = b[12]; this.occB[k + 1] = b[13]; this.occB[k + 2] = b[14]; this.occB[k + 3] = r1;
+    });
   }
 
   // Upload a fighter. Takes any number of meshes sharing one skeleton: the
@@ -1038,6 +1115,10 @@ export class Renderer {
     gl.uniform4fv(this.progSkin.u.u_patchCell, this.patchCells);
     for (const f of fighters) {
       gl.uniformMatrix4fv(this.progSkin.u.u_bones, false, f.skeleton.skin);
+      this._occluders(fighters, f);
+      gl.uniform1f(this.progSkin.u.u_contact, this.contactAO === false ? 0 : 1);
+      gl.uniform4fv(this.progSkin.u.u_occA, this.occA);
+      gl.uniform4fv(this.progSkin.u.u_occB, this.occB);
       gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
       gl.uniform3fv(this.progSkin.u.u_giCol, f.giCol);
       gl.uniform3fv(this.progSkin.u.u_beltCol, f.beltCol);
@@ -1129,6 +1210,41 @@ export class Renderer {
         );
         this.lum.push((px[0] + px[1] + px[2]) / 3);
       }
+    }
+
+    // Tooling hook: the same frame, twice — once as it looks and once as who is
+    // where. Both reads happen before the buffer is swapped, so the mask and
+    // the shading are the same frame and cannot drift apart.
+    if (this.want) {
+      this.want = false;
+      const w = this.canvas.width, h = this.canvas.height;
+      const shaded = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, shaded);
+
+      // Who is where, in one channel each. The shadow program already draws a
+      // skinned body as flat white and has a vertex array of its own, so the
+      // identity pass is that program with the colour mask closed down to one
+      // channel per fighter: red is the first man, green the second, blue the
+      // referee. Depth is shared, so whoever is in front wins the pixel, which
+      // is the whole point of the mask.
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.useProgram(this.progShadowSkin.p);
+      gl.uniformMatrix4fv(this.progShadowSkin.u.u_lightVP, false, this.viewProj);
+      fighters.forEach((f, i) => {
+        gl.colorMask(i === 0, i === 1, i >= 2, true);
+        gl.uniformMatrix4fv(this.progShadowSkin.u.u_bones, false, f.skeleton.skin);
+        for (const part of f.gpu.parts) {
+          gl.bindVertexArray(part.shadow);
+          gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
+        }
+      });
+      gl.colorMask(true, true, true, true);
+      const id = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, id);
+      gl.disable(gl.DEPTH_TEST);
+      this.grabbed = { w, h, shaded, id };
     }
 
     gl.bindVertexArray(null);

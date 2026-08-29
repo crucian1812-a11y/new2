@@ -5,7 +5,7 @@ import { Renderer } from './render/renderer.js';
 import { buildFighterMesh } from './render/body.js';
 import { loadFighter } from './render/asset.js';
 import { PairRig } from './game/rig.js';
-import { Skeleton, poseToQuats } from './render/skeleton.js';
+import { Skeleton, poseToQuats, BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { AI } from './game/ai.js';
 import { Camera } from './game/camera.js';
@@ -535,7 +535,7 @@ requestAnimationFrame((t) => {
 // Debug hooks used by the tooling in bjj/tools; harmless in production.
 window.__bjj = {
   match: () => match,
-  rig, renderer, camera, referee, POSES,
+  rig, renderer, camera, referee, POSES, BONE_INDEX,
   // Freeze on one paired pose. Used by the art tooling; also the quickest way
   // to check a pose by hand from the console.
   setPose: (id) => {
