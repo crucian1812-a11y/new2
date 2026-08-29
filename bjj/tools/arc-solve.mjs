@@ -58,11 +58,20 @@ const MAT_Y = 0.05;
 const ALLOW = 0.05;
 // How far the pair may be moved. Beyond about fifteen centimetres the fix is
 // more visible than the fault.
-const LIMIT = 0.16;
+// Overridable, because the seven transitions still on the work list are all the
+// same accident — a thigh through a thigh, halfway across the body — and the
+// question of how much room the correction needs is a measurement, not a
+// constant. Widen them for a targeted run and look at the pictures.
+const LIMIT = +(process.env.ARC_LIMIT || 0.16);
 // How far a joint may be bent away from the straight blend, in degrees.
-const BEND = 34;
+const BEND = +(process.env.ARC_BEND || 34);
 // How far a fighter may be turned away from the straight blend, in degrees.
-const TWIST = 26;
+const TWIST = +(process.env.ARC_TWIST || 26);
+// How many colliding bones get to move. Six was enough for everything that has
+// come off the list so far.
+const CULPRITS = +(process.env.ARC_BONES || 6);
+// How many lobes a correction is made of. See the note in rig.js.
+const LOBES = +(process.env.ARC_LOBES || 2);
 
 const rig = new PairRig();
 const overlap = new Overlap();
@@ -162,7 +171,7 @@ function culprits(from, to) {
       count.set('B.' + m[2], (count.get('B.' + m[2]) || 0) + p.pen);
     }
   }
-  const ranked = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const ranked = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, CULPRITS);
   const out = [];
   for (const [name] of ranked) {
     const [role, bone] = name.split('.');
@@ -188,7 +197,12 @@ for (const key of keys) {
   // Warm start: whatever is already stored for this transition, filled back out
   // to the dense form the search works in.
   const prev = held[key] || [];
-  const arc = [0, 1].map((i) => {
+  // How many bumps the correction is made of. Two is the shape everything in
+  // the file was solved with; three is for a transition that goes wrong twice
+  // on the way, which is what the last seven on the work list do. A warm start
+  // across a change of count is not a warm start — the weights are a different
+  // family — so change it with --fresh.
+  const arc = Array.from({ length: LOBES }, (_, i) => {
     const p = prev[i] || {};
     const lobe = { p: [0, 0, 0], r: { A: [0, 0, 0], B: [0, 0, 0] }, j: { A: {}, B: {} } };
     if (p.p) lobe.p = p.p.slice();

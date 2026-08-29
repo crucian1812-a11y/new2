@@ -19,6 +19,9 @@ import { clamp, lerp } from '../core/m4.js';
 export const MATCH_TIME = 300;
 
 const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
+// Posture at or above this and you can see which way it is coming; below it
+// you know only that it is coming. See visibleDeny.
+const DENY_READ = 45;
 
 export class Fighter {
   constructor(name, opts = {}) {
@@ -174,6 +177,30 @@ export class Match {
     this.f[i].advantages += 0; // denial is its own reward, not a score
     this.emit(`${this.f[i].name}: защитился`, 'deny');
     return 'deny';
+  }
+
+  // What the man being attacked can actually see coming.
+  //
+  // The prompt used to name the direction outright, and tools/thumb.mjs showed
+  // what that is worth: a scripted hand answered twenty-three denial prompts
+  // out of twenty-three and both matches finished 2:0 with not one submission
+  // attempted by either man. A 0.44 s window is twice a human's reaction, so
+  // if the answer is written on the screen the defence is free and nothing the
+  // opponent does can ever land.
+  //
+  // Posture is what pays for it. Upright, you read the attack and the arrow is
+  // there; flattened, you know it is coming and not where — which is what
+  // being flattened is, and it gives the posture bar a meaning on the player's
+  // side of the screen for the first time.
+  //
+  // Deliberately not a stamina cost, which was tried first: it fell on the AI
+  // in proportion to how often it denies, so the high belts drained themselves
+  // holding frames and the ladder flattened — white beat blue 63% of the time
+  // and black 63%, against 45% and 90% before. This costs the AI nothing at
+  // all: the AI has never read the prompt, it reads `level.read`.
+  visibleDeny(i) {
+    if (!this.deny || !this.attempt || this.attempt.defender !== i) return null;
+    return this.f[i].posture >= DENY_READ ? this.deny.dir : null;
   }
 
   // The tap on the right pad: a grip fight. Wins tilt the next transition.

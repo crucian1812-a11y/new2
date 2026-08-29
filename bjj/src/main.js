@@ -9,6 +9,7 @@ import { Skeleton, poseToQuats } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { AI } from './game/ai.js';
 import { Camera } from './game/camera.js';
+import { Referee } from './game/referee.js';
 import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { HUD } from './ui/hud.js';
@@ -119,25 +120,74 @@ const input = new Input(uiCanvas);
 const hud = new HUD(uiCanvas);
 const audio = new Audio();
 const camera = new Camera();
+// The third man. He is not part of the pair and never was — see referee.js.
+const referee = new Referee();
 
-const LEVEL = new URLSearchParams(location.search).get('belt') || 'blue';
+// The ladder.
+//
+// Five belts of opponent were balanced and measured a work list ago, and
+// nothing in the game ever showed anybody the second one: the belt came off
+// the address bar and the match ended with "touch to start again". So: beat
+// the man in front of you and the next one comes out, and the belt you have
+// earned is the one you are wearing on the mat.
+//
+// Kept in localStorage, which can be missing, full, or refused outright in a
+// private window; all three end with a player who starts at white, which is
+// where everybody starts anyway.
+const LADDER = ['white', 'blue', 'purple', 'brown', 'black'];
+const BELT_COL = {
+  white:  [0.90, 0.90, 0.88],
+  blue:   [0.07, 0.16, 0.46],
+  purple: [0.25, 0.10, 0.38],
+  brown:  [0.20, 0.11, 0.06],
+  black:  [0.04, 0.04, 0.05],
+};
+const SAVE = 'bjj.progress';
+// The address bar still wins, and when it does nothing is written down: every
+// tool in bjj/tools drives the game with ?belt=, and a measurement must not
+// promote anybody.
+const FORCED = new URLSearchParams(location.search).get('belt');
+
+function loadProgress() {
+  try {
+    const raw = localStorage.getItem(SAVE);
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (typeof p.rank === 'number') {
+        return { rank: Math.max(0, Math.min(LADDER.length - 1, p.rank | 0)),
+                 wins: p.wins | 0, losses: p.losses | 0, champion: !!p.champion };
+      }
+    }
+  } catch { /* no store, or somebody else's data in it */ }
+  return { rank: 0, wins: 0, losses: 0, champion: false };
+}
+function saveProgress() {
+  if (FORCED) return;
+  try { localStorage.setItem(SAVE, JSON.stringify(progress)); } catch { /* private window */ }
+}
+const progress = loadProgress();
+// Your own belt is the ladder you have climbed: beat the white belt and you
+// are a blue belt yourself.
+const myBelt = () => LADDER[Math.min(LADDER.length - 1, progress.rank)];
+const oppBelt = () => FORCED || LADDER[progress.rank];
+let lastResult = null;   // what the result card has to say
 
 let match, ai;
 function newMatch() {
   const you = new Fighter('ВЫ', {
     giCol: new Float32Array([0.88, 0.89, 0.87]),
-    beltCol: new Float32Array([0.04, 0.04, 0.05]),
+    beltCol: new Float32Array(BELT_COL[myBelt()]),
     skinCol: new Float32Array([0.60, 0.42, 0.31]),
     technique: 0.55, strength: 0.5, cardio: 0.55,
   });
   const opp = new Fighter('СОПЕРНИК', {
     giCol: new Float32Array([0.06, 0.14, 0.42]),
-    beltCol: new Float32Array([0.32, 0.06, 0.05]),
+    beltCol: new Float32Array(BELT_COL[oppBelt()]),
     skinCol: new Float32Array([0.52, 0.36, 0.26]),
     technique: 0.55, strength: 0.55, cardio: 0.5,
   });
   match = new Match([you, opp], { time: MATCH_TIME, onEvent: onMatchEvent });
-  ai = new AI(1, LEVEL);
+  ai = new AI(1, oppBelt());
   rig.origin[0] = 0;
   rig.origin[2] = 0;
   rig.yaw = 0;
@@ -156,6 +206,7 @@ function onMatchEvent(e) {
       audio.swell(0.55);
     }
   } else if (e.kind === 'points') {
+    referee.gesture('call', 1.1);
     audio.confirm();
     audio.swell(0.4, 1.2);
   } else if (e.kind === 'submission') {
@@ -166,6 +217,18 @@ function onMatchEvent(e) {
     audio.cloth(0.9);
     audio.swell(0.5, 1.4);
   } else if (e.kind === 'end') {
+    // Where the ladder moves. A win takes you up one and a loss takes nothing
+    // away: this is a game about learning a position, and a career that
+    // demotes you for losing to a black belt teaches nobody anything.
+    referee.gesture('stop', 3.2);
+    const beat = oppBelt();
+    const won = e.winner === 0;
+    if (won) progress.wins++; else progress.losses++;
+    const climbed = won && !FORCED && progress.rank < LADDER.length - 1;
+    if (won && !FORCED && progress.rank === LADDER.length - 1) progress.champion = true;
+    if (climbed) progress.rank++;
+    saveProgress();
+    lastResult = { won, beat, next: oppBelt(), climbed, champion: progress.champion };
     audio.bell();
     audio.duck(0.2, 3.5);
     audio.swell(1, 3);
@@ -216,6 +279,7 @@ function control0() {
 // the hall's; the whistle is the referee's, and they are half a second apart
 // because that is the order they happen in.
 function startBell() {
+  referee.gesture('call', 1.6);
   audio.bell();
   audio.duck(0.25, 2.2);
   setTimeout(() => audio.whistle(), 520);
@@ -259,13 +323,24 @@ function footsteps(dt) {
 const lastOrigin = [0, 0];
 
 function frame(now) {
-  const raw = Math.min(0.05, (now - last) / 1000);
+  // Two numbers, because they answer different questions. `elapsed` is how
+  // long the last frame really took — that is what the resolution adapter and
+  // the fps readout want. `dt` is how much of it the sim is allowed to
+  // swallow, capped so that one long frame does not teleport the fight.
+  //
+  // They were the same number, and the readout was a lie: frameAvg was fed the
+  // capped value, so it could never exceed 50 ms and the reported rate could
+  // never fall below 20 fps. Under a software renderer at four and a half
+  // frames a second it still said twenty-one, which is also why smoke's
+  // "frame rate is sane" check could not fail.
+  const elapsed = (now - last) / 1000;
+  const raw = Math.min(0.05, elapsed);
   last = now;
   const dt = raw;
 
   // Adaptive resolution. The scene is cheap but a five year old phone is
   // cheaper; drop internal resolution before dropping frames.
-  state.frameAvg = state.frameAvg * 0.94 + raw * 1000 * 0.06;
+  state.frameAvg = state.frameAvg * 0.94 + elapsed * 1000 * 0.06;
   // Not while something is measuring: a resolution change moves every pixel in
   // the frame and would swamp whatever was being compared.
   if (window.__still != null) { /* held */ } else if (state.frameAvg > 22 && state.quality > 0.62) {
@@ -321,7 +396,7 @@ function frame(now) {
     const b = window.__blend;
     if (b) rig.apply(b.from, b.to, b.t, dt);
     else rig.hold(match.position, dt);
-    drawFrame(now);
+    drawFrame(now, dt);
     requestAnimationFrame(frame);
     return;
   }
@@ -373,7 +448,7 @@ function frame(now) {
   else rig.apply(from, to, match.blend, dt);
 
   /* --- draw ------------------------------------------------------------- */
-  drawFrame(now);
+  drawFrame(now, dt);
   input.endFrame();
 
   window.__stats = {
@@ -388,16 +463,28 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// The referee's kit: a dark shirt and dark trousers rather than a kimono, and
+// a black belt because the mesh has one and a referee is not going to be
+// wearing a white one.
+const REF_GI = new Float32Array([0.075, 0.08, 0.10]);
+const REF_BELT = new Float32Array([0.03, 0.03, 0.04]);
+const REF_SKIN = new Float32Array([0.55, 0.39, 0.30]);
+
 const HERO_FOCUS = v3(0.34, 0.95, 0.1);
 
-function drawFrame(now) {
+function drawFrame(now, real) {
   const dt = 1 / 60;
+  // Here rather than in the sim, so he is also on the mat when the sim is
+  // frozen for a photograph — which is the state half the art tooling runs in.
+  // On the real clock, not the nominal one: at four frames a second a
+  // sixtieth of a second per frame takes six seconds to stand him up.
+  referee.update(real ?? dt, match.state, POSES[match.position].ground, match.origin, match.yaw);
 
   // Before the bell, the screen belongs to one fighter and the empty mat.
   if (hero && match.state === 'ready') {
     camera.update(dt, HERO_FOCUS, 'hero', 0);
     renderer.render({ camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero] });
-    hud.draw(match, input, 1 / 60, { level: LEVEL });
+    hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult });
     return;
   }
 
@@ -423,14 +510,18 @@ function drawFrame(now) {
     camera,
     time: now / 1000,
     focus,
+    // A list, and it always was one: the renderer has never known how many
+    // bodies are on the mat, and this is where the third one joins.
     fighters: [
       { skeleton: rig.skel.A, gpu: body(ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol,
         flash: fa.flash, gas: window.__gas != null ? window.__gas : clamp(1 - fa.stamina / 100, 0, 1) },
       { skeleton: rig.skel.B, gpu: body(ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol,
         flash: fb.flash, gas: window.__gas != null ? window.__gas : clamp(1 - fb.stamina / 100, 0, 1) },
+      { skeleton: referee.skel, gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
+        flash: 0, gas: 0 },
     ],
   });
-  hud.draw(match, input, 1 / 60, { level: LEVEL });
+  hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult });
 }
 
 // One frame drawn before the loading card goes, so the first thing on screen is

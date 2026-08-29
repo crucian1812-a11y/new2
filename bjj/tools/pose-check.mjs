@@ -203,6 +203,123 @@ console.log(
   'with effort and posture held'
 );
 
+/* ------------------------------------------------------- does the hold loop? */
+
+// A held position is most of a match, and what the rig does with it is a cycle:
+// out to a variant, back, out to the next one, back. A cycle with a fixed
+// period and a fixed reach is a metronome, and ten seconds of mount is long
+// enough to hear it.
+//
+// "Sounds like a metronome" is not a number, so here is one: hold the position
+// for forty seconds, watch six joints, and take the autocorrelation of what
+// they do. A loop that repeats itself exactly scores 1.00 at its own period.
+// Anything that varies — the reach, the time out, the time back — scores less,
+// and how much less is how much of the repeat a player would notice.
+{
+  const WATCH = ['handL', 'handR', 'hips', 'head', 'footL', 'shinR'];
+  const STEP = 0.05, SPAN = 40;
+  const loopy = (id) => {
+    const n = Math.round(SPAN / STEP);
+    const sig = [];
+    rig.heldId = null;
+    rig.effort.A = rig.effort.B = 0.25;
+    rig.slack.A = rig.slack.B = 0;
+    rig.time = 0;
+    for (let i = 0; i < n; i++) {
+      rig.hold(id, STEP);
+      const row = [];
+      for (const role of ['A', 'B']) {
+        for (const b of WATCH) {
+          const m = rig.skel[role].world[BONE_INDEX[b]];
+          row.push(m[12], m[13], m[14]);
+        }
+      }
+      sig.push(row);
+    }
+    // Mean-removed, then correlated against itself at every lag from two
+    // seconds up. The breath rides on top of all of this and is its own short
+    // cycle; two seconds is past it.
+    const w = sig[0].length;
+    const mean = new Float64Array(w);
+    for (const row of sig) for (let k = 0; k < w; k++) mean[k] += row[k] / sig.length;
+    for (const row of sig) for (let k = 0; k < w; k++) row[k] -= mean[k];
+    let energy = 0;
+    for (const row of sig) for (let k = 0; k < w; k++) energy += row[k] * row[k];
+    let peak = 0, at = 0;
+    for (let lag = Math.round(2 / STEP); lag < sig.length / 2; lag++) {
+      let dot = 0, na = 0, nb = 0;
+      for (let i = 0; i + lag < sig.length; i++) {
+        for (let k = 0; k < w; k++) {
+          dot += sig[i][k] * sig[i + lag][k];
+          na += sig[i][k] * sig[i][k];
+          nb += sig[i + lag][k] * sig[i + lag][k];
+        }
+      }
+      const r = dot / (Math.sqrt(na * nb) || 1);
+      if (r > peak) { peak = r; at = lag * STEP; }
+    }
+    return { peak, at, energy };
+  };
+  // The five the match actually lives in.
+  let worstLoop = 0;
+  for (const id of ['MOUNT', 'SIDE_CONTROL', 'BACK', 'CLOSED_GUARD', 'HALF_GUARD']) {
+    const { peak, at } = loopy(id);
+    if (peak > worstLoop) worstLoop = peak;
+    console.log(`  ${id.padEnd(13)} repeats itself ${(peak * 100).toFixed(0)}% at ${at.toFixed(1)}s`);
+  }
+  const ok = worstLoop < 0.92;
+  if (!ok) problems++;
+  console.log(`${ok ? ' ' : '!'} the worst hold repeats itself ${(worstLoop * 100).toFixed(0)}%` +
+    ' (a metronome is 100)');
+}
+
+/* ------------------------------------------------------------ the third man */
+
+// The referee is not a paired pose and cannot be checked like one — there is
+// nobody for him to overlap except the two people he is watching, which is
+// exactly the thing worth checking. Plus the two facts that make a standing
+// figure a standing figure: his feet are on the mat and his head is over them.
+{
+  const { Referee, REFEREE_POSES } = await import('../src/game/referee.js');
+  const ref = new Referee();
+  for (const name of Object.keys(REFEREE_POSES)) {
+    ref.pose = ref.from = name;
+    ref.blend = 1;
+    ref.placed = true;
+    ref.x = 0; ref.z = 0; ref.yaw = 0;
+    ref.update(0.5, 'live', name === 'crouch', [0, 0, 0], 0);
+    const foot = Math.min(ref.skel.world[BONE_INDEX.footL][13], ref.skel.world[BONE_INDEX.footR][13]);
+    const head = ref.skel.world[BONE_INDEX.headTop][13];
+    const up = head - foot;
+    const ok = Math.abs(foot - 0.05) < 0.035 && up > (name === 'crouch' ? 0.9 : 1.4);
+    if (!ok) problems++;
+    console.log(`${ok ? ' ' : '!'} referee ${name.padEnd(7)} feet at ${(foot * 100).toFixed(0)}cm, ` +
+      `${(up * 100).toFixed(0)}cm from sole to crown`);
+  }
+  // And where he actually stands, against the fight he is watching. He is
+  // placed off the pair's own frame, so this is the same number wherever the
+  // fight has drifted to.
+  ref.placed = false;
+  ref.update(0.5, 'live', true, [0, 0, 0], 0);
+  rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
+  rig.apply('MOUNT', 'MOUNT', 1, 0.016);
+  let near = 9;
+  for (const role of ['A', 'B']) {
+    const d = overlap.measure(rig.skel[role], ref.skel);
+    if (d.deepest > 0) near = -d.deepest;
+    for (const b of READ) {
+      const m = rig.skel[role].world[BONE_INDEX[b]];
+      for (const c of READ) {
+        const n = ref.skel.world[BONE_INDEX[c]];
+        near = Math.min(near, Math.hypot(m[12] - n[12], m[13] - n[13], m[14] - n[14]));
+      }
+    }
+  }
+  const clear = near > 0.5;
+  if (!clear) problems++;
+  console.log(`${clear ? ' ' : '!'} referee stands ${(near * 100).toFixed(0)}cm clear of the fight`);
+}
+
 console.log(problems ? `\n${problems} problem(s)` : '\nall poses clean');
 process.exit(problems > 0 ? 1 : 0);
 

@@ -56,7 +56,7 @@ export class HUD {
     if (match.state === 'sub') this._sub(match);
     this._events(match, dt);
     if (match.state === 'ready') this._title(opts);
-    if (match.state === 'over') this._result(match);
+    if (match.state === 'over') { this.result = opts.result; this._result(match); }
   }
 
   /* ------------------------------------------------------------ scorebug */
@@ -286,7 +286,10 @@ export class HUD {
     const left = 1 - d.t / d.window;
     const cx = this.w / 2;
     const cy = this.h / 2 + 10;
-    const [dx, dy] = DIR_VEC[d.dir];
+    // Only if he can read it. See visibleDeny: flattened, he knows something is
+    // coming and has to pick a side.
+    const seen = m.visibleDeny(0);
+    const [dx, dy] = seen ? DIR_VEC[seen] : [0, 0];
     const scale = 1 + (1 - left) * 0.5;
 
     c.save();
@@ -304,14 +307,22 @@ export class HUD {
     c.arc(0, 0, 42, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left);
     c.strokeStyle = '#ff6a55';
     c.stroke();
-    arrow(c, 0, 0, dx, dy, '#fff', 16);
+    if (seen) {
+      arrow(c, 0, 0, dx, dy, '#fff', 16);
+    } else {
+      // Four faint arrows and no answer: something is coming, pick a side.
+      for (const dir of ['up', 'down', 'left', 'right']) {
+        const [ax, ay] = DIR_VEC[dir];
+        arrow(c, ax * 20, ay * 20, ax, ay, 'rgba(255,255,255,0.28)', 10);
+      }
+    }
     c.restore();
 
     c.globalAlpha = 1;
     c.textAlign = 'center';
     c.font = `700 11px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.85)';
-    c.fillText('ЗАЩИТА — СВАЙП', cx, cy + 62);
+    c.fillText(seen ? 'ЗАЩИТА — СВАЙП' : 'ЗАЩИТА — УГАДАЙ СТОРОНУ', cx, cy + 62);
   }
 
   /* ------------------------------------------------------- submission UI */
@@ -435,7 +446,9 @@ export class HUD {
     c.fillStyle = 'rgba(255,255,255,0.42)';
     c.fillText('левый палец — база · правый — свайп для перехода, тап для захвата', left, base + 16);
     if (opts.level) {
-      c.fillText(`соперник: ${opts.level} belt`, left, base + 31);
+      const p = opts.progress;
+      const rec = p && (p.wins || p.losses) ? `  ·  ${p.wins}—${p.losses}` : '';
+      c.fillText(`твой пояс: ${opts.mine || 'white'}  ·  соперник: ${opts.level}${rec}`, left, base + 31);
     }
 
     c.textAlign = 'right';
@@ -462,10 +475,24 @@ export class HUD {
     c.font = `700 16px ${FONT}`;
     c.fillStyle = '#fff';
     c.fillText(`${m.f[0].points} — ${m.f[1].points}`, this.w / 2, this.h / 2 + 30);
+    // What the win was worth. A result card that says only who won is a card
+    // nobody reads twice; this one says which belt was in front of you and
+    // which one is next, because that is the whole of the career mode.
+    const r = this.result;
+    if (r) {
+      c.font = `600 11px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.66)';
+      const line = r.champion && r.won ? `ты прошёл всю лестницу — ${r.beat} belt взят`
+        : r.climbed ? `${r.beat} belt взят  ·  следующий: ${r.next}`
+        : r.won ? `${r.beat} belt взят`
+        : `${r.beat} belt — ещё раз`;
+      c.fillText(line, this.w / 2, this.h / 2 + 48);
+    }
     c.font = `600 12px ${FONT}`;
     c.fillStyle = '#ffd166';
     c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
-    c.fillText('КОСНИСЬ, ЧТОБЫ НАЧАТЬ ЗАНОВО', this.w / 2, this.h / 2 + 62);
+    c.fillText(r && !r.won ? 'КОСНИСЬ, ЧТОБЫ ПОПРОБОВАТЬ СНОВА' : 'КОСНИСЬ, ЧТОБЫ ВЫЙТИ НА СЛЕДУЮЩЕГО',
+      this.w / 2, this.h / 2 + 70);
     c.globalAlpha = 1;
   }
 }

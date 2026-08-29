@@ -63,7 +63,10 @@ export class Input {
   _down(e) {
     if (!this.enabled) return;
     e.preventDefault();
-    this.canvas.setPointerCapture?.(e.pointerId);
+    // Guarded: a synthetic PointerEvent — which is what tools/thumb.mjs sends
+    // through this class — has no active pointer behind it, and asking to
+    // capture one throws NotFoundError out of the middle of the handler.
+    try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* not a real finger */ }
     const p = this._pos(e);
     this.anyPress = true;
     const leftHalf = p.x < this.canvas.clientWidth * 0.44;

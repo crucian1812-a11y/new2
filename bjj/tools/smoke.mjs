@@ -59,7 +59,14 @@ const renderer = await page.evaluate(() => {
 const soft = /swiftshader|llvmpipe|lavapipe|software/i.test(renderer);
 console.log(`     renderer: ${renderer}${soft ? '  (SOFTWARE — frame rate here means nothing)' : ''}`);
 check(errors.length === 0, 'no errors on the page', errors.slice(0, 3).join(' | '));
-check(stats && stats.fps > 8, 'frame rate is sane under software GL', stats && `${stats.fps} fps`);
+// Only where the frame rate means anything. Under SwiftShader it does not —
+// this box draws four or five frames a second and a phone with a GPU draws
+// sixty — and the check used to pass regardless for a worse reason: the fps
+// readout was computed from a dt capped at 50 ms and could not go below 20.
+// What is worth checking under software GL is that the loop is advancing at
+// all, which the position and the clock in __stats say.
+if (soft) check(stats && stats.fps > 0.5, 'the loop advances under software GL', stats && `${stats.fps} fps`);
+else check(stats && stats.fps > 30, 'frame rate is sane', stats && `${stats.fps} fps`);
 
 // Is anything actually drawn? Sample the framebuffer and look for colour.
 const shot = await page.screenshot({ type: 'png' });
@@ -80,6 +87,52 @@ check(
 const bright = lum.filter((v) => v > 12).length;
 check(bright >= 10, 'the mat is actually lit', `${bright}/16 samples above black`);
 check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length / 1024) | 0}kb`);
+
+/* ------------------------------------------------- the shell round a match */
+
+// Title, match, result, and the next man out — without a reload, and with the
+// belt still there after one. This is the part of the game that is not the
+// match, and until the ladder existed there was nothing here to check.
+{
+  const ladder = await page.evaluate(async () => {
+    const ui = document.getElementById('ui');
+    const press = () => {
+      for (const type of ['pointerdown', 'pointerup']) {
+        ui.dispatchEvent(new PointerEvent(type, { pointerId: 9, clientX: 600, clientY: 200, bubbles: true }));
+      }
+    };
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const m0 = window.__bjj.match();
+    const belt0 = m0.f[1].name && localStorage.getItem('bjj.progress');
+    // Run the clock out rather than playing it out: what is being checked is
+    // the shell, and the sim has four hundred matches of its own in sim-check.
+    m0.f[0].points = 2;
+    m0.time = 0.1;
+    // Waited for, not slept through: this page draws one frame a second under
+    // a software rasteriser and the clock only moves when a frame does.
+    const until = async (fn, ms = 30000) => {
+      const t0 = Date.now();
+      while (!fn() && Date.now() - t0 < ms) await wait(200);
+      return fn();
+    };
+    await until(() => window.__bjj.match().state === 'over');
+    const over = window.__bjj.match().state;
+    press();
+    await until(() => window.__bjj.match() !== m0);
+    const m1 = window.__bjj.match();
+    return {
+      over, next: m1.state, fresh: m1 !== m0, saved: localStorage.getItem('bjj.progress'), belt0,
+    };
+  });
+  check(ladder.over === 'over', 'the match ends on the clock', ladder.over);
+  check(ladder.fresh && ladder.next !== 'over', 'a touch puts the next man on the mat', ladder.next);
+  check(!!ladder.saved, 'the ladder is written down', ladder.saved || 'nothing in localStorage');
+  const kept = await page.evaluate(() => localStorage.getItem('bjj.progress'));
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(2000);
+  const after = await page.evaluate(() => localStorage.getItem('bjj.progress'));
+  check(after === kept, 'and it survives a reload', `${after}`);
+}
 
 // Fatigue is checked in pose-check, not here.
 //

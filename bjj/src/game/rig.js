@@ -72,6 +72,14 @@ const _q = quat();
 const _rq = quat();
 const _b1 = quat();
 const _b2 = quat();
+// A deterministic scatter for the hold loop: same inputs, same numbers, every
+// run and every machine.
+function hash2(a, b) {
+  let x = (Math.imul(a, 374761393) + Math.imul(b, 668265263)) | 0;
+  x = Math.imul(x ^ (x >>> 13), 1274126177) | 0;
+  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
+}
+
 const _p1 = v3();
 const _p2 = v3();
 const _p3 = v3();
@@ -136,19 +144,55 @@ export class PairRig {
     if (this.heldId !== id) {
       this.heldId = id;
       this.heldT = 0;
+      this.legN = 0;
+      this.legT = 0;
+      this._leg(id, loop);
     }
     // Work harder and the cycle runs faster and reaches further: the two are
     // the same fact about a man under pressure, and the effort the sim already
     // tracks is where it is written.
     const eff = Math.max(this.effort.A, this.effort.B);
     this.heldT += dt;
+    this.legT += dt;
+    if (this.legT >= this.legDur) {
+      this.legT -= this.legDur;
+      this.legN++;
+      this._leg(id, loop);
+    }
+    const u = this.legT / this.legDur;
+    const raw = u < this.legOut ? u / this.legOut : 1 - (u - this.legOut) / (1 - this.legOut);
+    this.apply(id, loop[this.legN % loop.length], smooth(raw) * (0.55 + 0.45 * eff) * this.legReach, dt);
+  }
+
+  // Each trip out to a variant and back gets its own length, its own reach and
+  // its own shape.
+  //
+  // Without this the loop is a metronome, and pose-check says by how much: held
+  // for forty seconds, closed guard used to repeat itself 99% at exactly five
+  // seconds and half guard 97% at ten. A third variant would have moved the
+  // repeat to fifteen seconds and left it at 99%, which is why the count of
+  // poses was the wrong thing to add — the evenness was the fault, not the
+  // shortness.
+  //
+  // The numbers come out of a hash of the position and the lap, not out of
+  // Math.random: the same hold plays the same way twice, which is what lets a
+  // measurement of it mean anything.
+  _leg(id, loop) {
+    const eff = Math.max(this.effort.A, this.effort.B);
     const period = 5.4 - 2.0 * eff;
-    const phase = (this.heldT % (period * loop.length)) / period;
-    const leg = Math.min(loop.length - 1, Math.floor(phase));
-    const u = phase - leg;
-    const OUT = 0.38;
-    const raw = u < OUT ? u / OUT : 1 - (u - OUT) / (1 - OUT);
-    this.apply(id, loop[leg], smooth(raw) * (0.55 + 0.45 * eff), dt);
+    const r = (k) => hash2(this._idSeed(id), this.legN * 3 + k);
+    this.legDur = period * (0.70 + 0.62 * r(0));
+    this.legReach = 0.72 + 0.28 * r(1);
+    // How much of the leg is spent going out. Quick out and slow back is what
+    // a hip switch looks like; how quick varies too.
+    this.legOut = 0.30 + 0.18 * r(2);
+    void loop;
+  }
+
+  _idSeed(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+    return h;
   }
 
   apply(from, to, t, dt) {
@@ -193,8 +237,18 @@ export class PairRig {
     const late = plan ? plan.at === 'late' : false;
     const early = plan ? plan.at === 'early' : false;
     const bell = from === to ? 0 : Math.sin(clamp(t, 0, 1) * Math.PI);
-    const w0 = bell * (1 - t) * 2;
-    const w1 = bell * t * 2;
+    // The lobes' weights. Two of them — one leaning early, one late — was
+    // enough for everything that has come off the work list; the seven that
+    // are left fail at t = 0.42 to 0.85 and want a shape rather than a tilt,
+    // so the count is whatever the solved arc has. The family is the same
+    // either way — Bernstein bumps scaled by L — so a two-lobe arc evaluates
+    // exactly as it always did.
+    const lobeW = (L, k) => {
+      if (L === 2) return k === 0 ? bell * (1 - t) * 2 : bell * t * 2;
+      let c = 1;                                     // binomial(L-1, k)
+      for (let i = 0; i < k; i++) c = (c * (L - 1 - i)) / (i + 1);
+      return bell * L * c * Math.pow(t, k) * Math.pow(1 - t, L - 1 - k);
+    };
     // The blanket nudge apart is for a transition with no solved arc yet. A
     // position moving inside itself gets none of it: prising a held mount apart
     // by six centimetres in the middle of its own breathing cycle is a pulse,
@@ -299,7 +353,7 @@ export class PairRig {
         for (let l = 0; l < arc.length; l++) {
           const d = arc[l].r && arc[l].r[role];
           if (!d) continue;
-          const w = l === 0 ? w0 : w1;
+          const w = lobeW(arc.length, l);
           qEuler(_q, d[0] * w, d[1] * w, d[2] * w);
           qMul(sk.rootRot, sk.rootRot, _q);
         }
@@ -321,7 +375,7 @@ export class PairRig {
         for (let l = 0; l < arc.length; l++) {
           const lobe = arc[l];
           if (!lobe.p) continue;
-          const half = (l === 0 ? w0 : w1) * dir;
+          const half = lobeW(arc.length, l) * dir;
           gx += lobe.p[0] * half;
           gy += lobe.p[1] * half;
           gz += lobe.p[2] * half;
@@ -339,7 +393,7 @@ export class PairRig {
         for (let l = 0; l < arc.length; l++) {
           const j = arc[l].j && arc[l].j[role];
           if (!j) continue;
-          const w = l === 0 ? w0 : w1;
+          const w = lobeW(arc.length, l);
           for (const bone in j) {
             const d = j[bone];
             addEuler(sk, bone, d[0] * w, d[1] * w, d[2] * w);
