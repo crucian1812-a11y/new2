@@ -25,6 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, copyFileSync, unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { PairRig } from '../src/game/rig.js';
 import { POSITION_IDS, WAYPOINT_IDS } from '../src/game/poses.js';
 import { VIAS } from '../src/game/arcs.js';
@@ -34,7 +35,9 @@ import { JUDGE_STEPS as STEPS } from './grid.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ARCS_PATH = join(here, '../src/game/arcs.js');
-const BACKUP = join(here, '../src/game/.arcs.backup.js');
+// Outside the source tree: the first version kept it beside arcs.js and a
+// `git add -A` swept it into a commit.
+const BACKUP = join(tmpdir(), 'bjj-arcs-backup.js');
 
 const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };

@@ -365,15 +365,24 @@ if (beats >= 8) {
 } else {
   console.log(`  (only ${beats} beats: not enough to judge the window)`);
 }
-check(out.denies === 0 || out.denied / out.denies > 0.25,
-  'the denial window is long enough to answer', `${out.denied}/${out.denies}`);
+// A thumb that reads nothing is the floor, not a failure: it guesses the
+// direction, so its denial rate measures the odds of a guess and its wasted
+// flicks measure what reading the labels is worth. Both are the point of
+// running it.
+if (CFG.play === 'random') {
+  console.log(`  the floor: reading nothing, ${out.denied} of ${out.denies} denials` +
+    ` and ${out.flicksIgnored} flicks into thin air`);
+} else {
+  check(out.denies === 0 || out.denied / out.denies > 0.25,
+    'the denial window is long enough to answer', `${out.denied}/${out.denies}`);
+}
 // And the other end of it, which is not a failure but is a fact about the
 // game: the prompt names the direction, so a thumb that is watching for
 // nothing else answers every one of them. A black belt reads the same threat
 // right about seven times in ten. Whoever is playing is a better defender than
 // the best opponent in the game, and that is worth knowing before anybody
 // concludes the AI is weak.
-if (out.denies >= 6 && out.denied / out.denies > 0.9) {
+if (CFG.play !== 'random' && out.denies >= 6 && out.denied / out.denies > 0.9) {
   console.log(`  note: ${out.denied} of ${out.denies} denials answered — the prompt answers itself` +
     ' for a player who is only watching for it');
 }
@@ -382,7 +391,9 @@ if (out.denies >= 6 && out.denied / out.denies > 0.9) {
 if (!CFG.drill) {
   check(out.tries > 0 && out.landed > 0, 'the thumb can make something happen',
     `${out.landed} of ${out.tries}`);
-  check(out.flicksIgnored < out.tries, 'most flicks mean something', `${out.flicksIgnored} ignored`);
+  if (CFG.play !== 'random') {
+    check(out.flicksIgnored < out.tries, 'most flicks mean something', `${out.flicksIgnored} ignored`);
+  }
 }
 console.log(`  won ${won} of ${out.matches.length}, ${tapped} by submission, lost ${lostToTap} to one`);
 
