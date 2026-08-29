@@ -49,6 +49,13 @@ const CFG = {
   jitter: +flag('jitter', 60),
   beat: +flag('beat', 90),
   play: flag('play', 'label'),
+  // The beat, on its own. A submission happens when the fight produces one,
+  // and in a ninety-second match against a blue belt it often does not happen
+  // at all — two full matches produced none. Waiting for one in real time to
+  // measure a 190 ms window is an hour to answer a question that takes a
+  // minute: this puts the pair into a submission, lets the thumb work it, and
+  // does it again the moment it ends.
+  drill: +flag('drill', 0),
 };
 const PORT = +(process.env.PORT || 8099);
 
@@ -138,7 +145,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
   let gt = 0, prevClock = null;
 
   const st = {
-    matches: [], hit: 0, miss: 0, denies: 0, denied: 0, escapes: 0,
+    matches: [], hit: 0, miss: 0, denies: 0, denied: 0, blind: 0, escapes: 0,
     tries: 0, landed: 0, subTries: 0, subLanded: 0, grips: 0, flicksIgnored: 0,
     ignoredSub: 0, ignoredBusy: 0, ignoredCool: 0, ignoredTired: 0, ignoredNothing: 0, fps: 0,
   };
@@ -242,6 +249,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
 
     st.saw = `${m.state} ${m.time.toFixed(0)}s ${m.position}`;
     st.fps = window.__stats ? window.__stats.fps : 0;
+    if (cfg.drill && st.hit + st.miss >= cfg.drill) { done(st); return; }
     if (m.state === 'ready' || m.state === 'over') {
       if (m.state === 'over' && cur) {
         st.rate = (cur.clock - m.time) / ((now - cur.at) / 1000);
@@ -275,6 +283,13 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       if (!seen) st.blind++;
       const dir = seen || ['up', 'down', 'left', 'right'][(Math.random() * 4) | 0];
       plan = { at: gt + late(), do: () => m.input(0, dir) };
+    } else if (cfg.drill && m.state === 'live' && !m.attempt && !plan) {
+      // Straight to the lock. This reaches past `input` into the sim the same
+      // way the art tooling's setPose does, and for the same reason: the thing
+      // being measured is downstream of getting there.
+      const tr = Object.values(m.options(0)).find((o) => o.sub);
+      if (tr) { m.position = tr.from; m._startSub(0, tr); }
+      else { m.prevPosition = m.position = 'MOUNT'; m.blend = 1; }
     } else if (m.state === 'sub' && m.sub) {
       const s = m.sub;
       if (s.attacker === 0) {

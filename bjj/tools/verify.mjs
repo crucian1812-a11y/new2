@@ -24,7 +24,14 @@ const steps = [
 if (withBrowser) {
   steps.push(['browser smoke', 'smoke.mjs', []]);
   steps.push(['sound', 'sound-check.mjs', []]);
+  steps.push(['the cost of a frame', 'frame-check.mjs', []]);
 }
+// Not in the battery, on purpose, and both are worth running by hand:
+//
+//   node bjj/tools/net-check.mjs     a minute, because it measures a minute
+//   node bjj/tools/thumb.mjs         several, because it plays matches in real
+//                                    time — the whole subject is human timing
+//                                    and there is no fast-forwarding it
 
 let failed = 0;
 for (const [name, script, args] of steps) {

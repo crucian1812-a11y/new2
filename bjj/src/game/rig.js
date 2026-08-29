@@ -146,7 +146,7 @@ export class PairRig {
       this.heldT = 0;
       this.legN = 0;
       this.legT = 0;
-      this._leg(id, loop);
+      this._leg(id);
     }
     // Work harder and the cycle runs faster and reaches further: the two are
     // the same fact about a man under pressure, and the effort the sim already
@@ -157,7 +157,7 @@ export class PairRig {
     if (this.legT >= this.legDur) {
       this.legT -= this.legDur;
       this.legN++;
-      this._leg(id, loop);
+      this._leg(id);
     }
     const u = this.legT / this.legDur;
     const raw = u < this.legOut ? u / this.legOut : 1 - (u - this.legOut) / (1 - this.legOut);
@@ -177,7 +177,7 @@ export class PairRig {
   // The numbers come out of a hash of the position and the lap, not out of
   // Math.random: the same hold plays the same way twice, which is what lets a
   // measurement of it mean anything.
-  _leg(id, loop) {
+  _leg(id) {
     const eff = Math.max(this.effort.A, this.effort.B);
     const period = 5.4 - 2.0 * eff;
     const r = (k) => hash2(this._idSeed(id), this.legN * 3 + k);
@@ -186,7 +186,6 @@ export class PairRig {
     // How much of the leg is spent going out. Quick out and slow back is what
     // a hip switch looks like; how quick varies too.
     this.legOut = 0.30 + 0.18 * r(2);
-    void loop;
   }
 
   _idSeed(id) {

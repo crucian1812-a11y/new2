@@ -21,7 +21,16 @@ export const MATCH_TIME = 300;
 const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
 // Posture at or above this and you can see which way it is coming; below it
 // you know only that it is coming. See visibleDeny.
-const DENY_READ = 45;
+//
+// Set from the distribution, not from taste: over ten thousand denial prompts
+// across the four belts, the defender's posture at the moment the prompt goes
+// up has a median of 67 to 84 and a lower quartile of 24 to 42. At 45 the
+// arrow was hidden for a quarter of prompts in the sim and for none at all in
+// front of a player, because a player who denies everything is never under
+// enough pressure to lose his posture — the thumb answered 35 of 35 with the
+// gate in. At 70 it is hidden about half the time, and the loop closes: miss
+// one, get flattened, see less, miss more.
+const DENY_READ = 70;
 
 export class Fighter {
   constructor(name, opts = {}) {
