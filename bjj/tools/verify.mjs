@@ -25,6 +25,7 @@ if (withBrowser) {
   steps.push(['browser smoke', 'smoke.mjs', []]);
   steps.push(['sound', 'sound-check.mjs', []]);
   steps.push(['the cost of a frame', 'frame-check.mjs', []]);
+  steps.push(['how it reads', 'look-check.mjs', []]);
 }
 // Not in the battery, on purpose, and both are worth running by hand:
 //
