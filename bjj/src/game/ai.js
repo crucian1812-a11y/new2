@@ -145,7 +145,24 @@ export class AI {
       const gain = valueAfter(tr, match) - here;
       // Expected value, honestly computed: what it is worth times how likely
       // it is, minus what it costs when there is not much gas left.
-      let s = gain * (0.4 + tr.base) + tr.points * 0.5;
+      //
+      // "How likely it is" used to be the table's nominal rate, which is the
+      // same number in every position the fight has ever been in — so nobody
+      // ever waited for a better moment, and submissions were attempted on men
+      // whose posture was still at 46 out of 100. The live chance is what the
+      // match can actually compute; how much of it a fighter sees is his belt.
+      // A black belt reads the moment and waits for it; a white belt sees the
+      // move and takes it.
+      const live = match.chanceOf(tr, this.i);
+      const seen = tr.base + (live - tr.base) * this.level.read;
+      // The floor under the odds is lower for a submission, because a
+      // submission is the one move whose value is so large that any floor at
+      // all makes it worth taking cold: at 0.4 a choke on a fully postured man
+      // still outscored everything on the board, so the read above changed
+      // nothing and the fight parked in back control hunting it. At 0.15 a
+      // cold one is worth a quarter of a set-up one and the black belt waits.
+      const floor = tr.sub ? 0.15 : 0.4;
+      let s = gain * (floor + seen) + tr.points * 0.5;
       s -= tr.cost * (me.stamina < 40 ? 0.09 : 0.03);
       if (me.stamina < tr.cost * 0.5) s -= 8;
       s *= 0.75 + this.level.aggression * 0.5;
@@ -171,9 +188,13 @@ export class AI {
       return;
     }
 
-    // Sitting still is a real option when everything on offer is a bad idea.
+    // Sitting still is a real option when everything on offer is a bad idea —
+    // and it is not sitting still, it is a grip fight, which is what breaks
+    // the other man's posture and buys the moment the move needed. Since the
+    // scores above now fall when the moment is wrong, this is the branch that
+    // performs the set-up, and it takes it nearly every time rather than half.
     if (!best || bestScore < (match.isDominant(this.i) ? 0.4 : -2.5)) {
-      if (Math.random() < 0.5) onTap(); // fight for grips instead
+      if (Math.random() < 0.85) onTap();
       return;
     }
     onFlick(best.dir);

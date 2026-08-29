@@ -106,6 +106,8 @@ function key(t) { return `${t.from}>${t.role}>${t.dir}>${t.to}`; }
 function shape(level, n = 90) {
   const time = new Map();
   const log = [];
+  const tally = { tries: 0, denied: 0, failed: 0, landed: 0,
+                  subTries: 0, subDenied: 0, subFailed: 0, subLanded: 0 };
   let total = 0, inSub = 0, length = 0, subs = 0;
   for (let i = 0; i < n; i++) {
     const m = new Match([new Fighter('A'), new Fighter('B')], { time: MATCH_TIME });
@@ -126,6 +128,11 @@ function shape(level, n = 90) {
     length += steps * DT;
     if (m.winBy === 'submission') subs++;
     log.push(...m.subLog);
+    for (const k of Object.keys(tally)) tally[k] += m.tally[k];
+    // How much of the clock was spent somewhere a submission is one flick away
+    // for whoever is on top. That is the tap of the funnel, and no constant
+    // inside the lock can narrow it.
+    
   }
   const ranked = [...time].sort((a, b) => b[1] - a[1]);
   return {
@@ -136,7 +143,7 @@ function shape(level, n = 90) {
     length: length / n,
     subs: subs / n,
     spread: ranked.filter(([, t]) => t / total > 0.05).length,
-    log, n,
+    log, n, tally,
   };
 }
 
@@ -153,6 +160,21 @@ for (const s of shapes) {
 // diseases: too many submissions started, each one too likely to finish, or
 // each one finishing itself while the attacker holds on. The ledger the match
 // keeps separates them — where the meter came from, and how each attempt ended.
+// The funnel. Everything above measures what happens inside a lock; this
+// measures how often anybody gets into one, which is the other half of the
+// finish rate and the half no constant inside the race can reach.
+console.log('\n     what the fight tries, per match:');
+console.log('     belt     attempts  of them submissions   submission entries: denied  failed  landed');
+for (const s of shapes) {
+  const t = s.tally;
+  const pc = (a, b) => (b ? ((a / b) * 100).toFixed(0) : '0').padStart(6) + '%';
+  console.log(
+    `     ${s.level.padEnd(8)}${(t.tries / s.n).toFixed(1).padStart(8)}` +
+    `${(t.subTries / s.n).toFixed(1).padStart(11)} (${((t.subTries / (t.tries || 1)) * 100).toFixed(0)}%)` +
+    `             ${pc(t.subDenied, t.subTries)}${pc(t.subFailed, t.subTries)}${pc(t.subLanded, t.subTries)}`
+  );
+}
+
 console.log('\n     submissions started, and how they went:');
 console.log('     belt     per match  ended: tap strip  time  empty   secs   meter from: creep  taps  escapes');
 for (const s of shapes) {
@@ -201,10 +223,19 @@ const scorecard = Math.max(...shapes.map((s) => 1 - s.subs));
 check(scorecard > 0.04, 'a match can end on the scorecard',
   `best is ${(scorecard * 100).toFixed(0)}% of matches at ${shapes.find((s) => 1 - s.subs === scorecard).level}`);
 
+// The ranking of finishers is asked below, against a fixed opponent, and not
+// here. It used to be asked here — black's share of matches ending in a tap
+// against a black, against white's against a white — and that compares two
+// different fights: a white belt finishes every one of his because the man
+// opposite cannot defend, not because he is good. The measure and the work
+// list also pulled against each other, since the work list wants every one of
+// these numbers *down* while the check wanted black's up, and with white
+// pinned at 100% the two met in a band a few points wide and the battery
+// started failing on noise.
 const white = shapes.find((s) => s.level === 'white').subs;
 const black = shapes.find((s) => s.level === 'black').subs;
-check(black >= white * 0.6, 'a black belt is not worse at finishing than a white belt',
-  `white ${(white * 100).toFixed(0)}%, black ${(black * 100).toFixed(0)}%`);
+console.log(`     matches ending in a tap: white ${(white * 100).toFixed(0)}%, black ${(black * 100).toFixed(0)}%` +
+  '  (ranked below, against the same opponent)');
 
 // The work list. Measured, off, and written down rather than asserted.
 const wanted = [];
@@ -268,6 +299,22 @@ for (const lvl of AI_LEVELS) {
 }
 console.log('     vs blue: ' + rates.map(([l, r]) => `${l} ${(r * 100).toFixed(0)}%`).join('  '));
 check(rates[4][1] >= rates[0][1], 'black outperforms white against a fixed opponent');
+
+// And finishes more, against the same man. This is the claim the same-belt
+// comparison was trying to make: a better grappler taps people out more often,
+// which is a statement about the grappler and therefore has to hold the
+// opponent fixed.
+const finishes = (lvl) => {
+  let subs = 0;
+  for (let i = 0; i < 60; i++) {
+    const { m } = play(lvl, 'blue', s, s);
+    if (m.winner === 0 && m.winBy === 'submission') subs++;
+  }
+  return subs / 60;
+};
+const wFin = finishes('white'), bFin = finishes('black');
+check(bFin >= wFin, 'a black belt finishes more than a white belt does',
+  `against a blue belt: white ${(wFin * 100).toFixed(0)}%, black ${(bFin * 100).toFixed(0)}%`);
 
 console.log(fail ? `\n${fail} check(s) failed` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

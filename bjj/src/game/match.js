@@ -63,11 +63,20 @@ export class Match {
     this.events = [];
     this.winner = null;
     this.subLog = [];
+    // The funnel every attempt goes through, submissions counted apart.
+    //
+    // `subLog` says what happened inside a lock; this says how often anybody
+    // got into one and where the others went. Between them they answer the
+    // question the finish rate cannot: is the fight ending in taps because
+    // submissions are strong, or because there are so many of them?
+    this.tally = { tries: 0, denied: 0, failed: 0, landed: 0,
+                   subTries: 0, subDenied: 0, subFailed: 0, subLanded: 0 };
     this.winBy = null;
     this.origin = [0, 0, 0];
     this.yaw = 0;
     this.intensity = 0;
     this.gripAdv = [0, 0]; // won grip exchanges, decays
+    this.driveOf = [0, 0]; // how hard each of them is leaning in, this frame
     this.onEvent = opts.onEvent || (() => {});
     this.stallTimer = 0;
   }
@@ -129,6 +138,8 @@ export class Match {
 
   _start(i, tr) {
     const me = this.f[i];
+    this.tally.tries++;
+    if (tr.sub) this.tally.subTries++;
     me.stamina = clamp(me.stamina - tr.cost * 0.45, 0, 100);
     this.attempt = {
       tr,
@@ -240,6 +251,8 @@ export class Match {
     this.deny = null;
 
     if (a.denied) {
+      this.tally.denied++;
+      if (tr.sub) this.tally.subDenied++;
       this._snapBack(a.by, 0.65);
       me.stamina = clamp(me.stamina - tr.cost * 0.3, 0, 100);
       me.posture = clamp(me.posture - 6, 0, 100);
@@ -248,28 +261,90 @@ export class Match {
       return;
     }
 
-    // Everything that decides it. Base rate from the technique, then the
-    // things the player actually controls: stamina, posture, grips, and how
-    // hard they were driving with the left thumb when it went off.
-    let p = tr.base;
-    p *= 0.75 + me.technique * 0.5;
-    p *= 0.72 + (me.stamina / 100) * 0.5;
-    p *= 1 + this.gripAdv[a.by] * 0.35;
-    p /= 0.78 + (you.stamina / 100) * 0.42;
-    p *= 1 + (1 - you.posture / 100) * 0.4;
-    p += (this.drive || 0) * 0.12;
-    p = clamp(p, 0.05, 0.95);
+    const p = this.chanceOf(tr, a.by);
 
     me.stamina = clamp(me.stamina - tr.cost * 0.55, 0, 100);
 
     if (Math.random() > p) {
+      this.tally.failed++;
+      if (tr.sub) this.tally.subFailed++;
+      // A choke that misses is a choke the other man has turned into.
+      //
+      // Losing the back has to cost something, or a failed submission is free
+      // and the man on top simply tries again: with the set-up required and
+      // nothing charged for missing, the fight parked in back control for
+      // nearly half the clock and hunted a choke it could not have. The
+      // defender comes out through his own escape from the position, the same
+      // way he does when he strips the grip.
+      if (tr.sub && Math.random() < 0.4) {
+        const out = this._escapeFrom(this.position);
+        if (out) {
+          me.posture = clamp(me.posture - 8, 0, 100);
+          this.cool[a.by] = 0.8;
+          this.emit(`${you.name}: вывернулся`, 'escape');
+          this.goTo(out, a.defender);
+          return;
+        }
+      }
       this._snapBack(a.by, 0.8);
       me.posture = clamp(me.posture - 8, 0, 100);
       this.emit(`${me.name}: не прошло`, 'fail');
       return;
     }
 
+    this.tally.landed++;
+    if (tr.sub) this.tally.subLanded++;
     this.goTo(tr, a.by);
+  }
+
+  // The odds of a transition landing, right now.
+  //
+  // Factored out of `_resolve` so the AI can ask before it commits. It used to
+  // be unable to: a move was worth its gain times the table's nominal rate, so
+  // nobody ever waited for a better moment, and the measurement showed it —
+  // submissions were being attempted on men whose posture was still at 46 out
+  // of 100 on average and at 81 in the top tenth, with the attacker's grip
+  // advantage sitting at 0.02. Nothing in the game required the set-up and
+  // nothing in the AI performed it.
+  chanceOf(tr, by) {
+    const me = this.f[by];
+    const you = this.f[this.other(by)];
+    // Base rate from the technique, then the things the player actually
+    // controls: stamina, posture, grips, and how hard they were driving with
+    // the left thumb when it went off.
+    let p = tr.base;
+    p *= 0.75 + me.technique * 0.5;
+    p *= 0.72 + (me.stamina / 100) * 0.5;
+    p *= 1 + this.gripAdv[by] * 0.35;
+    p /= 0.78 + (you.stamina / 100) * 0.42;
+    p *= 1 + (1 - you.posture / 100) * 0.4;
+    // The attacker's drive, not player one's. `this.drive` was whatever the
+    // left thumb of fighter zero happened to be doing, and it was added to
+    // whoever attempted — which in a simulated match is the wrong man half the
+    // time.
+    p += (this.driveOf[by] || 0) * 0.12;
+    // A submission is not a position, and it is not taken from a man who is
+    // still together. This is the difference between a choke and a pass: you
+    // pass a guard on the way past somebody, you finish a man you have already
+    // broken. Cold, on full posture and with no grips on him, a submission is
+    // worth less than a third of its nominal rate; set up, it is worth more
+    // than its nominal rate.
+    if (tr.sub) p *= 0.3 + 0.5 * (1 - you.posture / 100) + 0.35 * this.gripAdv[by];
+    return clamp(p, 0.05, 0.95);
+  }
+
+  // Where the man underneath goes when he gets out. Any of his own escapes
+  // from the position, picked at random.
+  //
+  // It used to be the first one the table happened to list, which from back
+  // control is always turning to turtle — and from turtle the man on top takes
+  // the back again for four points, so a survived choke fed a two-position
+  // loop that owned a third of the clock. The graph offers him two ways out;
+  // both should happen.
+  _escapeFrom(from) {
+    const outs = TRANSITIONS.filter(
+      (t) => t.from === from && t.role === 'bottom' && t.becomes === 'bottom');
+    return outs.length ? outs[(Math.random() * outs.length) | 0] : null;
   }
 
   _snapBack(by, cool) {
@@ -591,9 +666,7 @@ export class Match {
       // where they were.
       const stripped = s.strip >= 7;
       this._logSub(stripped ? 'stripped' : s.lowT > 1.2 ? 'emptied' : 'timeout');
-      const out = stripped
-        ? TRANSITIONS.find((t) => t.from === s.from && t.role === 'bottom' && t.becomes === 'bottom')
-        : null;
+      const out = stripped ? this._escapeFrom(s.from) : null;
       this.state = 'live';
       this.sub = null;
       this.cool[s.attacker] = 0.9;
@@ -679,6 +752,7 @@ export class Match {
     if (!p.ground) this.yaw += c0.turn * dt * 0.9;
     else this.yaw += c0.turn * dt * 0.2;
     this.drive = c0.drive;
+    for (let i = 0; i < 2; i++) this.driveOf[i] = (control[i] && control[i].drive) || 0;
   }
 
   _timeUp() {
