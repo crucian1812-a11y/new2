@@ -67,6 +67,10 @@ export class PairRig {
     // that grows as posture is lost.
     this.effort = { A: 0, B: 0 };
     this.slack = { A: 0, B: 0 };
+    // How far out of gas each of them is, 0 to 1. Separate from effort on
+    // purpose: effort is what a man is doing this second and stops when he
+    // stops, and gas is what three minutes have done to him and does not.
+    this.gas = { A: 0, B: 0 };
   }
 
   invalidate(id) { invalidatePose(id); }
@@ -309,15 +313,34 @@ export class PairRig {
     const T = this.time;
     const eff = this.effort[role];
     const slack = this.slack[role];
+    const gas = this.gas[role];
     const ground = POSES[to].ground;
 
-    // Breath: faster and deeper the harder they are working.
-    const rate = 1.1 + eff * 2.6;
-    const breath = Math.sin(T * rate) * (0.55 + eff * 1.6);
+    // Breath: faster and deeper the harder they are working — and it does not
+    // come back down when they stop. A man three minutes in is still heaving
+    // between exchanges, and that is the whole difference between a fighter
+    // who is tired and a bar that says he is.
+    const rate = 1.1 + eff * 2.6 + gas * 2.0;
+    const breath = Math.sin(T * rate) * (0.55 + eff * 1.6 + gas * 2.4);
     addEuler(sk, 'chest', breath * 1.1, 0, 0);
     addEuler(sk, 'spine', breath * 0.6, 0, 0);
     addEuler(sk, 'neck', -breath * 0.5 + slack * 9, 0, 0);
     addEuler(sk, 'head', slack * 6, Math.sin(T * 0.7) * 1.5, 0);
+    // The shoulders go with it. Heaving is the shape of a shoulder girdle
+    // lifting, not of a chest inflating, and at this distance the girdle is
+    // what is seen.
+    if (gas > 0.01) {
+      const lift = Math.max(0, breath) * gas;
+      addEuler(sk, 'clavL', -lift * 5.5, 0, -lift * 3.4);
+      addEuler(sk, 'clavR', -lift * 5.5, 0, lift * 3.4);
+      // And the arms stop being carried. Not the collapse `slack` describes —
+      // this is weight: elbows hanging lower than they hung in the first
+      // minute, and a head that is no longer being held up either.
+      addEuler(sk, 'armL', gas * 7, 0, 0);
+      addEuler(sk, 'armR', gas * 7, 0, 0);
+      addEuler(sk, 'neck', gas * 3.5, 0, 0);
+      addEuler(sk, 'head', gas * 4, 0, 0);
+    }
 
     // Effort tremor. Two frequencies so it does not read as a sine wave, and
     // scaled by the limb's leverage — a shoulder shakes more than a wrist.

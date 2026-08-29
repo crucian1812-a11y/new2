@@ -156,6 +156,53 @@ for (const r of rows) {
   );
   for (const n of r.notes) console.log(`      · ${n}`);
 }
+// Does fatigue move the man?
+//
+// The rig carries three channels on top of the authored pose: effort, which is
+// what he is doing this second; slack, which is his posture gone; and gas,
+// which is what three minutes have done to him. Only the third is fatigue, and
+// it is the one that has to be visible without a HUD bar — heavier breathing
+// that does not stop when he stops, shoulders that lift with it, arms carried
+// lower.
+//
+// Measured here rather than on screen because here it is exact. A frame
+// comparison could not tell the feature from the renderer's own noise: see the
+// note in tools/smoke.mjs.
+const gasMove = (() => {
+  let T = 3.0;
+  const at = (gas) => {
+    rig.effort.A = rig.effort.B = 0.2;
+    rig.slack.A = rig.slack.B = 0;
+    rig.gas.A = rig.gas.B = gas;
+    rig.time = T;
+    rig.invalidate('MOUNT');
+    rig.apply('MOUNT', 'MOUNT', 1, 0.016);
+    return READ.concat(['clavL', 'clavR', 'armL', 'armR', 'neck'])
+      .map((b) => { const m = rig.skel.A.world[BONE_INDEX[b]]; return [m[12], m[13], m[14]]; });
+  };
+  // Over a whole breath, not at one instant of it: the two men are in phase at
+  // the top of the cycle whatever their gas, and a reading taken there says
+  // fatigue does nothing.
+  let sum = 0, worst = 0, n = 0;
+  for (let k = 0; k < 12; k++) {
+    T = 3.0 + k * 0.11;
+    const fresh = at(0), spent = at(1);
+    for (let i = 0; i < fresh.length; i++) {
+      const d = Math.hypot(fresh[i][0] - spent[i][0], fresh[i][1] - spent[i][1], fresh[i][2] - spent[i][2]);
+      sum += d; n++;
+      if (d > worst) worst = d;
+    }
+  }
+  return { mean: sum / n, worst };
+})();
+const gasOk = gasMove.worst > 0.02 && gasMove.mean > 0.006;
+if (!gasOk) problems++;
+console.log(
+  `${gasOk ? ' ' : '!'} fatigue moves the man ` +
+  `${(gasMove.mean * 100).toFixed(1)}cm on average, ${(gasMove.worst * 100).toFixed(1)}cm at the most, ` +
+  'with effort and posture held'
+);
+
 console.log(problems ? `\n${problems} problem(s)` : '\nall poses clean');
 process.exit(problems > 0 ? 1 : 0);
 

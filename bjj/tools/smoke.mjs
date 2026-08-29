@@ -81,6 +81,19 @@ const bright = lum.filter((v) => v > 12).length;
 check(bright >= 10, 'the mat is actually lit', `${bright}/16 samples above black`);
 check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length / 1024) | 0}kb`);
 
-await browser.close();
+// Fatigue is checked in pose-check, not here.
+//
+// It was here, comparing the frame with a fresh fighter against the frame with
+// a spent one, and every version of that check passed with the whole feature
+// commented out. Three reasons, all worth knowing before trying again:
+// comparing PNG bytes says 99% for a one-pixel change; comparing pixels is
+// swamped by half-a-pixel jitter on the edges; and the scene brightens as it
+// runs — six identical passes measured 97.9, 97.9, 98.3, 99.1, 100.5, 101.5 —
+// so any two readings taken at different times differ by more than the thing
+// being measured, and a palindrome only cancels the linear part of it.
+//
+// What is exactly measurable is what fatigue does to the skeleton, and that is
+// measured where skeletons are measured.
+
 console.log(fail ? `\n${fail} check(s) failed` : '\nall checks passed');
 process.exit(fail ? 1 : 0);

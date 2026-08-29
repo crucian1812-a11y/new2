@@ -257,7 +257,9 @@ function frame(now) {
   // Adaptive resolution. The scene is cheap but a five year old phone is
   // cheaper; drop internal resolution before dropping frames.
   state.frameAvg = state.frameAvg * 0.94 + raw * 1000 * 0.06;
-  if (state.frameAvg > 22 && state.quality > 0.62) {
+  // Not while something is measuring: a resolution change moves every pixel in
+  // the frame and would swamp whatever was being compared.
+  if (window.__still != null) { /* held */ } else if (state.frameAvg > 22 && state.quality > 0.62) {
     state.quality = Math.max(0.62, state.quality - 0.06);
     layout();
   } else if (state.frameAvg < 15 && state.quality < 1) {
@@ -339,6 +341,13 @@ function frame(now) {
       0, 1.2
     );
     rig.slack[role] = clamp(1 - f.posture / 100, 0, 1);
+    // Fatigue, its own channel: it starts at nothing and only goes one way,
+    // and unlike effort it is still there when nobody is doing anything.
+    // `__gas` is the measurement override: it lets a check drive fatigue on
+    // its own, with stamina — and therefore effort, and therefore the pose —
+    // held where it is. Without that the only measurable thing is "a tired man
+    // looks different", which was already true before any of this.
+    rig.gas[role] = window.__gas != null ? window.__gas : clamp(1 - f.stamina / 100, 0, 1);
   }
 
   const from = match.prevPosition;
@@ -346,6 +355,11 @@ function frame(now) {
   // Settled in a position, or on the way to one. A settled position is not a
   // still frame any more: it cycles through its own variants, which is where
   // three quarters of the match is spent.
+  // Held still for measurement. Breathing and tremor are what make any two
+  // frames of this game different from each other, so anything that wants to
+  // compare two frames has to stop them first — see the fatigue check in
+  // tools/smoke.mjs.
+  if (window.__still != null) rig.time = window.__still;
   if (from === to && match.blend >= 1) rig.hold(to, dt);
   else rig.apply(from, to, match.blend, dt);
 
@@ -384,7 +398,9 @@ function drawFrame(now) {
   focus[1] = (ha[13] + hb[13]) / 2;
   focus[2] = (ha[14] + hb[14]) / 2;
   const mode = match.state === 'sub' ? 'sub' : POSES[match.position].ground ? 'ground' : 'stand';
-  camera.update(dt, focus, mode, match.intensity);
+  // Held still too, and for the same reason: a camera that is still settling
+  // moves every pixel, which swamps whatever the measurement was about.
+  camera.update(window.__still != null ? 0 : dt, focus, mode, match.intensity);
 
   // Who is in which role, and therefore which skeleton each man is wearing this
   // second. Everything about a fighter — his kimono, his belt, his skin and now
@@ -399,8 +415,10 @@ function drawFrame(now) {
     time: now / 1000,
     focus,
     fighters: [
-      { skeleton: rig.skel.A, gpu: body(ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol, flash: fa.flash },
-      { skeleton: rig.skel.B, gpu: body(ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol, flash: fb.flash },
+      { skeleton: rig.skel.A, gpu: body(ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol,
+        flash: fa.flash, gas: window.__gas != null ? window.__gas : clamp(1 - fa.stamina / 100, 0, 1) },
+      { skeleton: rig.skel.B, gpu: body(ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol,
+        flash: fb.flash, gas: window.__gas != null ? window.__gas : clamp(1 - fb.stamina / 100, 0, 1) },
     ],
   });
   hud.draw(match, input, 1 / 60, { level: LEVEL });
@@ -433,6 +451,10 @@ window.__bjj = {
     rig.effort.A = rig.effort.B = 0.05;
     rig.slack.A = rig.slack.B = 0;
   },
+  // Stop the procedural life at one instant of it.
+  still: (t) => { window.__still = t; },
+  // Drive fatigue directly, with everything else held.
+  gas: (v) => { window.__gas = v; },
   // Hold a transition at one moment of its blend.
   setBlend: (from, to, t) => {
     window.__frozen = true;

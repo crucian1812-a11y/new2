@@ -286,6 +286,7 @@ uniform vec3 u_giCol;
 uniform vec3 u_beltCol;
 uniform vec3 u_skinCol;
 uniform float u_flash;   // hit flash, 0..1
+uniform float u_gas;     // how far out of gas he is, 0..1
 uniform vec4 u_patch[3];      // centre u, half width, centre v, half height
 uniform vec4 u_patchCell[3];
 
@@ -297,8 +298,14 @@ void main() {
   if (m == 0) {
     vec4 t = texture(u_skin, v_uv * 1.6);
     N = applyBump(N, v_world, v_uv * 1.6, t.rgb * 2.0 - 1.0, 0.35);
-    albedo = u_skinCol * t.a;
-    rough = 0.55; spec = 0.45; wrap = 0.55;   // sweat, and a lot of translucency
+    // Sweat, and a lot of translucency. How wet he is is the one thing the
+    // body can say about fatigue that a bar cannot: a fresh man is matte, and
+    // three minutes in he is lit like a wet road. It is also flushed — blood
+    // in the skin, not just water on it — so the albedo warms as it shines.
+    albedo = u_skinCol * t.a * mix(vec3(1.0), vec3(1.06, 0.93, 0.90), u_gas);
+    rough = mix(0.68, 0.30, u_gas);
+    spec = mix(0.26, 0.80, u_gas);
+    wrap = 0.55;
   } else if (m == 7) {
     // An eyeball. The baker stored where on the sphere each vertex sits
     // relative to the way the face looks, so the iris is a cap on the front and
@@ -330,7 +337,7 @@ void main() {
     vec2 F = vec2(v_uv.x * 6.5, v_uv.y * 8.8);
     vec4 t = texture(u_skin, v_uv * 1.1);
     N = applyBump(N, v_world, v_uv * 1.1, t.rgb * 2.0 - 1.0, 0.3);
-    albedo = u_skinCol * t.a;
+    albedo = u_skinCol * t.a * mix(vec3(1.0), vec3(1.08, 0.90, 0.87), u_gas);
 
     float ax = abs(F.x);
     // Features fade out towards the temples, where the surface turns away and a
@@ -368,7 +375,7 @@ void main() {
     float lipLit = 1.0 - smoothstep(0.6, 1.0, length(vec2(F.x / 1.7, (F.y - 1.95) / 0.3)));
     albedo *= 1.0 + lipLit * 0.10 * on;
 
-    rough = 0.55; spec = 0.42; wrap = 0.55;
+    rough = mix(0.66, 0.28, u_gas); spec = mix(0.24, 0.78, u_gas); wrap = 0.55;
   } else if (m == 5 || m == 8) {
     // Hair, and the eyelashes and brows that came as their own thin sheets.
     // A dark shell with a sharp sheen along it — the specular is what makes it
@@ -388,6 +395,30 @@ void main() {
 
     vec3 base = m == 3 ? u_beltCol : u_giCol;
     if (m == 2) base *= 0.97;                  // trousers, very slightly duller
+    float wetGi = 0.0;
+
+    // Sweat, on the gi and not on the skin.
+    //
+    // The skin was the obvious place to put it and it is the wrong one: these
+    // two are dressed, and from the game's camera the only skin in frame is a
+    // face and two hands. Measured against its own control, a wet-skin pass
+    // changed the picture no more than the renderer's own noise did. A gi does
+    // not have that problem — it soaks, it goes from white to grey, and it
+    // does it where a man sweats: down the spine, across the shoulders, and
+    // under the arms.
+    //
+    // The UV here is the body's own cylindrical map: u runs round the body
+    // with the back at about -1.88, v runs up it at eight units to the metre.
+    if (m != 3) {
+      float back = 1.0 - smoothstep(0.25, 1.15, abs(abs(v_uv.x) - 1.88));
+      float pit = smoothstep(0.35, 1.0, abs(v_uv.x)) * (1.0 - smoothstep(1.0, 1.7, abs(v_uv.x)));
+      float up = smoothstep(6.6, 8.4, v_uv.y) * (1.0 - smoothstep(10.6, 11.6, v_uv.y));
+      float wet = clamp(back * 0.85 + pit * 0.5, 0.0, 1.0) * up * u_gas;
+      // A soaked gi is darker and shinier, and it stops being white long
+      // before it stops being a gi.
+      base *= 1.0 - wet * 0.42;
+      wetGi = wet;
+    }
     // The collar is a doubled and quilted strip and it reads darker than the
     // jacket, not lighter. Painted brighter it vanished into the chest, and the
     // V is most of what says gi rather than pyjamas at any distance.
@@ -412,7 +443,9 @@ void main() {
     // Light does not reach the bottom of a crease. This is the half of a fold
     // that survives at distance, after the normal has stopped being resolvable.
     albedo *= 1.0 - max(0.0, -fold) * 0.055;
-    rough = m == 3 ? 0.74 : 0.88; spec = m == 3 ? 0.14 : 0.12; wrap = 0.32;
+    rough = mix(m == 3 ? 0.74 : 0.88, 0.36, wetGi);
+    spec = mix(m == 3 ? 0.14 : 0.12, 0.46, wetGi);
+    wrap = 0.32;
   }
 
   // Ground proximity. Grappling happens with bodies pressed into the mat, so
@@ -978,6 +1011,7 @@ export class Renderer {
       gl.uniform3fv(this.progSkin.u.u_beltCol, f.beltCol);
       gl.uniform3fv(this.progSkin.u.u_skinCol, f.skinCol);
       gl.uniform1f(this.progSkin.u.u_flash, f.flash || 0);
+      gl.uniform1f(this.progSkin.u.u_gas, f.gas || 0);
       for (const part of f.gpu.parts) {
         gl.bindVertexArray(part.main);
         gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
