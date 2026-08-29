@@ -203,6 +203,90 @@ console.log(
   'with effort and posture held'
 );
 
+/* --------------------------------------------------------- does he walk? */
+
+// Standing, the pair drifts around the mat at over a metre a second, and until
+// now the feet went with it: the whole fighter was translated, so a foot on the
+// ground travelled at exactly the speed of the man. The footstep sound has been
+// playing over that for two rounds of work — every forty centimetres, over a
+// step that never happened.
+//
+// What a planted foot does is stay where it is. This walks the pair sideways
+// for four seconds and watches the feet: how fast the slower one is moving at
+// each instant (that is the one taking the weight) and how much of the time
+// each foot is within a centimetre of where it was.
+{
+  const SPEED = 1.35;          // what match.js's _drift does when standing
+  const STEP = 1 / 60;
+  const prev = {};
+  const speeds = [];
+  let still = 0, frames = 0;
+  rig.effort.A = rig.effort.B = 0.15;
+  rig.slack.A = rig.slack.B = 0;
+  rig.time = 0;
+  rig.origin[0] = 0; rig.origin[2] = 0;
+  rig.heldId = null;
+  for (let i = 0; i < 240; i++) {
+    rig.origin[0] += SPEED * STEP;
+    rig.hold('STANDING', STEP);
+    const now = {};
+    for (const b of ['footL', 'footR']) {
+      const m = rig.skel.A.world[BONE_INDEX[b]];
+      now[b] = [m[12], m[13], m[14]];
+    }
+    if (i > 30) {
+      const v = ['footL', 'footR'].map((b) =>
+        Math.hypot(now[b][0] - prev[b][0], now[b][2] - prev[b][2]) / STEP);
+      speeds.push(Math.min(v[0], v[1]));
+      frames += 2;
+      for (const s2 of v) if (s2 < 0.15) still++;
+    }
+    Object.assign(prev, now);
+  }
+  speeds.sort((a, b) => a - b);
+  const median = speeds[speeds.length >> 1];
+  const planted = still / frames;
+  const ok = median < 0.15 && planted > 0.35;
+  if (!ok) problems++;
+  console.log(`${ok ? ' ' : '!'} standing, the supporting foot moves ` +
+    `${median.toFixed(2)} m/s and a foot is planted ${(planted * 100).toFixed(0)}% of the time ` +
+    `(the pair travels at ${SPEED})`);
+}
+
+// And the third man, who crosses the mat more than either of them.
+{
+  const { Referee } = await import('../src/game/referee.js');
+  const ref = new Referee();
+  const STEP = 1 / 60;
+  const origin = [0, 0, 0];
+  const prev = {};
+  const speeds = [];
+  let still = 0, frames = 0;
+  for (let i = 0; i < 300; i++) {
+    origin[0] += 0.9 * STEP;
+    ref.update(STEP, 'live', false, origin, 0.7);
+    const now = {};
+    for (const b of ['footL', 'footR']) {
+      const m = ref.skel.world[BONE_INDEX[b]];
+      now[b] = [m[12], m[13], m[14]];
+    }
+    if (i > 60) {
+      const v = ['footL', 'footR'].map((b) =>
+        Math.hypot(now[b][0] - prev[b][0], now[b][2] - prev[b][2]) / STEP);
+      speeds.push(Math.min(v[0], v[1]));
+      frames += 2;
+      for (const s2 of v) if (s2 < 0.15) still++;
+    }
+    Object.assign(prev, now);
+  }
+  speeds.sort((a, b) => a - b);
+  const median = speeds[speeds.length >> 1];
+  const ok = median < 0.15 && still / frames > 0.35;
+  if (!ok) problems++;
+  console.log(`${ok ? ' ' : '!'} the referee walks too: supporting foot ${median.toFixed(2)} m/s, ` +
+    `planted ${((still / frames) * 100).toFixed(0)}% of the time`);
+}
+
 /* ------------------------------------------------------- does the hold loop? */
 
 // A held position is most of a match, and what the rig does with it is a cycle:

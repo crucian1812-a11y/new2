@@ -20,8 +20,8 @@
 // measures where his feet land, and both of the first two numbers were wrong —
 // four centimetres through the mat standing, thirteen above it crouching.
 
-import { Skeleton, poseToQuats, blendQuats, BONE_COUNT } from '../render/skeleton.js';
-import { quat, qEuler } from '../core/m4.js';
+import { Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT } from '../render/skeleton.js';
+import { quat, qEuler, v3, v3set } from '../core/m4.js';
 
 // Where he stands: this far from the middle of the fight, and this far round
 // from the camera's own bearing. Round from the camera and not from the pair,
@@ -102,6 +102,43 @@ export class Referee {
     this.yaw = 0;
     this.placed = false;
     this._q = Array.from({ length: BONE_COUNT }, () => quat());
+    // He walks, for the same reason the fighters do: a man crossing a mat with
+    // his soles glued to it is the most visible wrong thing in a frame. Same
+    // planner as rig.js's, smaller: he never moves faster than a stroll.
+    this.feet = [0, 1].map(() => ({ at: v3(0, 0, 0), from: v3(0, 0, 0), to: v3(0, 0, 0), t: 1, set: false }));
+    this._tmp = v3(0, 0, 0);
+  }
+
+  // The same step planner as the pair rig's, with the numbers a walk needs
+  // rather than a scramble: he only ever repositions, and a foot that is not
+  // moving stays where it was put.
+  _step(dt, vx, vz) {
+    const STRIDE = 0.26, SWING = 0.28, LIFT = 0.06, LEAD = 1.4;
+    const busy = this.feet.some((f) => f.t < 1);
+    const names = [['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR']];
+    for (let i = 0; i < 2; i++) {
+      const f = this.feet[i];
+      const [th, sh, ft] = names[i];
+      this.skel.boneHead(this._tmp, ft);
+      const px = this._tmp[0], py = this._tmp[1], pz = this._tmp[2];
+      if (!f.set) { v3set(f.at, px, py, pz); f.set = true; f.t = 1; continue; }
+      if (f.t < 1) {
+        f.t = Math.min(1, f.t + dt / SWING);
+        const u = f.t, s = u * u * (3 - 2 * u);
+        f.at[0] = f.from[0] + (f.to[0] - f.from[0]) * s;
+        f.at[2] = f.from[2] + (f.to[2] - f.from[2]) * s;
+        f.at[1] = py + Math.sin(Math.PI * u) * LIFT;
+      } else {
+        const drag = Math.hypot(px - f.at[0], pz - f.at[2]);
+        if (drag > STRIDE && !busy) {
+          v3set(f.from, f.at[0], f.at[1], f.at[2]);
+          v3set(f.to, px + vx * SWING * LEAD, py, pz + vz * SWING * LEAD);
+          f.t = 0;
+        }
+        f.at[1] = py;
+      }
+      solveTwoBone(this.skel, th, sh, ft, f.at, null, 1);
+    }
   }
 
   // A gesture that outranks whatever he would be doing otherwise, for a while.
@@ -130,6 +167,8 @@ export class Referee {
       this.x += dx * k;
       this.z += dz * k;
     }
+    const lastX = this.x - dx * (d > 0.32 ? Math.min(1, (STEP * dt) / d) : 0);
+    const lastZ = this.z - dz * (d > 0.32 ? Math.min(1, (STEP * dt) / d) : 0);
     const want = Math.atan2(origin[0] - this.x, origin[2] - this.z);
     let turn = ((want - this.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     this.yaw += turn * Math.min(1, dt * 4);
@@ -160,6 +199,7 @@ export class Referee {
     this.skel.rootPos[2] = this.z;
     qEuler(this.skel.rootRot, 0, (this.yaw * 180) / Math.PI, 0);
     this.skel.pose();
+    this._step(dt, (this.x - lastX) / Math.max(dt, 1e-4), (this.z - lastZ) / Math.max(dt, 1e-4));
     this.skel.finishSkin();
   }
 }

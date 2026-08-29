@@ -60,7 +60,7 @@ import { GRIP_POINTS } from '../render/body.js';
 import {
   Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone,
 } from '../render/skeleton.js';
-import { quat, qEuler, qMul, qSlerp, v3, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
+import { quat, qEuler, qMul, qSlerp, v3, v3set, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
 
 const _t = v3();
 const _t2 = v3();
@@ -113,6 +113,19 @@ export class PairRig {
     this.skel = { A: new Skeleton(), B: new Skeleton() };
     // Where on the mat the exchange is happening, and which way it faces.
     this.origin = v3(0, 0, 0);
+    // Where each foot is standing, and whether it is in the air on its way to
+    // somewhere else. See _step: this is what makes walking a walk.
+    // How fast the pair is crossing the mat, smoothed. The step planner needs
+    // it to know where to put a foot down: a step lands where the body is
+    // going, not where it has been.
+    this.vel = v3(0, 0, 0);
+    this._lastOrigin = v3(0, 0, 0);
+    this.feet = {
+      A: [{ at: v3(0, 0, 0), from: v3(0, 0, 0), to: v3(0, 0, 0), t: 1, set: false },
+          { at: v3(0, 0, 0), from: v3(0, 0, 0), to: v3(0, 0, 0), t: 1, set: false }],
+      B: [{ at: v3(0, 0, 0), from: v3(0, 0, 0), to: v3(0, 0, 0), t: 1, set: false },
+          { at: v3(0, 0, 0), from: v3(0, 0, 0), to: v3(0, 0, 0), t: 1, set: false }],
+    };
     this.yaw = 0;
     this.time = 0;
     // Extra per-role motion the sim asks for: struggle amplitude and a droop
@@ -195,6 +208,13 @@ export class PairRig {
 
   apply(from, to, t, dt) {
     this.time += dt;
+    if (dt > 1e-5) {
+      const k = Math.min(1, dt * 8);
+      this.vel[0] += ((this.origin[0] - this._lastOrigin[0]) / dt - this.vel[0]) * k;
+      this.vel[2] += ((this.origin[2] - this._lastOrigin[2]) / dt - this.vel[2]) * k;
+      this._lastOrigin[0] = this.origin[0];
+      this._lastOrigin[2] = this.origin[2];
+    }
     const e = smooth(clamp(t, 0, 1));
 
     // Mid-transition, give the two of them room.
@@ -401,6 +421,7 @@ export class PairRig {
       this._life(role, sk, from, to, e);
       sk.pose();
       this._ground(sk);
+      this._step(role, sk, dt, !POSES[to].ground && !POSES[from].ground);
     }
 
     // Grips are resolved after both skeletons are posed, because a grip on the
@@ -441,6 +462,82 @@ export class PairRig {
         _t[1] = FLOOR + 0.042;
         solveTwoBone(sk, th, sh, ft, _t, null, 1);
       }
+    }
+  }
+
+  // A step, instead of a slide.
+  //
+  // Standing, the sim walks the pair around the mat at over a metre a second by
+  // moving the frame both fighters hang off. Every bone goes with it, including
+  // the feet, so a man crossing the mat did it with his soles glued to it —
+  // measured at 1.35 m/s under a foot that was supposed to be planted, with the
+  // footstep sound playing over a step that never happened.
+  //
+  // So the feet get to disagree with the pose. Each one remembers where on the
+  // mat it is standing and is solved back to that spot by the same two-bone IK
+  // that puts knees on the ground. When the pose has dragged it more than a
+  // stride away, it swings: a fixed time, an arc up and over, and it plants
+  // again ahead of where the body is going. Only one foot travels at a time,
+  // which is what stops this becoming a hop.
+  //
+  // It is deliberately not a gait: nothing here knows about walk cycles or
+  // contact timing. It is the smallest thing that makes a moving fighter look
+  // like he is carrying his own weight.
+  _step(role, sk, dt, standing) {
+    const feet = this.feet[role];
+    const names = [['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR']];
+    if (!standing) {
+      // On the ground the pose owns the feet completely.
+      feet[0].set = feet[1].set = false;
+      return;
+    }
+    // Sized against the speed the sim actually walks at. The pair covers 1.35
+    // metres a second, so a foot that only made up half its drag never caught
+    // up: both feet were in the air more often than not and the measured
+    // supporting-foot speed stayed at 0.22 m/s. A step has to land ahead of the
+    // body, not where the body was.
+    const STRIDE = 0.30;     // how far a foot may be dragged before it moves
+    const SWING = 0.22;      // seconds in the air
+    const LIFT = 0.075;      // how high it comes up on the way
+    const LEAD = 1.6;        // how far past the landing point it reaches
+    const busy = feet.some((f) => f.t < 1);
+    for (let i = 0; i < 2; i++) {
+      const f = feet[i];
+      const [th, sh, ft] = names[i];
+      sk.boneHead(_t, ft);
+      const px = _t[0], py = _t[1], pz = _t[2];
+      if (!f.set) {
+        v3set(f.at, px, py, pz);
+        f.set = true;
+        f.t = 1;
+        continue;
+      }
+      if (f.t < 1) {
+        f.t = Math.min(1, f.t + dt / SWING);
+        const u = f.t;
+        const s2 = u * u * (3 - 2 * u);
+        f.at[0] = f.from[0] + (f.to[0] - f.from[0]) * s2;
+        f.at[2] = f.from[2] + (f.to[2] - f.from[2]) * s2;
+        f.at[1] = py + Math.sin(Math.PI * u) * LIFT;
+      } else {
+        const drag = Math.hypot(px - f.at[0], pz - f.at[2]);
+        if (drag > STRIDE && !busy) {
+          v3set(f.from, f.at[0], f.at[1], f.at[2]);
+          // Where the body will be when this foot lands, plus a little: the
+          // target is decided once, at the start of the swing. Recomputing it
+          // every frame from a foot that is being dragged along by the body
+          // makes it run away — measured at 2.9 m/s under a foot that was
+          // supposed to be planted, which is twice the speed of the man.
+          v3set(f.to,
+            px + this.vel[0] * SWING * LEAD, py,
+            pz + this.vel[2] * SWING * LEAD);
+          f.t = 0;
+        }
+        // A planted foot keeps its place on the mat but takes its height from
+        // the pose, so crouching still lowers it onto the tatami.
+        f.at[1] = py;
+      }
+      solveTwoBone(sk, th, sh, ft, f.at, null, 1);
     }
   }
 
