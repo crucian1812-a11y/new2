@@ -262,4 +262,12 @@ export const SUB_KIND = {
 // behave.
 export const SUB_TIMEOUT = 18;
 
+// How much of the attacker's work a fully stripped grip has taken away.
+//
+// `strip` used to be a threshold and nothing else: seven good escapes broke the
+// submission, and until then the choke was exactly as strong as it had been.
+// That is a cliff, and it sat where the typical fight lands — see the note in
+// match.js. Its height is measured, not chosen: the sweep is in the same note.
+export const GRIP_LOSS = 0.45;
+
 export const POINTS_TO_HOLD = 3.0; // seconds a position must be held to score

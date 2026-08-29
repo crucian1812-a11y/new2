@@ -13,7 +13,7 @@
 // worth.
 
 import { POSES } from './poses.js';
-import { optionsFor, TRANSITIONS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT } from './positions.js';
+import { optionsFor, TRANSITIONS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT, GRIP_LOSS } from './positions.js';
 import { clamp, lerp } from '../core/m4.js';
 
 export const MATCH_TIME = 300;
@@ -62,6 +62,7 @@ export class Match {
     this.hold = null; // pending points
     this.events = [];
     this.winner = null;
+    this.subLog = [];
     this.winBy = null;
     this.origin = [0, 0, 0];
     this.yaw = 0;
@@ -343,6 +344,12 @@ export class Match {
       age: 0,
       from: tr.from,
       lastTap: 0,
+      // A ledger, so the race can be taken apart afterwards instead of argued
+      // about. Eight numbers per submission, and they answer the one question
+      // the finish rate cannot: did the attacker finish this, or did it finish
+      // itself while he held on?
+      run: 0,
+      led: { creep: 0, taps: 0, escapes: 0, misses: 0, nTight: 0, nSlip: 0, nEsc: 0, nMiss: 0 },
     };
     this.hold = null;
     this.emit(`${this.f[by].name}: ${tr.name}!`, 'sub');
@@ -388,7 +395,10 @@ export class Match {
         // earns a fraction each time; waiting for the moment earns all of it.
         const wound = Math.min(1, s.sinceEscape / 0.9);
         s.sinceEscape = 0;
-        s.meter = clamp(s.meter - 0.145 * wound * left * (1 - 0.55 * s.meter), 0, 1.2);
+        const off = 0.145 * wound * left * (1 - 0.55 * s.meter);
+        s.led.escapes += Math.min(off, s.meter);
+        s.led.nEsc++;
+        s.meter = clamp(s.meter - off, 0, 1.2);
         // And the grip itself comes apart. Knocking the meter down is not how
         // anybody actually gets out of a choke — the arm is stripped, one hand
         // fight at a time — and without that the only exits were driving the
@@ -418,6 +428,8 @@ export class Match {
       // matches ended in a tap.
       this.f[i].stamina = clamp(this.f[i].stamina - 4, 0, 100);
       s.sinceEscape = 0;
+      s.led.misses += 0.008;
+      s.led.nMiss++;
       s.meter = clamp(s.meter + 0.008, 0, 1.2);
       return 'escape-miss';
     }
@@ -432,16 +444,75 @@ export class Match {
     const inWindow = s.phase > 0.64 && s.phase < 0.86;
     const me = this.f[i];
     if (inWindow) {
-      const w = 0.040 + me.strength * s.spec.strengthWeight * 0.09;
+      const grip = 1 - GRIP_LOSS * Math.min(1, s.strip / 7);
+      // Pressure is continuous or it is nothing.
+      //
+      // A single squeeze was worth the same whether it followed nine others or
+      // followed a miss, and that is the reason the attack would not scale with
+      // the belt: hitting the beat half the time got a white belt half of a
+      // black belt's meter, and half was plenty. It should get him much less
+      // than half, because a choke let off between cranks is a choke the other
+      // man breathes in. Six on the trot is a finish; alternating never builds.
+      //
+      // Broken by his own mistiming and nothing else. Resetting it on the
+      // defender's escape as well sounds right and empties the idea: a good
+      // defender escapes about once a second and the attacker cranks about
+      // twice, so nobody ever reached three in a row and the bonus may as well
+      // not have existed. This is a measure of the attacker's rhythm, and only
+      // he can break it.
+      s.run++;
+      // Half again at six on the trot, and the height is measured. At 0.8 the
+      // black belt's attack outran his opponent's defence and he finished 97%
+      // of his matches — further from the target than before the rhythm
+      // existed; at 0.3 he finished 63% and the clock inside a lock went back
+      // up at every belt, because submissions that cannot close are submissions
+      // that sit there. At 0.5 the black belt comes in under both targets at
+      // once, which nothing in this game had managed before.
+      const rhythm = 1 + Math.min(1, s.run / 6) * 0.5;
+      const w = (0.040 + me.strength * s.spec.strengthWeight * 0.09) * grip * rhythm;
+      s.led.taps += w;
+      s.led.nTight++;
       s.meter = clamp(s.meter + w, 0, 1.2);
       me.stamina = clamp(me.stamina - 2.5, 0, 100);
       s.phase = 0;
       return 'tight';
     }
     me.stamina = clamp(me.stamina - 5, 0, 100);
+    s.led.taps -= Math.min(0.012, s.meter);
+    s.led.nSlip++;
     s.meter = clamp(s.meter - 0.012, 0, 1.2);
+    // And it costs him the grip.
+    //
+    // This is where the attacker's timing finally weighs as much as the
+    // defender's reading. A white belt hits the window about half as often as a
+    // black belt and used to land nearly as many squeezes anyway, because a
+    // miss cost him a hundredth of the meter and nothing else — the attack
+    // barely scaled with the belt while the defence scaled with it hard, and
+    // the finish rate came out the same at both ends. Cranking at the wrong
+    // moment is how a choke is lost in the first place, so a slip loosens it
+    // exactly as a defender's escape does, and the loosening feeds back through
+    // GRIP_LOSS into everything he does next.
+    //
+    // Not tried and rejected: leaving the beat running through a miss. It
+    // rewards mashing instead of punishing it — the AI simply presses again a
+    // tenth of a second later and walks its way into the window, and the white
+    // belt's finish rate went *up*.
+    s.strip += 0.35;
+    s.run = 0;
     s.phase = 0;
     return 'slip';
+  }
+
+  // Every submission that started, and how it went, in the order they
+  // happened. Nothing in the game reads it; `tools/sim-check.mjs` does, and it
+  // is the difference between "87% of matches end in a tap" — which says a
+  // number is wrong — and knowing which term in the race is wrong.
+  _logSub(how) {
+    const s = this.sub;
+    if (!s) return;
+    this.subLog.push({
+      how, kind: s.kind, from: s.from, seconds: s.age, meter: s.meter, strip: s.strip, ...s.led,
+    });
   }
 
   _subUpdate(dt) {
@@ -469,6 +540,18 @@ export class Match {
     // defender who reads the escape well — which is what a high belt is — it
     // could never close. Depth now feeds itself, which is both what the comment
     // promised and what makes a good attacker finish.
+    // How much of the grip he still has.
+    //
+    // `strip` was only ever a threshold: seven good escapes and the submission
+    // broke, and until then it changed nothing at all. That put a cliff exactly
+    // where the typical fight lands — a white belt gets eight escapes off in a
+    // ten second choke and a black belt eleven, so one side of the cliff
+    // finished 98% of its submissions and the other 34%, on a difference of
+    // three escapes. A choke with one hand stripped off it is not the same
+    // choke, and saying so turns the cliff into a slope: every escape that
+    // lands takes something off the attacker's work, right away, instead of
+    // paying out only at the seventh.
+    const grip = 1 - GRIP_LOSS * Math.min(1, s.strip / 7);
     const deep = 1 + 0.9 * s.meter;
     // Small on purpose. Measured against the rest of the race, the passive
     // creep used to be worth as much per second as everything the attacker did
@@ -476,15 +559,17 @@ export class Match {
     // applied it, and a white belt's sloppy choke was as good as a black
     // belt's. It decides fights that are already going one way; it does not
     // fight them.
-    const creep = deep * s.spec.rate * 0.17
+    const creep = deep * grip * s.spec.rate * 0.17
       * (0.7 + att.strength * s.spec.strengthWeight)
       * (0.75 + (1 - def.stamina / 100) * 0.7);
+    s.led.creep += creep * dt;
     s.meter = clamp(s.meter + creep * dt, 0, 1.2);
     def.stamina = clamp(def.stamina - dt * 3.2, 0, 100);
     att.stamina = clamp(att.stamina - dt * 2.2, 0, 100);
     def.posture = clamp(def.posture - dt * 8, 0, 100);
 
     if (s.meter >= s.spec.tapAt) {
+      this._logSub('tap');
       this._finish(s.attacker, 'submission');
       return;
     }
@@ -505,6 +590,7 @@ export class Match {
       // which one that is. A submission that merely timed out leaves things
       // where they were.
       const stripped = s.strip >= 7;
+      this._logSub(stripped ? 'stripped' : s.lowT > 1.2 ? 'emptied' : 'timeout');
       const out = stripped
         ? TRANSITIONS.find((t) => t.from === s.from && t.role === 'bottom' && t.becomes === 'bottom')
         : null;

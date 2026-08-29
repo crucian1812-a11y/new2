@@ -105,6 +105,7 @@ function key(t) { return `${t.from}>${t.role}>${t.dir}>${t.to}`; }
 // by a third between runs.
 function shape(level, n = 90) {
   const time = new Map();
+  const log = [];
   let total = 0, inSub = 0, length = 0, subs = 0;
   for (let i = 0; i < n; i++) {
     const m = new Match([new Fighter('A'), new Fighter('B')], { time: MATCH_TIME });
@@ -124,6 +125,7 @@ function shape(level, n = 90) {
     }
     length += steps * DT;
     if (m.winBy === 'submission') subs++;
+    log.push(...m.subLog);
   }
   const ranked = [...time].sort((a, b) => b[1] - a[1]);
   return {
@@ -134,6 +136,7 @@ function shape(level, n = 90) {
     length: length / n,
     subs: subs / n,
     spread: ranked.filter(([, t]) => t / total > 0.05).length,
+    log, n,
   };
 }
 
@@ -142,6 +145,33 @@ for (const s of shapes) {
   console.log(`     ${s.level.padEnd(7)} ${(s.length).toFixed(0).padStart(3)}s  ` +
     `subs ${(s.subs * 100).toFixed(0).padStart(3)}%  in a lock ${(s.inSub * 100).toFixed(0).padStart(3)}%  ` +
     `busiest ${s.top[0]} ${(s.share * 100).toFixed(0)}%  positions over 5%: ${s.spread}`);
+}
+
+// What the finish rate cannot say.
+//
+// "Every match ends in a tap" names a symptom shared by three different
+// diseases: too many submissions started, each one too likely to finish, or
+// each one finishing itself while the attacker holds on. The ledger the match
+// keeps separates them — where the meter came from, and how each attempt ended.
+console.log('\n     submissions started, and how they went:');
+console.log('     belt     per match  ended: tap strip  time  empty   secs   meter from: creep  taps  escapes');
+for (const s of shapes) {
+  const L = s.log;
+  if (!L.length) continue;
+  const pct = (how) => ((L.filter((r) => r.how === how).length / L.length) * 100).toFixed(0).padStart(4);
+  const mean = (f) => L.reduce((t, r) => t + f(r), 0) / L.length;
+  // Shares of the meter's whole journey, not of its final value: an escape that
+  // takes half of it off is work done even though the choke finished anyway.
+  const creep = mean((r) => r.creep), taps = mean((r) => r.taps), esc = mean((r) => r.escapes);
+  const moved = creep + Math.max(0, taps) + esc || 1;
+  console.log(
+    `     ${s.level.padEnd(8)}${(L.length / s.n).toFixed(1).padStart(8)}` +
+    `      ${pct('tap')}%${pct('stripped')}%${pct('timeout')}%${pct('emptied')}%` +
+    `${mean((r) => r.seconds).toFixed(1).padStart(7)}` +
+    `${((creep / moved) * 100).toFixed(0).padStart(15)}%${((Math.max(0, taps) / moved) * 100).toFixed(0).padStart(6)}%` +
+    `${((esc / moved) * 100).toFixed(0).padStart(9)}%` +
+    `   (${mean((r) => r.nTight).toFixed(1)} tight, ${mean((r) => r.nEsc).toFixed(1)} escapes)`
+  );
 }
 
 // Two tiers, the way blend-check reports transitions: a hard line for the
