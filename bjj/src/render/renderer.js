@@ -468,8 +468,20 @@ void main() {
     // read as hair rather than as a helmet.
     vec4 t = texture(u_skin, v_uv * 3.0);
     N = applyBump(N, v_world, v_uv * 3.0, t.rgb * 2.0 - 1.0, 0.6);
-    albedo = vec3(0.035, 0.028, 0.026) * (0.7 + t.a * 0.6);
-    rough = 0.34; spec = 0.5; wrap = 0.2;
+    // Strands, not a shell.
+    //
+    // One dark surface with a round highlight on it is a motorcycle helmet,
+    // which is what this was. Hair is thousands of fibres lying roughly the
+    // same way, and two things follow: the highlight is a band across the
+    // fibres rather than a spot, and there is always some variation along
+    // them. The bands come from the same UV the bump uses, tightened so they
+    // read at head scale, and the roots stay dark — light does not get down
+    // there.
+    float strand = sin(v_uv.x * 190.0 + t.a * 6.0) * 0.5 + 0.5;
+    float sheen = pow(strand, 3.0);
+    float root = smoothstep(0.0, 0.35, t.a);
+    albedo = vec3(0.035, 0.028, 0.026) * (0.55 + t.a * 0.55 + strand * 0.25) * (0.55 + 0.45 * root);
+    rough = mix(0.52, 0.24, sheen); spec = 0.22 + 0.5 * sheen; wrap = 0.2;
   } else {
     vec4 t = texture(u_cloth, v_uv);
     N = applyBump(N, v_world, v_uv, t.rgb * 2.0 - 1.0, 0.9);

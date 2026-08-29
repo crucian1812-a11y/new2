@@ -55,6 +55,10 @@ const LIMIT = 0.11;
 const FAIL = 0.22;
 
 const rig = new PairRig();
+// Measuring the path, not a performance of it: the step planner and the
+// inertia both depend on the frame before, and stepping a transition in
+// forty-one jumps is not a frame before anything.
+rig.live = false;
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
 
@@ -84,7 +88,7 @@ for (const tr of BLENDS) {
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
     rig.time = 0;
-    rig.apply(tr.from, tr.to, t, 0.016);
+    rig.applyAt(tr.from, tr.to, t, 0.016);
 
     const ov = overlap.measure(rig.skel.A, rig.skel.B);
     if (ov.deepest > worst) { worst = ov.deepest; at = t; where = ov.where; }

@@ -50,6 +50,7 @@ if (!ONLY.length) {
 }
 
 const rig = new PairRig();
+rig.live = false;   // the path, not a performance of it
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
 const TOGETHER = 0.30;
@@ -62,7 +63,7 @@ function walk(from, to) {
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
     rig.time = 0;
-    rig.apply(from, to, i / (STEPS - 1), 0.016);
+    rig.applyAt(from, to, i / (STEPS - 1), 0.016);
     const ov = overlap.measure(rig.skel.A, rig.skel.B);
     if (ov.deepest > worst) worst = ov.deepest;
     let closest = 1e9;
@@ -104,10 +105,11 @@ function measureFresh(key) {
     import { Overlap } from '${join(here, '../src/game/collide.js')}';
     import { JUDGE_STEPS as S } from '${join(here, 'grid.mjs')}';
     const rig = new PairRig(), ov = new Overlap();
+    rig.live = false;
     let worst = 0;
     for (let i = 1; i < S - 1; i++) {
       rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
-      rig.apply('${from}', '${to}', i / (S - 1), 0.016);
+      rig.applyAt('${from}', '${to}', i / (S - 1), 0.016);
       const d = ov.measure(rig.skel.A, rig.skel.B).deepest;
       if (d > worst) worst = d;
     }

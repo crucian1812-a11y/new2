@@ -36,7 +36,7 @@ for (const id of Object.keys(POSES)) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
   rig.time = 0;
-  rig.apply(id, id, 1, 0.016);
+  rig.applyAt(id, id, 1, 0.016);
 
   const info = { id, notes: [] };
   const pos = {};
@@ -176,7 +176,7 @@ const gasMove = (() => {
     rig.gas.A = rig.gas.B = gas;
     rig.time = T;
     rig.invalidate('MOUNT');
-    rig.apply('MOUNT', 'MOUNT', 1, 0.016);
+    rig.applyAt('MOUNT', 'MOUNT', 1, 0.016);
     return READ.concat(['clavL', 'clavR', 'armL', 'armR', 'neck'])
       .map((b) => { const m = rig.skel.A.world[BONE_INDEX[b]]; return [m[12], m[13], m[14]]; });
   };
@@ -203,6 +203,99 @@ console.log(
   'with effort and posture held'
 );
 
+/* --------------------------------------------- what the live layers cost */
+
+// The step planner and the inertia depend on the frame before, so every tool
+// that measures geometry switches them off — otherwise the number depends on
+// how the tool happened to step. That leaves a gap between what is judged and
+// what is played, and a gap nobody measures is a gap that grows.
+//
+// So: hold each of the busy positions for six seconds, with the live layers on
+// and off, and compare the deepest moment. The cost is what the player sees
+// that the judge does not.
+{
+  const STEP = 1 / 60;
+  const run = (live) => {
+    rig.live = live;
+    rig.heldId = null;
+    rig.effort.A = rig.effort.B = 0.3;
+    rig.slack.A = rig.slack.B = 0;
+    rig.time = 0;
+    rig.origin[0] = 0; rig.origin[2] = 0;
+    let worst = 0;
+    for (let i = 0; i < 360; i++) {
+      rig.hold(POSE, STEP);
+      const d = overlap.measure(rig.skel.A, rig.skel.B).deepest;
+      if (i > 30 && d > worst) worst = d;
+    }
+    return worst;
+  };
+  let POSE = 'MOUNT';
+  let worstCost = 0;
+  const parts = [];
+  for (const id of ['MOUNT', 'SIDE_CONTROL', 'BACK', 'CLOSED_GUARD', 'HALF_GUARD']) {
+    POSE = id;
+    const off = run(false), on = run(true);
+    worstCost = Math.max(worstCost, on - off);
+    parts.push(`${id} ${(off * 100).toFixed(0)}→${(on * 100).toFixed(0)}`);
+  }
+  rig.live = true;
+  const ok = worstCost < 0.035;
+  if (!ok) problems++;
+  console.log(`${ok ? ' ' : '!'} living costs ${(worstCost * 100).toFixed(1)}cm of depth at worst  (${parts.join(', ')})`);
+}
+
+/* ------------------------------------------------- does a throw have weight? */
+
+// A transition used to be a smoothstep: the same acceleration as deceleration,
+// a symmetric bell. That is the curve of something being carried. A body that
+// throws another body gathers, goes, and arrives, and the arrival is a stop
+// with a drop in it.
+//
+// Measured on the hips of the man who ends up on top: where in the transition
+// his speed peaks, and how far he settles after it ends.
+{
+  const STEP = 1 / 60;
+  const LEN = 0.55;                     // about what the sim gives a big move
+  const shots = [['CLOSED_GUARD', 'MOUNT'], ['SIDE_CONTROL', 'MOUNT'], ['STANDING', 'CLINCH']];
+  let worstPeak = 0;
+  for (const [from, to] of shots) {
+    rig.heldId = null;
+    rig.lag = false;                    // one thing at a time
+    rig.origin[0] = 0; rig.origin[2] = 0;
+    rig.time = 0;
+    rig.live = true;
+    rig.apply(from, to, 0, STEP);
+    const speeds = [];
+    let last = null;
+    const n = Math.round(LEN / STEP);
+    for (let i = 0; i <= n + 24; i++) {
+      const t = Math.min(1, (i * STEP) / LEN);
+      rig.apply(from, to, t, STEP);
+      const m = rig.skel.A.world[BONE_INDEX.hips];
+      const p = [m[12], m[13], m[14]];
+      if (last) speeds.push({ t, v: Math.hypot(p[0] - last[0], p[1] - last[1], p[2] - last[2]) / STEP });
+      last = p;
+    }
+    rig.lag = true;
+    let peak = speeds[0];
+    for (const s2 of speeds) if (s2.v > peak.v) peak = s2;
+    // How long he spends gathering: the stretch at the start where he is
+    // moving at less than a fifth of his fastest.
+    let gather = 0;
+    for (const s2 of speeds) { if (s2.v < peak.v * 0.2) gather = s2.t; else break; }
+    worstPeak = Math.max(worstPeak, peak.t);
+    console.log(`  ${from} → ${to}: gathers for ${(gather * 100).toFixed(0)}%, ` +
+      `fastest at ${(peak.t * 100).toFixed(0)}% of the way`);
+  }
+  // A settle at the end was tried here and taken out: see the note in rig.js.
+  // It cost three centimetres of the other man at the moment the two of them
+  // are closest, and the impact already has a camera impulse behind it.
+  const ok = worstPeak < 0.45;
+  if (!ok) problems++;
+  console.log(`${ok ? ' ' : '!'} a throw gathers and then goes, rather than easing both ways`);
+}
+
 /* ------------------------------------------------------ does anything lag? */
 
 // A skeleton where every bone arrives exactly when the pose says is a
@@ -218,6 +311,10 @@ console.log(
   const STEP = 1 / 60;
   const run = (lag) => {
     rig.lag = lag;
+    // Only the lag is under test: the step planner would otherwise end the two
+    // runs with the feet in different places and leave a difference that never
+    // decays, which reads as a spring that does not settle.
+    rig.walk = false;
     rig.heldId = null;
     rig.origin[0] = 0; rig.origin[2] = 0;
     rig.vel[0] = 0; rig.vel[2] = 0;
@@ -243,16 +340,29 @@ console.log(
   const on = run(true);
   const off = run(false);
   rig.lag = true;
+  rig.walk = true;
   const diff = (i) => Math.max(...['head', 'handL', 'handR'].map((b) =>
     Math.hypot(on[i][b][0] - off[i][b][0], on[i][b][1] - off[i][b][1], on[i][b][2] - off[i][b][2])));
   let moving = 0;
   for (let i = 30; i < 120; i++) moving = Math.max(moving, diff(i));
-  let settled = 0;
-  for (let i = 180; i < 200; i++) settled = Math.max(settled, diff(i));
-  const ok = moving > 0.012 && moving < 0.10 && settled < 0.006;
+  // Whether it settles is asked of the spring itself, not of the skeleton.
+  // The two runs end a few millimetres apart whatever the spring does, because
+  // a hand that starts a frame slightly rotated hands the grip solver a
+  // different elbow — that is hysteresis in the IK, not a wobble in the lag.
+  let left = 0;
+  for (const role of ['A', 'B']) {
+    for (const b in rig.inert[role]) {
+      left = Math.max(left, Math.abs(rig.inert[role][b].rx), Math.abs(rig.inert[role][b].rz));
+    }
+  }
+  // Not zero, because he is never actually still: the hold loop keeps working
+  // the position and a breath is a movement. What matters is that it is a
+  // fraction of a degree rather than the six the spring is allowed, which is
+  // what a spring that does not come back would sit at.
+  const ok = moving > 0.012 && moving < 0.10 && left < 1.5;
   if (!ok) problems++;
   console.log(`${ok ? ' ' : '!'} soft parts lag: ${(moving * 100).toFixed(1)}cm behind the pose while ` +
-    `he is moved about, ${(settled * 100).toFixed(1)}cm once he is still`);
+    `he is moved about, and ${left.toFixed(2)}° left in the springs once he is still`);
 }
 
 /* --------------------------------------------------------- does he walk? */
@@ -437,8 +547,12 @@ console.log(
   // fight has drifted to.
   ref.placed = false;
   ref.update(0.5, 'live', true, [0, 0, 0], 0);
+  // The pair goes back to the middle of the mat: an earlier section walks it
+  // five metres sideways, and a referee measured against a fight that is not
+  // there is measuring the mat.
+  rig.origin[0] = 0; rig.origin[2] = 0;
   rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
-  rig.apply('MOUNT', 'MOUNT', 1, 0.016);
+  rig.applyAt('MOUNT', 'MOUNT', 1, 0.016);
   let near = 9;
   for (const role of ['A', 'B']) {
     const d = overlap.measure(rig.skel[role], ref.skel);

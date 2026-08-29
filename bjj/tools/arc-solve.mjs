@@ -74,6 +74,10 @@ const CULPRITS = +(process.env.ARC_BONES || 6);
 const LOBES = +(process.env.ARC_LOBES || 2);
 
 const rig = new PairRig();
+// Measuring the path, not a performance of it: the step planner and the
+// inertia both depend on the frame before, and stepping a transition in
+// forty-one jumps is not a frame before anything.
+rig.live = false;
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
 
@@ -84,7 +88,7 @@ function measure(from, to) {
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
     rig.time = 0;
-    rig.apply(from, to, t, 0.016);
+    rig.applyAt(from, to, t, 0.016);
 
     for (const p of overlap.all(rig.skel.A, rig.skel.B)) {
       const over = p.pen - ALLOW;
@@ -159,7 +163,7 @@ function culprits(from, to) {
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
     rig.time = 0;
-    rig.apply(from, to, t, 0.016);
+    rig.applyAt(from, to, t, 0.016);
     for (const p of overlap.all(rig.skel.A, rig.skel.B)) {
       if (p.pen < ALLOW) continue;
       // "A.thighR in B.hips" — both ends are candidates, and so is whatever

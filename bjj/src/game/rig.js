@@ -82,7 +82,39 @@ function hash2(a, b) {
 // What lags behind the skeleton, and by how much. A head weighs five kilos and
 // is held on by muscle that is not infinitely stiff; a forearm swings; a hand
 // arrives last. Everything else on this rig is bone against bone and does not.
-const LAG_BONES = [['head', 1.1], ['neck', 0.5], ['foreL', 1.3], ['foreR', 1.3], ['handL', 1.5], ['handR', 1.5]];
+// The smoothstep, undone. s = t*t*(3-2t) has one root in [0,1] and this is it.
+function unsmooth(s) {
+  const c = clamp(1 - 2 * s, -1, 1);
+  return 0.5 - Math.sin(Math.asin(c) / 3);
+}
+
+// The shape of a transition in time.
+//
+// It was a smoothstep: the same acceleration as deceleration, a symmetric bell,
+// which is the curve of something being carried rather than something throwing
+// itself. Everything a body does to move another body has three parts — it
+// gathers, it goes, and it arrives — and the middle one is much faster than a
+// bell.
+//
+// Kept inside [0, 1] on purpose. A wind-up that reads as one would run the
+// blend backwards past the pose it started from, and a slerp extrapolated past
+// its ends is not a pose any more; the gather is a hesitation instead, which
+// costs an eighth of the time and buys the same read.
+function weight(t) {
+  if (t < 0.14) {
+    const u = t / 0.14;
+    return 0.05 * u * u;
+  }
+  const u = (t - 0.14) / 0.86;
+  return 0.05 + 0.95 * (1 - Math.pow(1 - u, 2.3));
+}
+
+// Weighted by what each part costs when it is wrong. A head that lags is free:
+// nothing collides with a head at close range that is not already touching it.
+// Hands are the opposite — they are what grips and what the collision judge
+// spends most of its time on — so they lag least, and that is a compromise
+// with the geometry rather than with the physics.
+const LAG_BONES = [['head', 1.3], ['neck', 0.6], ['foreL', 1.1], ['foreR', 1.1], ['handL', 1.0], ['handR', 1.0]];
 
 const _p1 = v3();
 const _p2 = v3();
@@ -125,8 +157,15 @@ export class PairRig {
     // going, not where it has been.
     this.vel = v3(0, 0, 0);
     this._lastOrigin = v3(0, 0, 0);
-    // What lags. See _inertia: soft parts do not arrive with the skeleton.
+    // The two layers that depend on what happened last frame rather than on
+    // the pose: the step planner and the inertia. A tool stepping along a path
+    // is not moving through time — it jumps a few centimetres per sample and
+    // visits transitions in whatever order it likes — so both are switched off
+    // for measurement, and what is measured is the path itself.
+    this.live = true;
     this.lag = true;
+    this.walk = true;
+
     this.inert = { A: {}, B: {} };
     for (const role of ['A', 'B']) {
       for (const [bone] of LAG_BONES) {
@@ -229,7 +268,40 @@ export class PairRig {
       this._lastOrigin[0] = this.origin[0];
       this._lastOrigin[2] = this.origin[2];
     }
-    const e = smooth(clamp(t, 0, 1));
+    const raw = clamp(t, 0, 1);
+    const inPlaceCurve = from === to || POSES[to].variantOf === from || POSES[from].variantOf === to;
+    // The timing curve, and the only place it lives.
+    //
+    // Everything below this line works in the pose parameter, not the clock:
+    // where the pair is between two poses, not how long it has taken to get
+    // there. That separation is not tidiness, it is a bug that was found by
+    // making it — reshaping the timing moved the samples blend-check takes
+    // along the path, and the work list went from one transition to eleven
+    // without a single pose or correction changing. The path had always had
+    // those moments in it; the judge had been stepping over them.
+    return this.applyAt(from, to, inPlaceCurve ? smooth(raw) : weight(raw), dt, inPlaceCurve);
+  }
+
+  // The same blend, addressed by where it is rather than by when.
+  //
+  // Tools drive this directly and step it uniformly, so what they measure is
+  // the path itself; the game goes through `apply`, which decides the timing.
+  applyAt(from, to, e, dt, inPlaceKnown) {
+    this._dt = dt;
+    const inPlaceCurve = inPlaceKnown !== undefined ? inPlaceKnown
+      : from === to || POSES[to].variantOf === from || POSES[from].variantOf === to;
+
+    // The landing was tried here and taken out again.
+    //
+    // A body that stops after throwing itself somewhere does not stop dead, so
+    // the pelvis of the man who arrives dropped three centimetres and came back
+    // up over a third of a second. It reads well and it costs exactly what it
+    // is worth: three centimetres of somebody else, at the moment the two of
+    // them are closest. The work list went from one transition to seventeen and
+    // two hold loops became too deep to ship. Dropping both men together costs
+    // nothing in geometry and reads as the camera moving rather than as a
+    // landing, and the impact already has a camera impulse behind it (see
+    // onMatchEvent). The timing curve below is where the weight comes from.
 
     // Mid-transition, give the two of them room.
     //
@@ -268,7 +340,17 @@ export class PairRig {
     const plan = inPlace ? null : planFor(from + '>' + to);
     const late = plan ? plan.at === 'late' : false;
     const early = plan ? plan.at === 'early' : false;
-    const bell = from === to ? 0 : Math.sin(clamp(t, 0, 1) * Math.PI);
+    // The arc is a correction to the pose, not to the clock.
+    //
+    // Every arc in arcs.js was solved by sampling the blend at uniform t, when
+    // t and the pose were related by a smoothstep. Reshaping that curve moves
+    // the pose without moving the correction, and the two stop lining up: the
+    // solver's work would be applied a tenth of a second from where it belongs.
+    // Undoing the smoothstep gives the parameter the solver used — the same
+    // pose gets the same correction it was solved with, whatever the timing
+    // curve does.
+    const arcT = unsmooth(e);
+    const bell = from === to ? 0 : Math.sin(arcT * Math.PI);
     // The lobes' weights. Two of them — one leaning early, one late — was
     // enough for everything that has come off the work list; the seven that
     // are left fail at t = 0.42 to 0.85 and want a shape rather than a tilt,
@@ -276,10 +358,10 @@ export class PairRig {
     // either way — Bernstein bumps scaled by L — so a two-lobe arc evaluates
     // exactly as it always did.
     const lobeW = (L, k) => {
-      if (L === 2) return k === 0 ? bell * (1 - t) * 2 : bell * t * 2;
+      if (L === 2) return k === 0 ? bell * (1 - arcT) * 2 : bell * arcT * 2;
       let c = 1;                                     // binomial(L-1, k)
       for (let i = 0; i < k; i++) c = (c * (L - 1 - i)) / (i + 1);
-      return bell * L * c * Math.pow(t, k) * Math.pow(1 - t, L - 1 - k);
+      return bell * L * c * Math.pow(arcT, k) * Math.pow(1 - arcT, L - 1 - k);
     };
     // The blanket nudge apart is for a transition with no solved arc yet. A
     // position moving inside itself gets none of it: prising a held mount apart
@@ -500,7 +582,7 @@ export class PairRig {
   _step(role, sk, dt, standing) {
     const feet = this.feet[role];
     const names = [['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR']];
-    if (!standing) {
+    if (!standing || !this.live || !this.walk) {
       // On the ground the pose owns the feet completely.
       feet[0].set = feet[1].set = false;
       return;
@@ -572,7 +654,7 @@ export class PairRig {
   // a twitch. The response is bounded in degrees because the pose is the
   // intent; this only ever says the body has not caught up with it yet.
   _inertia(role, sk, dt) {
-    if (!this.lag || dt <= 1e-5) return;
+    if (!this.live || !this.lag || dt <= 1e-5) return;
     const st = this.inert[role];
     for (const [bone, k] of LAG_BONES) {
       const m = sk.world[BONE_INDEX[bone]];
@@ -604,8 +686,8 @@ export class PairRig {
       // is five to twenty metres a second squared; a breath is under one.
       const soften = (v) => (v > 1.2 ? v - 1.2 : v < -1.2 ? v + 1.2 : 0);
       const c = Math.min(1, dt * 11);
-      p.rx += (clamp(-soften(az) * k * 0.6, -7, 7) - p.rx) * c;
-      p.rz += (clamp(soften(ax) * k * 0.6, -7, 7) - p.rz) * c;
+      p.rx += (clamp(-soften(az) * k * 0.5, -6, 6) - p.rx) * c;
+      p.rz += (clamp(soften(ax) * k * 0.5, -6, 6) - p.rz) * c;
       if (Math.abs(p.rx) > 0.05 || Math.abs(p.rz) > 0.05) addEuler(sk, bone, p.rx, 0, p.rz);
     }
   }
@@ -692,7 +774,33 @@ export class PairRig {
     // to be releasing would be gripping harder.
     const PASSES = 3;
     for (const g of list) g.pass = 1 - Math.pow(1 - g.w, 1 / PASSES);
+    this.curl = {};
     for (let pass = 0; pass < PASSES; pass++) this._solveGrips(list);
+
+    // And the hands close.
+    //
+    // The whole game is grips, and until now a hand holding a lapel was the
+    // same flat paddle as a hand hanging by a hip: the mesh has a palm and a
+    // thumb, the rig has two bones for it, and neither was ever asked to do
+    // anything. They bend by how much of the grip is on, so a grip fading out
+    // opens the hand as it goes.
+    //
+    // Only the finger bone, and not far. The collider wraps a hand in a
+    // capsule and cannot tell fingers round cloth from a fist through a chest,
+    // so a closing hand reads to it as depth: at thirty-four degrees on both
+    // bones it put eight poses over the line. This is the angle that says
+    // "holding" and costs nothing.
+    for (const role of ['A', 'B']) {
+      const sk = this.skel[role];
+      let any = false;
+      for (const L of [true, false]) {
+        const w = this.curl[role + (L ? 'L' : 'R')] || 0;
+        if (w < 0.05) continue;
+        addEuler(sk, L ? 'handLTip' : 'handRTip', -w * 16, 0, 0);
+        any = true;
+      }
+      if (any) sk.pose();
+    }
   }
 
   _solveGrips(list) {
@@ -741,6 +849,13 @@ export class PairRig {
         L ? 'handL' : 'handR',
         _t2, null, w
       );
+
+      // Remember how closed this hand should be. Applied after the passes, not
+      // inside them: a pose() in the middle of a pass changes the targets the
+      // rest of the pass is solving against, and the whole point of three
+      // passes is that they converge on one another.
+      const key = g.role + (L ? 'L' : 'R');
+      this.curl[key] = Math.max(this.curl[key] || 0, w);
     }
   }
 }
