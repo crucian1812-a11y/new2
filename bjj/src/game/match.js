@@ -60,6 +60,7 @@ export class Match {
     this.sub = null;
     this.cool = [0, 0];
     this.hold = null; // pending points
+    this.posT = 0;    // seconds in the current position, however it was reached
     this.events = [];
     this.winner = null;
     this.subLog = [];
@@ -197,6 +198,7 @@ export class Match {
   update(dt, control) {
     if (this.state === 'ready' || this.state === 'over') return;
     this.time = Math.max(0, this.time - dt);
+    this.posT += dt;
 
     for (let i = 0; i < 2; i++) this.cool[i] = Math.max(0, this.cool[i] - dt);
     for (let i = 0; i < 2; i++) this.gripAdv[i] = Math.max(0, this.gripAdv[i] - dt * 0.16);
@@ -330,6 +332,23 @@ export class Match {
     // worth less than a third of its nominal rate; set up, it is worth more
     // than its nominal rate.
     if (tr.sub) p *= 0.3 + 0.5 * (1 - you.posture / 100) + 0.35 * this.gripAdv[by];
+    // And so is a four-point position, more gently. You take a man's back when
+    // he gives it to you, which is to say when he is already broken; you do
+    // not stand up off a mount and walk round. Without this the gate above
+    // pushed the fight the wrong way — the armbar from mount went cold, the
+    // back take beside it did not, and back control's share of the clock went
+    // up rather than down.
+    else if (tr.big) p *= 0.55 + 0.3 * (1 - you.posture / 100) + 0.25 * this.gripAdv[by];
+    // Nobody holds a man down forever.
+    //
+    // The man underneath is working the whole time he is under there — finding
+    // the frames, feeling where the weight is — and the longer it goes on the
+    // better his chance of getting out. Nothing in the graph said so, and back
+    // control became a place the fight moved into and did not leave: everyone
+    // took it from mount, nobody lost it, and it owned a third of the clock at
+    // three belts out of four. This is the pressure that was missing, and it
+    // only bites when a position drags.
+    if (!this.isDominant(by)) p *= 1 + Math.min(1, this.posT / 25) * 0.6;
     return clamp(p, 0.05, 0.95);
   }
 
@@ -358,6 +377,7 @@ export class Match {
   // pending score change, which is what keeps sweeps from quietly corrupting
   // whose points are whose.
   goTo(tr, by) {
+    this.posT = 0;
     const me = this.f[by];
     const you = this.f[this.other(by)];
     this.prevPosition = this.position;
