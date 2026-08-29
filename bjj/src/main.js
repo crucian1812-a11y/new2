@@ -478,7 +478,7 @@ function drawFrame(now, real) {
   // frozen for a photograph — which is the state half the art tooling runs in.
   // On the real clock, not the nominal one: at four frames a second a
   // sixtieth of a second per frame takes six seconds to stand him up.
-  referee.update(real ?? dt, match.state, POSES[match.position].ground, match.origin, match.yaw);
+  referee.update(real ?? dt, match.state, POSES[match.position].ground, match.origin, camera.orbit);
 
   // Before the bell, the screen belongs to one fighter and the empty mat.
   if (hero && match.state === 'ready') {
@@ -535,7 +535,7 @@ requestAnimationFrame((t) => {
 // Debug hooks used by the tooling in bjj/tools; harmless in production.
 window.__bjj = {
   match: () => match,
-  rig, renderer, camera, POSES,
+  rig, renderer, camera, referee, POSES,
   // Freeze on one paired pose. Used by the art tooling; also the quickest way
   // to check a pose by hand from the console.
   setPose: (id) => {

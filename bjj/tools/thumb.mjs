@@ -187,9 +187,11 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
   // A hard stop, so a thumb that has got itself stuck reports what it has
   // rather than hanging the tool.
   // Generous, because a match second is not a wall second here: dt is capped
-  // at 50 ms and a software renderer misses that cap often, so the clock in a
-  // headless browser runs at about two thirds of real time.
-  const DEADLINE = cfg.matches * (cfg.seconds * 3 + 40) * 1000;
+  // at 50 ms and this browser misses that cap by a mile — a software
+  // rasteriser draws six frames a second, so the match clock runs at about a
+  // fifth of real time, and slower again with something else on the box. The
+  // report prints the rate it actually got.
+  const DEADLINE = cfg.matches * (cfg.seconds * 7 + 40) * 1000;
   let plan = null;          // { at, do }
   let seenAttempt = null;   // the attempt this thumb has already answered
   let nextMove = 0;         // when it will next start something of its own

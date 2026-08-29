@@ -24,11 +24,13 @@ import { Skeleton, poseToQuats, blendQuats, BONE_COUNT } from '../render/skeleto
 import { quat, qEuler } from '../core/m4.js';
 
 // Where he stands: this far from the middle of the fight, and this far round
-// from the direction the pair is facing. Round to the side rather than in
-// front, because the camera lives in front and a referee in the middle of the
-// frame is a referee in the way.
-const DIST = 2.05;
-const AROUND = (118 * Math.PI) / 180;
+// from the camera's own bearing. Round from the camera and not from the pair,
+// because the pair spins and the camera cuts, and the one thing he must never
+// be is between the two of them and the lens. A hundred and fifty degrees puts
+// him beyond the fight and off to one side of it, which is where a referee
+// stands and also where he is out of the way.
+const DIST = 2.15;
+const AROUND = (150 * Math.PI) / 180;
 // How fast he walks to keep that distance, in metres a second. He is not
 // running; the pair drifts about a metre a second at most.
 const STEP = 1.3;
@@ -109,13 +111,13 @@ export class Referee {
     this.hold = seconds;
   }
 
-  update(dt, state, ground, origin, matYaw) {
+  update(dt, state, ground, origin, camBearing) {
     this.t += dt;
     this.hold = Math.max(0, this.hold - dt);
 
     // Where he wants to be: off to one side of the pair, at arm's length plus
     // a step, facing them.
-    const a = matYaw + AROUND;
+    const a = camBearing + AROUND;
     const tx = origin[0] + Math.sin(a) * DIST;
     const tz = origin[2] + Math.cos(a) * DIST;
     if (!this.placed) { this.x = tx; this.z = tz; this.placed = true; }
