@@ -1,6 +1,7 @@
 // Is a pack of paired animation any use?
 //
 //   node bjj/tools/clip-check.mjs BJJ_WOW_Master_84clips.glb [--frames 9] [--all]
+//   node bjj/tools/clip-check.mjs Animations/RootMotion/          (a folder of FBX)
 //
 // Paired grappling animation is the thing this project cannot buy: two bodies
 // in contact, moving together. So when a pack of it arrives the question is not
@@ -17,6 +18,8 @@
 //   inside     the deepest interpenetration, after retargeting onto our rig,
 //              measured by the same collide.js the pose solver uses
 //   apart      how far the two of them are from touching at all
+//   still      how far the least busy limb travels, measured against its own
+//              pelvis so walking about does not count as moving
 //
 // A clip that passes is a gift. A clip that fails is the failure this project
 // already paid for once — fifteen poses written as angles with no feedback,
@@ -24,7 +27,7 @@
 
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { readGLB } from './glb.mjs';
+import { statSync } from 'fs';
 import { encodePNG } from './png.mjs';
 import { Skeleton, BONES, BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
@@ -37,31 +40,22 @@ const FRAMES = flag('frames', 9);
 const ALL = argv.includes('--all');
 const DUMP = argv.includes('--dump') ? argv[argv.indexOf('--dump') + 1] : null;
 if (!file) {
-  console.error('usage: clip-check.mjs <pack.glb> [--frames 9] [--all] [--dump out/]');
+  console.error('usage: clip-check.mjs <pack.glb | folder of FBX> [--frames 9] [--all] [--dump out/]');
   process.exit(2);
 }
 
-const glb = readGLB(file);
-
-// The top of the mat, not the middle of it. The node sits at its own centre and
-// carries the slab's thickness in its scale, and taking the node's height for
-// the floor flatters every clip by half a mat.
-const MAT_Y = (() => {
-  const w = glb.world(0, 0);
-  const i = glb.byName.get('Training_Mat');
-  if (i === undefined) return 0;
-  const m = glb.at(w, 'Training_Mat');
-  const node = glb.json.nodes[i];
-  const mesh = glb.json.meshes[node.mesh];
-  const acc = glb.json.accessors[mesh.primitives[0].attributes.POSITION];
-  return m[13] + acc.max[1] * ((node.scale && node.scale[1]) || 1);
-})();
+// A pack is a GLB scene or a folder of per-fighter FBX. Everything below is
+// the same either way: the front-end hands over the joint positions of two
+// fighters at a moment, and the measurements do not care where they came from.
+const front = statSync(file).isDirectory() ? './clips-fbx.mjs' : './clips-glb.mjs';
+const src = (await import(front)).openPack(file);
+const MAT_Y = src.matY;
+const restAt = src.rest();
 
 // Their leg against ours, so a pack authored at another scale still lands on
 // this skeleton the right size.
 const theirLeg = (() => {
-  const w = glb.world(0, 0);
-  const hip = glb.at(w, 'A_LeftUpLeg'), knee = glb.at(w, 'A_LeftLeg'), foot = glb.at(w, 'A_LeftFoot');
+  const hip = restAt('A', 'LeftUpLeg'), knee = restAt('A', 'LeftLeg'), foot = restAt('A', 'LeftFoot');
   if (!hip || !knee || !foot) return null;
   const d = (a, b) => Math.hypot(a[12] - b[12], a[13] - b[13], a[14] - b[14]);
   return d(hip, knee) + d(knee, foot);
@@ -77,15 +71,14 @@ const SCALE = theirLeg ? ourLeg / theirLeg : 1;
 // human skeleton without either the reach or the contact going wrong, and
 // contact is the whole sport.
 const proportions = (() => {
-  const w = glb.world(0, 0);
   const d = (a, b) => {
-    const A = glb.at(w, a), B = glb.at(w, b);
+    const A = restAt('A', a), B = restAt('A', b);
     return A && B ? Math.hypot(A[12] - B[12], A[13] - B[13], A[14] - B[14]) : 0;
   };
-  const spine = d('A_Hips', 'A_Spine') + d('A_Spine', 'A_Spine1') + d('A_Spine1', 'A_Spine2') +
-    d('A_Spine2', 'A_Neck') + d('A_Neck', 'A_Head');
-  const leg = d('A_LeftUpLeg', 'A_LeftLeg') + d('A_LeftLeg', 'A_LeftFoot');
-  const arm = d('A_LeftArm', 'A_LeftForeArm') + d('A_LeftForeArm', 'A_LeftHand');
+  const spine = d('Hips', 'Spine') + d('Spine', 'Spine1') + d('Spine1', 'Spine2') +
+    d('Spine2', 'Neck') + d('Neck', 'Head');
+  const leg = d('LeftUpLeg', 'LeftLeg') + d('LeftLeg', 'LeftFoot');
+  const arm = d('LeftArm', 'LeftForeArm') + d('LeftForeArm', 'LeftHand');
   const ourSpine = ['spine', 'chest', 'neck', 'head']
     .reduce((t, b) => t + Math.abs(BONES[BONE_INDEX[b]][2][1]), 0);
   return { spine, leg, arm, ratio: leg ? spine / leg : 0, ours: ourSpine / ourLeg };
@@ -102,13 +95,13 @@ const overlap = new Overlap();
 const skel = { A: new Skeleton(), B: new Skeleton() };
 
 // One figure, at one instant, on our skeleton.
-function put(role, world) {
+function put(role, at) {
   const posOf = (n) => {
-    const m = glb.at(world, `${role}_${n}`);
+    const m = at(role, n);
     return m ? [m[12] * SCALE, (m[13] - MAT_Y) * SCALE, m[14] * SCALE] : null;
   };
   const sk = skel[role];
-  const hips = glb.at(world, `${role}_Hips`);
+  const hips = at(role, 'Hips');
   if (!hips) return null;
   rootFromHips(sk, hips);
   sk.pose();
@@ -160,6 +153,29 @@ function crossed(posOf) {
   return worst;
 }
 
+// A limb that never moves.
+//
+// A position is made by what the limbs do in it, and a clip whose legs hold
+// their standing rest pose for its whole length is not a mount, it is a
+// standing figure lowered until its feet are through the mat. Measured against
+// the fighter's own pelvis, so a clip that only slides its root about counts
+// as still — which is what one pack did with every ground position it shipped.
+function travel(r, role, posOf, start, first) {
+  const hips = posOf('Hips');
+  if (!hips) return;
+  for (const limb of ['LeftHand', 'RightHand', 'LeftFoot', 'RightFoot']) {
+    const p = posOf(limb);
+    if (!p) continue;
+    const rel = [p[0] - hips[0], p[1] - hips[1], p[2] - hips[2]];
+    const key = `${role}.${limb}`;
+    if (first) { start[key] = rel; start[key + '!'] = 0; continue; }
+    const s0 = start[key];
+    if (!s0) continue;
+    const d = Math.hypot(rel[0] - s0[0], rel[1] - s0[1], rel[2] - s0[2]);
+    if (d > start[key + '!']) start[key + '!'] = d;
+  }
+}
+
 // How faithfully the transfer lands, before anything it produces is believed.
 //
 // Every number below is measured on our skeleton, not theirs, so a broken
@@ -185,18 +201,22 @@ function checkTransfer(role, posOf) {
 }
 
 const rows = [];
-for (const clip of glb.clips()) {
-  const r = { name: clip.name, seconds: clip.seconds, floor: 0, flat: Infinity, cross: 0, inside: 0, apart: 0, jam: Infinity, where: '' };
+for (const clip of src.clips()) {
+  const r = { name: clip.name, seconds: clip.seconds, floor: 0, flat: Infinity, cross: 0, inside: 0, apart: 0, jam: Infinity, still: Infinity, where: '' };
+  // Where each limb starts, in its own pelvis's frame, so the travel below is
+  // the limb moving and not the fighter walking.
+  const start = {};
   for (let f = 0; f < FRAMES; f++) {
     const t = (clip.seconds * f) / Math.max(1, FRAMES - 1);
-    const world = glb.world(clip.index, t);
-    const pos = { A: put('A', world), B: put('B', world) };
+    const at = src.frame(clip.index, t);
+    const pos = { A: put('A', at), B: put('B', at) };
     if (!pos.A || !pos.B) continue;
     for (const role of ['A', 'B']) {
       const pts = JOINTS.map(pos[role]).filter(Boolean);
       for (const p of pts) r.floor = Math.max(r.floor, -p[1]);
       r.flat = Math.min(r.flat, flatness(pts));
       r.cross = Math.max(r.cross, crossed(pos[role]));
+      travel(r, role, pos[role], start, f === 0);
     }
     checkTransfer('A', pos.A);
     checkTransfer('B', pos.B);
@@ -216,17 +236,19 @@ for (const clip of glb.clips()) {
     r.apart = Math.max(r.apart, near);
     r.jam = Math.min(r.jam, near);
   }
+  for (const k of Object.keys(start)) if (k.endsWith('!')) r.still = Math.min(r.still, start[k]);
+  if (!Number.isFinite(r.still)) r.still = 0;
   rows.push(r);
 }
 
 const cm = (v) => (v * 100).toFixed(0).padStart(4);
-console.log(`${file}  ${rows.length} clips, ${FRAMES} frames each, mat at y=${MAT_Y.toFixed(3)}, scale ${SCALE.toFixed(3)}\n`);
-console.log('clip                                 secs  floor  flat  cross   jam  apart  inside*');
+console.log(`${src.label}  ${rows.length} clips, ${FRAMES} frames each, mat at y=${MAT_Y.toFixed(3)}, scale ${SCALE.toFixed(3)}\n`);
+console.log('clip                                 secs  floor  flat  cross   jam  apart  still  inside*');
 const shown = ALL ? rows : rows.slice().sort((a, b) => a.jam - b.jam).slice(0, 14);
 for (const r of shown) {
   console.log(
     `${r.name.padEnd(36)}${r.seconds.toFixed(1).padStart(5)}  ${cm(r.floor)}  ${cm(r.flat)}  ${cm(r.cross)}  ` +
-    `${cm(r.jam)}  ${cm(r.apart)}   ${cm(r.inside)}`
+    `${cm(r.jam)}  ${cm(r.apart)}  ${cm(r.still)}   ${cm(r.inside)}`
   );
 }
 if (!ALL) console.log('\n(the fourteen most jammed; --all for every clip)');
@@ -242,8 +264,9 @@ const stat = (key) => {
   return { med: v[v.length >> 1], worst: v[v.length - 1], best: v[0] };
 };
 const ins = stat('inside'), flo = stat('floor'), fla = stat('flat'), jam = stat('jam'), cro = stat('cross');
+const sti = stat('still');
 console.log(`
-the rig itself: spine ${(proportions.spine * 100).toFixed(0)} cm against a leg of ${(proportions.leg * 100).toFixed(0)} cm ` +
+the rig itself: spine ${(proportions.spine * SCALE * 100).toFixed(0)} cm against a leg of ${(proportions.leg * SCALE * 100).toFixed(0)} cm ` +
   `— a ratio of ${proportions.ratio.toFixed(2)} where this game's skeleton, and a person, sit at ${proportions.ours.toFixed(2)}
 `);
 console.log(`             median  worst
@@ -251,11 +274,12 @@ floor        ${cm(flo.med)}   ${cm(flo.worst)} cm     below the mat surface
 flat         ${cm(fla.med)}   ${cm(fla.best)} cm     thinnest a figure gets; a real body is never under 20
 crossed      ${cm(cro.med)}   ${cm(cro.worst)} cm     a knee past the far side of its own hip
 jam          ${cm(jam.med)}   ${cm(jam.best)} cm     closest two joint centres come; under 5 is one limb inside another
+still        ${cm(sti.med)}   ${cm(sti.best)} cm     how far the least busy limb travels against its own hips
 inside*      ${cm(ins.med)}   ${cm(ins.worst)} cm     * after transfer, so an upper bound, not a verdict
 `);
 // The bar is the one the game's own poses already clear, and it is measured
 // with the three instruments that do not care whose rig it is.
-const clean = rows.filter((r) => r.floor < 0.03 && r.flat > 0.15 && r.cross < 0.02 && r.jam > 0.05);
+const clean = rows.filter((r) => r.floor < 0.03 && r.flat > 0.15 && r.cross < 0.02 && r.jam > 0.05 && r.still > 0.02);
 console.log(`${clean.length} of ${rows.length} clips clear what the game already demands of a still pose.`);
 if (clean.length) console.log('  ' + clean.map((r) => r.name).join('\n  '));
 
@@ -278,13 +302,17 @@ if (DUMP) {
     ['Hips', 'RightUpLeg'], ['RightUpLeg', 'RightLeg'], ['RightLeg', 'RightFoot'],
   ];
   const W = 360, H = 300, PAD = 24;
-  const wanted = (argv.includes('--clip') ? [argv[argv.indexOf('--clip') + 1]] : ['gr_mount_idle', 'gr_closed_guard_idle', 'bjj_idle_ready'])
-    .map((n) => glb.clips().find((c) => c.name === n)).filter(Boolean);
+  const named = argv.includes('--clip') ? [argv[argv.indexOf('--clip') + 1]] : null;
+  const wanted = named
+    ? named.map((n) => src.clips().find((c) => c.name === n)).filter(Boolean)
+    // No clip named: the three most jammed, which are the ones worth looking at.
+    : rows.slice().sort((a, b) => a.jam - b.jam).slice(0, 3)
+        .map((r) => src.clips().find((c) => c.name === r.name)).filter(Boolean);
 
   for (const clip of wanted) {
-    const world = glb.world(clip.index, clip.seconds / 2);
+    const at = src.frame(clip.index, clip.seconds / 2);
     const posOf = (role) => (n) => {
-      const m = glb.at(world, `${role}_${n}`);
+      const m = at(role, n);
       return m ? [m[12], m[13] - MAT_Y, m[14]] : null;
     };
     const img = new Uint8Array(W * 3 * H * 4).fill(18);

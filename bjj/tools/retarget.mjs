@@ -68,7 +68,22 @@ export function rootFromHips(sk, hips) {
 
 // Aim every mapped bone, parents before children, so each one is solved against
 // a parent that has already moved.
+//
+// From rest, every time. `aimBone` multiplies its correction onto whatever
+// rotation the bone already carries, which is right for a single transfer and
+// wrong for a second one onto the same skeleton: the aim still lands, but the
+// quaternion it lands with has been multiplied a few hundred more times, and
+// unnormalised quaternion products grow. Reusing one skeleton across a pack of
+// twenty-five clips took the transfer error from a flat 36 cm on clip one to
+// 3.7 kilometres on clip twenty-five — smoothly, clip by clip, which is what a
+// drift looks like and is why nothing about it read as a crash.
 export function aimAll(sk, posOf) {
+  for (let i = 0; i < BONE_COUNT; i++) {
+    const q = sk.local[i];
+    q[0] = q[1] = q[2] = 0;
+    q[3] = 1;
+  }
+  sk.pose();
   const dir = v3();
   for (let i = 0; i < BONE_COUNT; i++) {
     const name = BONES[i][0];
