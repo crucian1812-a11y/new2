@@ -278,7 +278,9 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       // What the HUD shows him, which is not always the answer: flattened, the
       // prompt says only that something is coming. Read now, thrown later —
       // if it changes during the reaction, the hand is already committed.
-      const seen = m.visibleDeny(0);
+      // A thumb reading nothing reads the arrow too: the floor has to be a
+      // floor for the defence as well, or it is only a floor for the attack.
+      const seen = cfg.play === 'random' ? null : m.visibleDeny(0);
       if (!seen) st.blind++;
       const dir = seen || ['up', 'down', 'left', 'right'][(Math.random() * 4) | 0];
       plan = { at: gt + late(), do: () => m.input(0, dir) };

@@ -209,6 +209,23 @@ export class Match {
   // all: the AI has never read the prompt, it reads `level.read`.
   visibleDeny(i) {
     if (!this.deny || !this.attempt || this.attempt.defender !== i) return null;
+    // Underneath, you do not see it coming.
+    //
+    // Posture alone could not carry this, and the measurement is the reason:
+    // posture only falls when something lands on you, so a player who denies
+    // everything keeps his at a hundred and reads every prompt — 25 of 25, 35
+    // of 35, with the gate in. Charging for the frame does close that loop and
+    // breaks a better one: any cost on denial falls hardest on the belts that
+    // deny most, and both a stamina charge and a posture charge flattened the
+    // ladder from 45/90 to about 50/70.
+    //
+    // Being underneath is not a cost and cannot be gamed. Across ten thousand
+    // prompts the attacker is the man on top in 72 to 84% of them, so the
+    // arrow is there for takedowns and scrambles, where you can see him wind
+    // up, and gone when he is already on you — which is what those positions
+    // are worth points for. It costs the AI nothing, because the AI has never
+    // read the prompt: it rolls its own `read` against its own belt.
+    if (this.isDominant(this.attempt.by)) return null;
     return this.f[i].posture >= DENY_READ ? this.deny.dir : null;
   }
 
