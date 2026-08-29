@@ -628,6 +628,59 @@ export const POSES = {
     ],
   }),
 
+
+  /* ---------------------------------------------- and one that is neither - */
+  //
+  // A waypoint: not a position the fight can be in, and not a variant of one.
+  //
+  // Seven of the nine transitions still on the work list fail in exactly the
+  // same place — the top man's right thigh through the bottom man's legs, on
+  // the way across the body into side control or mount. Routing them through
+  // an existing position was the cheap answer and it took them from 28 cm to
+  // 20; none of the fifteen is the shape that is actually missing, which is
+  // the middle of a hip switch: weight forward on the shoulder, hips high, the
+  // driving leg swung wide of the other man rather than over him.
+  //
+  // So it is authored, once, and `via-pick` may route through it. It is marked
+  // `waypoint` so the graph does not think the fight can be in it: no edges
+  // lead here, and `sim-check` would rightly complain about a position that
+  // cannot be reached.
+  ACROSS: P('ACROSS', {
+    name: 'Через корпус',
+    label: 'SIDE CONTROL',
+    points: 0, top: 'A', ground: true, waypoint: true,
+    A: {
+      root: { p: [0.25, 0.5, 0.2], r: [16, 62, 0] },
+      j: {
+        hips: [-47.2, -9.7, 1.3], spine: [56, -18.7, 12], chest: [43.8, -18.7, 15.5],
+        neck: [16, 6, -6], head: [-24, 0, 0], clavL: [-17.7, -24.2, -17.7],
+        armL: [-70.5, 33.3, -50.5], foreL: [-104, 8, 6], clavR: [5.3, -33, -24.7],
+        armR: [-43, -31, 32.8], foreR: [-117.2, 6, -8], thighL: [-64, 14, 18],
+        shinL: [96, 0, 0], footL: [14, 0, 0], thighR: [-10, -56, -22.7],
+        shinR: [75.8, 4.5, -5.2], footR: [18, 0, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.13, 0.27, -0.02], r: [-90, 180, 0] },
+      j: {
+        hips: [22, -2, 6], spine: [-2, 0, 6], chest: [2.8, -8.5, 12],
+        neck: [-0.2, 31.5, 13.8], head: [24.8, 14.3, -8.2], clavL: [-24.2, -5.2, 17],
+        armL: [-137.7, 23.5, -38], foreL: [-111, 9, 4], clavR: [5.8, -24, 15.3],
+        armR: [-51, -32, 11], foreR: [-76, 6, -6], thighL: [-28, 6, 12],
+        shinL: [46, 0, 0], footL: [-16, 0, 0], thighR: [-16, -6, -10],
+        shinR: [34, 0, 0], footR: [-16, 0, 0],
+      },
+    },
+    hold: [
+      { of: 'A.chest', above: 'B.chest', by: 0.2 },
+      { of: 'A.chest', near: 'B.chest', within: 0.34 },
+    ],
+    grips: [
+      { role: 'A', hand: 'L', point: 'headBack' },
+      { role: 'A', hand: 'R', point: 'lapelL' },
+    ],
+  }),
+
   /* ------------------------------------------------- the same, working - */
   //
   // A held position is a photograph with breathing on it, and the fight
@@ -1268,4 +1321,10 @@ export const HOLD_LOOPS = (() => {
 
 // Positions the game can actually be in — the graph's nodes, without the
 // variants that only exist inside one of them.
-export const POSITION_IDS = Object.keys(POSES).filter((id) => !POSES[id].variantOf);
+export const POSITION_IDS = Object.keys(POSES)
+  .filter((id) => !POSES[id].variantOf && !POSES[id].waypoint);
+
+// Poses that exist only to be passed through: see ACROSS. They are real poses —
+// solved, measured, held to the same standards — and they are not places the
+// fight can be in, so nothing in the graph leads to one.
+export const WAYPOINT_IDS = Object.keys(POSES).filter((id) => POSES[id].waypoint);

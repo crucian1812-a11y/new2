@@ -17,7 +17,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
-import { POSITION_IDS } from '../src/game/poses.js';
+import { POSITION_IDS, WAYPOINT_IDS } from '../src/game/poses.js';
 import { ARCS, VIAS } from '../src/game/arcs.js';
 import { TRANSITIONS } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
@@ -86,10 +86,11 @@ for (const tr of TRANSITIONS) {
   keys.push(key);
 }
 
-// Positions only. A held position's working variant is the same tangle with
-// a hip moved, so routing through one is routing through the pose you are
-// already at — twenty more candidates that cannot help and can win by noise.
-const poses = POSITION_IDS;
+// Positions, plus the waypoints authored for exactly this. A held position's
+// working variant is the same tangle with a hip moved, so routing through one
+// is routing through the pose you are already at — twenty more candidates that
+// cannot help and can win by noise.
+const poses = [...POSITION_IDS, ...WAYPOINT_IDS];
 // A transition this run is not reconsidering keeps the curve it has. Writing
 // out only what was chosen this time would drop the rest — the same accident
 // arc-solve had twice.
