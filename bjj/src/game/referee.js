@@ -20,7 +20,7 @@
 // measures where his feet land, and both of the first two numbers were wrong —
 // four centimetres through the mat standing, thirteen above it crouching.
 
-import { Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT } from '../render/skeleton.js';
+import { Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT, BONE_INDEX } from '../render/skeleton.js';
 import { quat, qEuler, v3, v3set } from '../core/m4.js';
 
 // Where he stands: this far from the middle of the fight, and this far round
@@ -156,6 +156,35 @@ export class Referee {
     this.hold = seconds;
   }
 
+  // Put him on the mat.
+  //
+  // The fighters have had this since the beginning — the pair frame is lifted
+  // until the knees are on the tatami — and he never did: his hip height came
+  // straight out of the pose and whatever the legs did below it was where the
+  // feet ended up. In the crouch that is six centimetres under the mat at the
+  // toe, and up to fifteen while he is going down into it, because the hip
+  // height is interpolated in a straight line and the knee angle is not.
+  //
+  // Feet you cannot see him standing on, under a body with bent knees, is a man
+  // sitting on a chair that is not there. Nothing caught it: pose-check was
+  // reading the ankle, which sits a centimetre above the mat while the toe is
+  // six below it, so the number looked right and the picture did not.
+  //
+  // Only ever lifts, and only from below, so nothing here can push him into a
+  // pose he was not in.
+  _ground() {
+    const FLOOR = 0.05;
+    let lo = Infinity;
+    for (const b of ['footL', 'footR', 'toeL', 'toeR']) {
+      lo = Math.min(lo, this.skel.world[BONE_INDEX[b]][13]);
+    }
+    const lift = FLOOR + 0.012 - lo;
+    if (lift > 0.002) {
+      this.skel.rootPos[1] += lift;
+      this.skel.pose();
+    }
+  }
+
   update(dt, state, ground, origin, camBearing) {
     this.t += dt;
     this.hold = Math.max(0, this.hold - dt);
@@ -227,6 +256,7 @@ export class Referee {
     qEuler(this.skel.rootRot, 0, (this.yaw * 180) / Math.PI, 0);
     this.skel.pose();
     this._step(dt, (this.x - lastX) / Math.max(dt, 1e-4), (this.z - lastZ) / Math.max(dt, 1e-4));
+    this._ground();
     this.skel.finishSkin();
   }
 }

@@ -534,7 +534,18 @@ console.log(
     ref.placed = true;
     ref.x = 0; ref.z = 0; ref.yaw = 0;
     ref.update(0.5, 'live', name === 'crouch', [0, 0, 0], 0);
-    const foot = Math.min(ref.skel.world[BONE_INDEX.footL][13], ref.skel.world[BONE_INDEX.footR][13]);
+    // The lowest thing on the foot, not the ankle.
+    //
+    // This read footL/footR, which are the ankles, and they sit a centimetre
+    // above the mat while the toes are six below it — so the number said the
+    // referee was standing on the tatami and the picture had him buried in it
+    // to the shin, in a half-squat, with no visible contact anywhere. A man
+    // with bent knees and no feet on the ground reads as sitting on a chair
+    // that is not there, which is exactly what it looked like.
+    const foot = Math.min(
+      ref.skel.world[BONE_INDEX.footL][13], ref.skel.world[BONE_INDEX.footR][13],
+      ref.skel.world[BONE_INDEX.toeL][13], ref.skel.world[BONE_INDEX.toeR][13]
+    );
     const head = ref.skel.world[BONE_INDEX.headTop][13];
     const up = head - foot;
     const ok = Math.abs(foot - 0.05) < 0.035 && up > (name === 'crouch' ? 0.9 : 1.4);
