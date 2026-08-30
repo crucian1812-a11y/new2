@@ -188,10 +188,15 @@ const ROM = {
   spine: 50, chest: 50, neck: 75, head: 50,
   clavL: 45, clavR: 45,
   armL: 175, armR: 175,
-  foreL: 155, foreR: 155,
+  // No forearm here on purpose. Its rotation relative to the upper arm is the
+  // elbow's fold *plus* pronation, and pronation is nearly free — a forearm
+  // turns something like 180 degrees on its own axis, which is why a total of
+  // 178 on the back's right forearm sits beside a fold of 138 that is fine. The
+  // fold is what matters and the check above measures it without the roll in.
   handL: 90, handR: 90,
   thighL: 145, thighR: 145,
-  shinL: 155, shinR: 155,
+  // Knee flexion plus what the tibia turns under it.
+  shinL: 168, shinR: 168,
   footL: 65, footR: 65,
 };
 
