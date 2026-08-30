@@ -20,6 +20,7 @@ const steps = [
   ['the opponent', 'asset-check.mjs', ['bjj/assets/fighter-b.bin']],
   ['club marks', 'mark-check.mjs', []],
   ['match simulation', 'sim-check.mjs', ['400']],
+  ['the way out', 'escape-check.mjs', ['240']],
 ];
 if (withBrowser) {
   steps.push(['browser smoke', 'smoke.mjs', []]);

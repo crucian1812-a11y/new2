@@ -33,6 +33,21 @@ const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
 // one, get flattened, see less, miss more.
 const DENY_READ = 70;
 
+// How long a submission can be on before the man in it stops being able to
+// read the way out, in seconds. See visibleEscape.
+//
+// Two and a bit seconds is about four honest chances: a hand answers the arrow
+// in front of it roughly every third of a second and needs a fifth of a second
+// to move. Chosen by sweeping it against tools/escape-check.mjs rather than by
+// taste — at 1.0 the hand gets out of 37% of what a blue belt puts on it and
+// 4% of a black belt's, which is a mini-game nobody survives; at 3.0 it is 82%
+// and 33%, which is one nobody loses to at the bottom of the ladder. At 2.2 it
+// is 72% and 22%, which puts a player's defence beside the AI's own — the sim
+// has AI defenders stripping the grip in 63 to 94% of locks — and leaves the
+// belts meaning something on this half of the game: your first opponents can
+// be survived and the last one mostly cannot.
+const GRIP_READ = 2.2;
+
 export class Fighter {
   constructor(name, opts = {}) {
     this.name = name;
@@ -228,6 +243,31 @@ export class Match {
     // read the prompt: it rolls its own `read` against its own belt.
     if (this.isDominant(this.attempt.by)) return null;
     return this.f[i].posture >= DENY_READ ? this.deny.dir : null;
+  }
+
+  // And the same question for the man in the lock: can he see the way out?
+  //
+  // Written after the drill that finally put the thumb underneath. A hand with
+  // a human's delay, doing nothing but reading the arrow, escaped **six locks
+  // out of six** in three and a half seconds each — the defensive half of the
+  // submission was a cutscene with a swipe in it, exactly as the denial prompt
+  // was before it got this same treatment.
+  //
+  // The rule is the shape of the fix that worked there: not a cost, which
+  // always lands on whoever uses the mechanic most, but a fact about the
+  // position. Early in a lock there is still room and you can feel where it
+  // is; once it is sunk you are guessing, and guessing is one direction in
+  // four. `GRIP_READ` is where "still room" ends, on the same meter the ring
+  // is drawn from, so what the player sees and what the rule reads are the
+  // same number.
+  //
+  // It costs the AI nothing — like the denial prompt, the AI never read this,
+  // it rolls its own `read` against its belt — so the belt ladder in sim-check
+  // does not move and cannot be used to judge it. Only the thumb can.
+  visibleEscape(i) {
+    const s = this.sub;
+    if (!s || s.defender !== i) return null;
+    return s.age < GRIP_READ ? s.escapeDir : null;
   }
 
   // The tap on the right pad: a grip fight. Wins tilt the next transition.

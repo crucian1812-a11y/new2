@@ -380,19 +380,29 @@ export class HUD {
       c.fillStyle = 'rgba(255,255,255,0.9)';
       c.fillText('ТАП', cx, cy);
     } else {
-      // Defender: a direction to escape, changing before it can be spammed.
-      const [dx, dy] = DIR_VEC[s.escapeDir];
+      // Defender: a direction to escape, changing before it can be spammed —
+      // and only while the lock is shallow enough to feel the room in it. Once
+      // it is sunk the circle is empty and the way out is a guess, which is
+      // the same rule the denial prompt runs on. See visibleEscape.
+      const seenOut = m.visibleEscape(0);
       c.beginPath();
       c.arc(cx, cy, 40, 0, Math.PI * 2);
       c.fillStyle = 'rgba(8,10,16,0.7)';
       c.fill();
-      c.strokeStyle = 'rgba(255,255,255,0.2)';
+      c.strokeStyle = seenOut ? 'rgba(255,255,255,0.2)' : 'rgba(255,120,90,0.35)';
       c.lineWidth = 3;
       c.stroke();
-      arrow(c, cx, cy, dx, dy, '#fff', 15);
+      if (seenOut) {
+        const [dx, dy] = DIR_VEC[seenOut];
+        arrow(c, cx, cy, dx, dy, '#fff', 15);
+      } else {
+        c.font = `700 20px ${FONT}`;
+        c.fillStyle = 'rgba(255,255,255,0.5)';
+        c.fillText('?', cx, cy + 7);
+      }
       c.font = `700 10px ${FONT}`;
       c.fillStyle = 'rgba(255,255,255,0.75)';
-      c.fillText('СВАЙП, ЧТОБЫ ВЫЙТИ', cx, cy + 58);
+      c.fillText(seenOut ? 'СВАЙП, ЧТОБЫ ВЫЙТИ' : 'ВЫХОД — УГАДАЙ СТОРОНУ', cx, cy + 58);
     }
   }
 

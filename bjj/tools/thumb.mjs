@@ -56,6 +56,14 @@ const CFG = {
   // minute: this puts the pair into a submission, lets the thumb work it, and
   // does it again the moment it ends.
   drill: +flag('drill', 0),
+  // The other half of the same mini-game, and the half nothing had ever
+  // measured: the lock is on **you**, and the thumb has to find the way out.
+  // In none of the runs so far did the thumb end up as the defender — it
+  // either attacked or no submission happened at all — so the escape ramp, the
+  // rotating direction and the three-strips rule were tuned against the AI
+  // alone. Counted in locks, not in flicks: what matters is how many of them
+  // a hand gets out of.
+  escape: +flag('escape', 0),
   // One seed for the fight and one for the hand, derived from it. With it the
   // same run can be played twice with one thing changed — which is the only
   // way to tell a change in the game from a change in the dice.
@@ -167,10 +175,11 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
 
   const st = {
     matches: [], hit: 0, miss: 0, denies: 0, denied: 0, blind: 0, escapes: 0,
+    locks: 0, out: 0, tapped: 0, ranOut: 0, lockSecs: 0, flicksOut: 0, blindOut: 0,
     tries: 0, landed: 0, subTries: 0, subLanded: 0, grips: 0, flicksIgnored: 0,
     ignoredSub: 0, ignoredBusy: 0, ignoredCool: 0, ignoredTired: 0, ignoredNothing: 0, fps: 0,
   };
-  let m = null, patched = null, cur = null;
+  let m = null, patched = null, cur = null, inLock = false, lastThrown = null;
   function patch(match) {
     const oi = match.input.bind(match);
     match.input = (i, dir) => {
@@ -270,6 +279,18 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
     st.saw = `${m.state} ${m.time.toFixed(0)}s ${m.position}`;
     st.fps = window.__stats ? window.__stats.fps : 0;
     if (cfg.drill && st.hit + st.miss >= cfg.drill) { done(st); return; }
+    // A lock has ended: the sim wrote down how, so read it rather than guess.
+    if (cfg.escape && inLock && m.state !== 'sub') {
+      inLock = false;
+      const last = m.subLog[m.subLog.length - 1];
+      if (last) {
+        st.lockSecs += last.seconds;
+        if (last.how === 'tap') st.tapped++;
+        else if (last.how === 'stripped' || last.how === 'emptied') st.out++;
+        else st.ranOut++;
+      }
+      if (st.locks >= cfg.escape) { done(st); return; }
+    }
     if (m.state === 'ready' || m.state === 'over') {
       if (m.state === 'over' && cur) {
         st.rate = (cur.clock - m.time) / ((now - cur.at) / 1000);
@@ -305,6 +326,25 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       if (!seen) st.blind++;
       const dir = seen || ['up', 'down', 'left', 'right'][(rnd() * 4) | 0];
       plan = { at: gt + late(), do: () => m.input(0, dir) };
+    } else if (cfg.escape && m.state === 'live' && !m.attempt && !plan) {
+      // The mirror of the drill below: the lock goes on us. Both men are put
+      // back on full gas first — a man four locks in escapes worse than a
+      // fresh one, and what is being measured here is the window, not the
+      // fatigue curve, which has a measurer of its own.
+      m.f[0].stamina = 100;
+      m.f[1].stamina = 100;
+      const tr = Object.values(m.options(1)).find((o) => o.sub);
+      if (tr) {
+        m.position = tr.from;
+        m._startSub(1, tr);
+        st.locks++;
+        inLock = true;
+        lastThrown = null;
+        nextEscape = 0;
+      } else {
+        m.prevPosition = m.position = 'MOUNT';
+        m.blend = 1;
+      }
     } else if (cfg.drill && m.state === 'live' && !m.attempt && !plan) {
       // Straight to the lock. This reaches past `input` into the sim the same
       // way the art tooling's setPose does, and for the same reason: the thing
@@ -330,11 +370,24 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
         }
         if (aim !== null && s.phase >= aim) { aim = null; m.subTap(0); }
       } else if (gt > nextEscape) {
-        nextEscape = gt + 0.38;
-        const dir = cfg.play === 'random'
-          ? ['up', 'down', 'left', 'right'][(rnd() * 4) | 0]
-          : s.escapeDir;
-        plan = { at: gt + late(), do: () => m.input(0, dir) };
+        // A hand answers the arrow it can see, and then waits for the arrow to
+        // change. It does not mash: the arrow on screen is a direction, and
+        // throwing the same one again while it still points that way is not
+        // something a person watching it does. (The sim rewards the wait as
+        // well — an escape winds up over nine tenths of a second — but the
+        // thumb is not told that and does not aim for it.)
+        // What the HUD shows him, which past a certain depth is nothing at
+        // all: the same rule the denial prompt runs on, and read through the
+        // same door — the thumb never touches s.escapeDir.
+        const seenOut = cfg.play === 'random' ? null : m.visibleEscape(0);
+        if (!seenOut) st.blindOut++;
+        const dir = seenOut || ['up', 'down', 'left', 'right'][(rnd() * 4) | 0];
+        if (dir !== lastThrown || gt > nextEscape + 0.9) {
+          lastThrown = dir;
+          nextEscape = gt + 0.35;
+          st.flicksOut++;
+          plan = { at: gt + late(), do: () => m.input(0, dir) };
+        }
       }
     } else if (m.state === 'live' && !m.attempt && gt > nextMove && !plan) {
       // Its own turn. A hand does not fire four times a second.
@@ -367,6 +420,13 @@ console.log(`    beats     ${out.hit} on, ${out.miss} off` +
 console.log(`    denials   ${out.denied} of ${out.denies} answered in time` +
   `  (${out.blind} of them thrown blind, with his posture gone)`);
 console.log(`    escapes   ${out.escapes} flicks that were the way out`);
+if (CFG.escape) {
+  const done = out.out + out.tapped + out.ranOut;
+  console.log(`    caught    ${out.locks} locks on the thumb, ${done} of them finished:` +
+    ` ${out.out} escaped, ${out.tapped} tapped, ${out.ranOut} ran out the clock` +
+    `  (${out.flicksOut} flicks thrown, ${out.blindOut} of them blind` +
+    `, ${done ? (out.lockSecs / done).toFixed(1) : '--'}s a lock)`);
+}
 console.log(`    moves     ${out.tries} started, ${out.landed} landed` +
   `, ${out.subTries} of them submissions`);
 console.log(`    ignored   ${out.flicksIgnored} flicks the game had no use for` +
@@ -407,9 +467,25 @@ if (CFG.play !== 'random' && out.denies >= 6 && out.denied / out.denies > 0.9) {
   console.log(`  note: ${out.denied} of ${out.denies} denials answered — the prompt answers itself` +
     ' for a player who is only watching for it');
 }
+// The way out, which until now nothing had ever measured. Both edges matter and
+// for different reasons: under a third and the mini-game is a cutscene with a
+// tap at the end of it, over two thirds and no submission in the game ever
+// finishes anybody who is awake. Between them there is a fight.
+if (CFG.escape) {
+  const done = out.out + out.tapped + out.ranOut;
+  const rate = done ? out.out / done : 0;
+  // Reported here, judged in tools/escape-check.mjs. A browser run finishes
+  // eight locks in about a quarter of an hour — a software rasteriser plays
+  // the match at a fifth of real time — and a rate out of eight is not a rate.
+  // This run's job is to agree with the headless one, which does three hundred
+  // locks a belt in seconds and carries the check.
+  console.log(`  ${out.out} of ${done} locks escaped (${(rate * 100).toFixed(0)}%)` +
+    `, ${out.tapped} tapped — escape-check does this properly, a belt at a time`);
+}
+
 // In a drill there is no game to play: the pair is put into a lock and the
 // thumb works it, so nothing here started, landed or was ignored.
-if (!CFG.drill) {
+if (!CFG.drill && !CFG.escape) {
   check(out.tries > 0 && out.landed > 0, 'the thumb can make something happen',
     `${out.landed} of ${out.tries}`);
   if (CFG.play !== 'random') {
