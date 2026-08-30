@@ -1407,7 +1407,7 @@ for (const p of Object.values(POSES)) {
 //
 // Nothing is authored twice: A and B are exchanged, and so is every reference
 // to a role inside `hold` and `grips`.
-const MIRRORS = ['SIDE_CONTROL'];
+const MIRRORS = ['SIDE_CONTROL', 'MOUNT', 'BACK', 'CLOSED_GUARD'];
 const flipRole = (r) => (r === 'A' ? 'B' : r === 'B' ? 'A' : r);
 const flipRef = (ref) =>
   (typeof ref === 'string' && /^[AB]\./.test(ref) ? flipRole(ref[0]) + ref.slice(1) : ref);

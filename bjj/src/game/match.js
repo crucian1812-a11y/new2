@@ -109,6 +109,17 @@ export class Match {
     // Role A of the paired pose is always the better position; who is playing
     // it changes every time somebody sweeps.
     this.roleOf = ['A', 'B'];
+    // Who each man is *drawn* as, which lags roleOf across a sweep.
+    //
+    // A sweep blends to the mirror of its destination and the roles change
+    // hands on arrival, and those two have to happen in the same frame or the
+    // picture jumps: the mirror only renders the same as the base pose once the
+    // blend is all the way there. The sim needs the new roles at once — the
+    // three-second count and the escape rule both read isDominant — so roleOf
+    // flips on arrival as it always did, and this holds the old assignment for
+    // the tenth of a second it takes the blend to land.
+    this.roleShown = ['A', 'B'];
+    this.landing = false;
     this.time = opts.time ?? MATCH_TIME;
     this.limit = this.time;
     this.state = 'ready'; // ready | live | sub | over
@@ -376,11 +387,20 @@ export class Match {
     }
     // A retreat that has arrived is simply the position being held again, and
     // the hold loop only runs when the two ends of the blend are the same pose.
+    // A sweep that has finished travelling to the mirror: swap the two of them
+    // over in the one frame where doing so changes nothing on screen.
+    if (this.landing && this.blend >= 1) {
+      this.landing = false;
+      this.pending = null;
+      this.prevPosition = this.position;
+      this.roleShown = [this.roleOf[0], this.roleOf[1]];
+    }
     if (this.blendTo === 0 && this.blend <= 0 && this.pending) {
       this.pending = null;
       this.prevPosition = this.position;
       this.blend = 1;
       this.blendTo = 1;
+      this.landing = false;
       this._flushQueued();
     }
     this._stamina(dt, control);
@@ -637,11 +657,17 @@ export class Match {
     // pair is 82% of the way to exactly this pose; starting again from zero is
     // the single most visible break in the game.
     const carrying = this.pending === visualTo(tr) && this.prevPosition !== this.pending;
+    // A sweep that is still travelling to the mirror keeps travelling. Cutting
+    // the far end of the blend over to the unmirrored pose here is a swap of
+    // both bodies in one frame, which is the thing the mirror exists to stop.
+    const landing = carrying && visualTo(tr) !== tr.to;
     if (!carrying) {
       this.prevPosition = this.position;
       this.blend = 0;
     }
-    this.pending = null;
+    if (!landing) this.pending = null;
+    this.landing = landing;
+    const shownBefore = [this.roleOf[0], this.roleOf[1]];
     this.blendTo = 1;
     this.position = tr.to;
     this.blendSpeed = 1 / Math.max(0.22, tr.time * 0.55);
@@ -659,6 +685,10 @@ export class Match {
       this.roleOf[by] = destTop === 'A' ? 'B' : 'A';
       this.roleOf[this.other(by)] = destTop;
     }
+
+    // Held back until the blend lands, when the mirror and the base pose are
+    // the same picture and the exchange costs nothing.
+    this.roleShown = landing ? shownBefore : [this.roleOf[0], this.roleOf[1]];
 
     you.posture = clamp(you.posture - (tr.big ? 22 : 12), 0, 100);
     me.posture = clamp(me.posture + 6, 0, 100);

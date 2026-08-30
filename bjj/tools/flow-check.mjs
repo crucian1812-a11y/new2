@@ -78,32 +78,44 @@ function ringCoverage() {
 // an attempt and the end of a retreat both are, even though the two ends of the
 // blend get renamed underneath them. Returns how far apart they are, 0 for
 // continuous.
+// Are two poses, each with its own role assignment, the same picture?
+//
+// A mirror is the same tangle with the two slots exchanged, so it draws exactly
+// what its base pose draws when the roles are the other way round — and that
+// equivalence is the whole mechanism by which a sweep lands without a jump. A
+// measure that does not know it reports the landing frame of every sweep as a
+// cut of the entire blend, which is what this one did.
+function samePicture(pa, ra, pb, rb) {
+  if (pa === pb) return ra === rb;
+  const base = (p) => (POSES[p] && POSES[p].mirrorOf) || p;
+  if (base(pa) !== base(pb)) return false;
+  return ra !== rb;
+}
+
+// Where a frame is sitting, as poses it is near and how far from each.
+function endsOf(s) {
+  if (s.from === s.to) return [{ p: s.from, d: 0 }];
+  return [{ p: s.from, d: s.t }, { p: s.to, d: 1 - s.t }];
+}
+
 function discontinuity(a, b) {
-  if (a.from === b.from && a.to === b.to) {
+  if (a.from === b.from && a.to === b.to && a.roles === b.roles) {
     const d = Math.abs(a.t - b.t);
     // A blend at its fastest covers about 0.08 of itself in a frame; anything
     // past twice that did not travel, it cut.
     return d > 0.15 ? d : 0;
   }
-  // Different segments, so the question is whether they touch. How far a frame
-  // sits from a given pose: nothing if the segment is that pose at both ends,
-  // otherwise how far along it has gone from it or has left to reach it.
-  const distTo = (s, x) => {
-    if (s.from === x && s.to === x) return 0;
-    if (s.from === x) return s.t;
-    if (s.to === x) return 1 - s.t;
-    return null;
-  };
   // Testing an exact endpoint is too strict: an attempt's first frame is
   // already two or three hundredths along, and counting that as a cut put a
   // hundred and fifty phantom breaks a match in this report.
   let best = Infinity;
-  for (const x of new Set([a.from, a.to, b.from, b.to])) {
-    const da = distTo(a, x), db = distTo(b, x);
-    if (da === null || db === null) continue;
-    best = Math.min(best, da + db);
+  for (const ea of endsOf(a)) {
+    for (const eb of endsOf(b)) {
+      if (!samePicture(ea.p, a.roles, eb.p, b.roles)) continue;
+      best = Math.min(best, ea.d + eb.d);
+    }
   }
-  if (best === Infinity) return 1;   // no pose in common at all
+  if (best === Infinity) return 1;   // nothing in common at all
   return best > 0.15 ? best : 0;
 }
 
@@ -119,7 +131,10 @@ function play(level) {
   // The picture the player is looking at, taken the same way main.js takes it.
   // If this ever stops matching drawFrame the number below stops meaning
   // anything, so it is written as one expression rather than three.
-  const shot = () => ({ from: m.prevPosition, to: m.pending || m.position, t: m.blend });
+  const shot = () => ({
+    from: m.prevPosition, to: m.pending || m.position, t: m.blend,
+    roles: m.roleShown.join(''),
+  });
   let prev = shot();
   let lastPos = m.position;
 

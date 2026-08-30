@@ -434,7 +434,7 @@ function frame(now) {
 
   // Effort and slack drive the procedural life on top of the pose. Effort is
   // whoever is working; slack is whoever's posture has gone.
-  for (const [role, idx] of [['A', match.roleOf.indexOf('A')], ['B', match.roleOf.indexOf('B')]]) {
+  for (const [role, idx] of [['A', match.roleShown.indexOf('A')], ['B', match.roleShown.indexOf('B')]]) {
     const f = match.f[idx];
     const working = (match.attempt && match.attempt.by === idx)
       || (match.state === 'sub' && match.sub.attacker === idx);
@@ -520,8 +520,8 @@ function drawFrame(now, real) {
   // Who is in which role, and therefore which skeleton each man is wearing this
   // second. Everything about a fighter — his kimono, his belt, his skin and now
   // his body — is looked up through this and never through the role.
-  const ia = match.roleOf.indexOf('A');
-  const ib = match.roleOf.indexOf('B');
+  const ia = match.roleShown.indexOf('A');
+  const ib = match.roleShown.indexOf('B');
   const fa = match.f[ia];
   const fb = match.f[ib];
   const body = (i) => (i === 0 ? gpuYou : gpuOpp);
