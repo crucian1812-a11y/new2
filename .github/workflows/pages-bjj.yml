@@ -1,0 +1,73 @@
+# Publishes the jiu-jitsu game to GitHub Pages, at /bjj/ on the site this repo
+# already serves.
+#
+# No build step: index.html loads plain ES modules and fetches the two baked
+# fighters and the audio pack as files, so publishing is copying the four
+# things the browser actually asks for.
+#
+# Pages here is served from the `gh-pages` branch, and the other project in
+# this repository publishes to the root of that same branch — so this job
+# clones what is already published, replaces only the `bjj/` folder inside it
+# and pushes. It never force-pushes: the site at the root is not ours.
+#
+# (The other workflow does force-push an orphan branch, which would take this
+# folder with it. If the game ever vanishes from the URL, that is why, and one
+# run of this workflow — Actions → Pages (bjj) → Run workflow — puts it back.)
+name: Pages (bjj)
+
+on:
+  push:
+    branches: [claude/bjj-browser-game-jm3uu6]
+    paths:
+      - 'bjj/**'
+      - '.github/workflows/pages-bjj.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: repo
+
+      - name: Take the site as it stands
+        run: |
+          if ! git clone --depth 1 --branch gh-pages \
+              "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" site; then
+            mkdir site
+            cd site
+            git init -q -b gh-pages
+            git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          fi
+
+      - name: Put the game under /bjj/
+        run: |
+          rm -rf site/bjj
+          mkdir -p site/bjj
+          cp repo/bjj/index.html repo/bjj/styles.css site/bjj/
+          cp -r repo/bjj/src repo/bjj/assets site/bjj/
+          # Pages runs Jekyll otherwise, and Jekyll drops anything whose name
+          # starts with an underscore.
+          touch site/.nojekyll
+          du -sh site/bjj
+
+      - name: Push it
+        run: |
+          cd site
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing changed"
+            exit 0
+          fi
+          git commit -q -m "Publish bjj ${GITHUB_SHA::7}"
+          git push -q origin gh-pages
