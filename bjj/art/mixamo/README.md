@@ -27,9 +27,14 @@ only to re-bake a fighter.
 ## What each character bakes into
 
 ```
-fighter A  body-block.fbx    16 851 verts  29 865 tris  455 KB
-fighter B  Ch31_nonPBR.fbx   28 854 verts  46 314 tris  750 KB
+fighter A  body-block.fbx    16 851 verts  29 865 tris  471 KB
+fighter B  Ch31_nonPBR.fbx   28 854 verts  46 314 tris  779 KB
 ```
+
+A vertex costs one byte more than it used to: from asset version 2 each one
+carries how much of the room it can see, measured on the mesh by the baker
+(`tools/ao.mjs`). Neither file is on the path to the first frame.
+
 
 Fighter B costs more because a third of him is hair: 13 124 vertices of it,
 modelled as strands. That is also what makes him read as a different man from
