@@ -39,6 +39,12 @@ function play(l0, l1, seenPos, seenTr) {
   const ai1 = new AI(1, l1);
   m.start();
   let steps = 0;
+  // Where on the mat the fight actually happens. The competition square is
+  // eight metres and the drift clamp is at 4.6, so the pair can grapple off
+  // the square and nothing has ever counted how much of the match it spends
+  // there — the referee watches and announces and does not do the one thing a
+  // referee is for.
+  let offSquare = 0, nearEdge = 0, worst = 0;
   const cap = Math.ceil((MATCH_TIME + 5) / DT);
   while (m.state !== 'over' && steps++ < cap) {
     for (const ai of [ai0, ai1]) {
@@ -49,8 +55,12 @@ function play(l0, l1, seenPos, seenTr) {
     m.update(DT, [ai0.control, ai1.control]);
     seenPos.add(m.position);
     if (m.attempt) seenTr.add(key(m.attempt.tr));
+    const d = Math.max(Math.abs(m.origin[0]), Math.abs(m.origin[2]));
+    if (d > 4) offSquare++;
+    if (d > 3.2) nearEdge++;
+    if (d > worst) worst = d;
   }
-  return { m, steps, cap };
+  return { m, steps, cap, off: offSquare / Math.max(1, steps), edge: nearEdge / Math.max(1, steps), worst };
 }
 
 function randomPlay(seenPos, seenTr) {
@@ -84,15 +94,25 @@ const outcomes = { submission: 0, points: 0, advantages: 0, draw: 0 };
 let hung = 0;
 let totalPoints = 0;
 const t0 = Date.now();
+const mat = { off: 0, edge: 0, worst: 0 };
 for (let i = 0; i < N; i++) {
-  const { m, steps, cap } = play('purple', 'purple', seenPos, seenTr);
+  const { m, steps, cap, off, edge, worst } = play('purple', 'purple', seenPos, seenTr);
   if (steps >= cap) hung++;
   outcomes[m.winBy] = (outcomes[m.winBy] || 0) + 1;
   totalPoints += m.f[0].points + m.f[1].points;
+  mat.off += off / N;
+  mat.edge += edge / N;
+  mat.worst = Math.max(mat.worst, worst);
 }
 const ms = Date.now() - t0;
 
 check(hung === 0, 'every match reaches an end', `${N} matches in ${ms}ms, seed ${SEED}`);
+
+// The mat has edges and the sport has a rule about them: when the pair leaves
+// the eight-metre square the referee stops them and restarts in the middle.
+check(mat.off < 0.02, 'the fight stays on the competition square',
+  `${(mat.off * 100).toFixed(1)}% of the clock off it, ${(mat.edge * 100).toFixed(1)}% within` +
+  ` 80cm of the line, furthest ${mat.worst.toFixed(1)}m from the middle`);
 check(outcomes.submission > 0, 'submissions happen', JSON.stringify(outcomes));
 // How matches end is asked per belt further down, where the numbers are, and
 // with a target written next to them. Asked here as well, of one belt against

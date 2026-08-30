@@ -222,6 +222,11 @@ function onMatchEvent(e) {
     camera.cut(Math.random() < 0.5 ? -1 : 1);
     audio.lock();
     audio.swell(0.8, 2.4);
+  } else if (e.kind === 'recall') {
+    // He stops them and waves them back to the middle. The whistle is his
+    // 'stop', held long enough to cover the walk.
+    referee.gesture('stop', 2.2);
+    audio.confirm();
   } else if (e.kind === 'escape') {
     audio.cloth(0.9);
     audio.swell(0.5, 1.4);

@@ -377,11 +377,32 @@ for (const path of fighters) {
     // has to miss the collar around towards the armpit. So the normals of the
     // cloth under the rectangle are averaged and the answer is measured in
     // degrees off the way the fighter looks.
+    //
+    // Measured over triangles and weighted by their area, not over vertices.
+    // Counting vertices makes the answer a fact about the tessellation: a
+    // decimator takes its triangles out of the flat places first, so thinning
+    // the mesh emptied the flat outside of the thigh, left the curved edges of
+    // the same patch, and swung the average 130 degrees without one millimetre
+    // of cloth having moved. What the patch is printed on is an area.
     let fx = 0, fz = 0, fn = 0;
-    for (let v = 0; v < n; v++) {
-      if (m.mat[v] !== 1 && m.mat[v] !== 2) continue;
-      if (Math.abs(m.uv[v * 2] - p.u) > p.du || Math.abs(m.uv[v * 2 + 1] - p.v) > p.dv) continue;
-      fx += m.nrm[v * 3]; fz += m.nrm[v * 3 + 2]; fn++;
+    for (let t = 0; t < m.idx.length; t += 3) {
+      const va = m.idx[t], vb = m.idx[t + 1], vc = m.idx[t + 2];
+      if (m.mat[va] !== 1 && m.mat[va] !== 2) continue;
+      const cu = (m.uv[va * 2] + m.uv[vb * 2] + m.uv[vc * 2]) / 3;
+      const cv = (m.uv[va * 2 + 1] + m.uv[vb * 2 + 1] + m.uv[vc * 2 + 1]) / 3;
+      if (Math.abs(cu - p.u) > p.du || Math.abs(cv - p.v) > p.dv) continue;
+      const a = va * 3, b = vb * 3, c = vc * 3;
+      const e1 = [m.pos[b] - m.pos[a], m.pos[b + 1] - m.pos[a + 1], m.pos[b + 2] - m.pos[a + 2]];
+      const e2 = [m.pos[c] - m.pos[a], m.pos[c + 1] - m.pos[a + 1], m.pos[c + 2] - m.pos[a + 2]];
+      const cr = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
+      const ar = Math.hypot(cr[0], cr[1], cr[2]) / 2;
+      if (!(ar > 0)) continue;
+      // The triangle's own normal rather than the average of its corners': a
+      // corner normal is shared with whatever else touches that vertex, and on
+      // the rim of a patch that is cloth outside it.
+      fx += (cr[0] / (2 * ar)) * ar;
+      fz += (cr[2] / (2 * ar)) * ar;
+      fn++;
     }
     if (fn) {
       // A bearing: 0 is straight ahead, 180 straight behind, +90 the wearer's

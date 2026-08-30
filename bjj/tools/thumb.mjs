@@ -64,6 +64,17 @@ const CFG = {
   // alone. Counted in locks, not in flicks: what matters is how many of them
   // a hand gets out of.
   escape: +flag('escape', 0),
+  // What it costs to be looking at the wrong thing.
+  //
+  // The thumb is perfectly vigilant: it never does two things at once, and it
+  // never has to be told twice either. A person holds base with the left
+  // thumb, watches the ring, watches the arrow and thinks about what to do
+  // next, and pays something every time they change which of those they are
+  // doing. This is that price, in milliseconds, added to the reaction whenever
+  // the hand turns to something other than what it was already on. 0 is the
+  // watchman it has been until now; run both and the difference is what
+  // attention is worth in this game.
+  attention: +flag('attention', 0),
   // One seed for the fight and one for the hand, derived from it. With it the
   // same run can be played twice with one thing changed — which is the only
   // way to tell a change in the game from a change in the dice.
@@ -103,7 +114,8 @@ await page.waitForFunction(() => window.__bjj && window.__stats, null, { timeout
 
 console.log(`${CFG.matches} match(es) of ${CFG.seconds}s against a ${CFG.belt} belt` +
   `, thumb: ${CFG.react}±${CFG.jitter} ms, beat ±${CFG.beat} ms, reading ${CFG.play}` +
-  `, seed ${CFG.seed}\n`);
+  `, seed ${CFG.seed}` +
+  (CFG.attention ? `, ${CFG.attention} ms to turn its head` : ', perfectly vigilant') + '\n');
 
 const out = await page.evaluate((cfg) => new Promise((done) => {
   const ui = document.getElementById('ui');
@@ -175,11 +187,20 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
 
   const st = {
     matches: [], hit: 0, miss: 0, denies: 0, denied: 0, blind: 0, escapes: 0,
-    locks: 0, out: 0, tapped: 0, ranOut: 0, lockSecs: 0, flicksOut: 0, blindOut: 0,
+    locks: 0, out: 0, tapped: 0, ranOut: 0, lockSecs: 0, flicksOut: 0, blindOut: 0, turns: 0, matFrames: 0, offSquare: 0, matWorst: 0,
     tries: 0, landed: 0, subTries: 0, subLanded: 0, grips: 0, flicksIgnored: 0,
     ignoredSub: 0, ignoredBusy: 0, ignoredCool: 0, ignoredTired: 0, ignoredNothing: 0, fps: 0,
   };
   let m = null, patched = null, cur = null, inLock = false, lastThrown = null;
+  // What the hand is currently on: 'deny', 'beat', 'out' or 'move'. Turning to
+  // anything else costs --attention, once, on the reaction that does it.
+  let focus = null;
+  const turnTo = (kind) => {
+    const cost = focus === kind ? 0 : cfg.attention / 1000;
+    if (cost) st.turns++;
+    focus = kind;
+    return cost;
+  };
   function patch(match) {
     const oi = match.input.bind(match);
     match.input = (i, dir) => {
@@ -274,8 +295,27 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       if (prevClock !== null && m.time < prevClock) gt += prevClock - m.time;
       prevClock = m.time;
     }
-    if (plan && gt >= plan.at) { const p = plan; plan = null; p.do(); }
+    if (plan && gt >= plan.at) {
+      const p = plan;
+      plan = null;
+      // A hand that has decided to attack and then sees something coming at it
+      // does not finish the attack. Without this the cost of attention is
+      // measured twice: once as lateness, and again as flicks thrown into a
+      // situation that had already changed — four in five of them, in the
+      // first run of this.
+      const stale = p.kind === 'move' && (m.state !== 'live' || m.attempt);
+      if (!stale) p.do();
+    }
 
+    // Where on the mat the hand takes the fight. The AI never leaves the
+    // eight-metre square — sim-check counts that — but it is the left thumb
+    // that walks the pair, and the left thumb here belongs to a player.
+    if (m.state === 'live' || m.state === 'sub') {
+      const d = Math.max(Math.abs(m.origin[0]), Math.abs(m.origin[2]));
+      st.matFrames++;
+      if (d > 4) st.offSquare++;
+      if (d > st.matWorst) st.matWorst = d;
+    }
     st.saw = `${m.state} ${m.time.toFixed(0)}s ${m.position}`;
     st.fps = window.__stats ? window.__stats.fps : 0;
     if (cfg.drill && st.hit + st.miss >= cfg.drill) { done(st); return; }
@@ -325,7 +365,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       const seen = cfg.play === 'random' ? null : m.visibleDeny(0);
       if (!seen) st.blind++;
       const dir = seen || ['up', 'down', 'left', 'right'][(rnd() * 4) | 0];
-      plan = { at: gt + late(), do: () => m.input(0, dir) };
+      plan = { kind: 'deny', at: gt + late() + turnTo('deny'), do: () => m.input(0, dir) };
     } else if (cfg.escape && m.state === 'live' && !m.attempt && !plan) {
       // The mirror of the drill below: the lock goes on us. Both men are put
       // back on full gas first — a man four locks in escapes worse than a
@@ -366,7 +406,11 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
         // phase at the rate the ring actually pulses. On a phone at sixty
         // frames the two are the same thing.
         if (aim === null && s.phase < 0.5) {
-          aim = Math.min(0.99, Math.max(0.05, 0.75 + gauss(cfg.beat) * 0.00115));
+          // Turning to the ring costs the same as turning to anything else,
+          // and here it is spent in phase rather than in seconds — the ring is
+          // what the hand is late for.
+          aim = Math.min(0.99, Math.max(0.05,
+            0.75 + gauss(cfg.beat) * 0.00115 + turnTo('beat') * 1.15));
         }
         if (aim !== null && s.phase >= aim) { aim = null; m.subTap(0); }
       } else if (gt > nextEscape) {
@@ -386,14 +430,15 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
           lastThrown = dir;
           nextEscape = gt + 0.35;
           st.flicksOut++;
-          plan = { at: gt + late(), do: () => m.input(0, dir) };
+          plan = { kind: 'out', at: gt + late() + turnTo('out'), do: () => m.input(0, dir) };
         }
       }
     } else if (m.state === 'live' && !m.attempt && gt > nextMove && !plan) {
       // Its own turn. A hand does not fire four times a second.
       nextMove = gt + 0.7 + rnd() * 0.7;
       const dir = pick(m);
-      plan = { at: gt + late(), do: () => { if (dir) flick(dir); else tap(); } };
+      plan = { kind: 'move', at: gt + late() + turnTo('move'),
+        do: () => { if (dir) flick(dir); else tap(); } };
     }
     requestAnimationFrame(step);
   }
@@ -420,6 +465,12 @@ console.log(`    beats     ${out.hit} on, ${out.miss} off` +
 console.log(`    denials   ${out.denied} of ${out.denies} answered in time` +
   `  (${out.blind} of them thrown blind, with his posture gone)`);
 console.log(`    escapes   ${out.escapes} flicks that were the way out`);
+if (CFG.attention) {
+  console.log(`    attention ${out.turns} times it had to turn its head` +
+    `, at ${CFG.attention} ms each`);
+}
+console.log(`    the mat   ${((out.offSquare / Math.max(1, out.matFrames)) * 100).toFixed(1)}%` +
+  ` of the fight off the eight-metre square, furthest ${out.matWorst.toFixed(1)}m from the middle`);
 if (CFG.escape) {
   const done = out.out + out.tapped + out.ranOut;
   console.log(`    caught    ${out.locks} locks on the thumb, ${done} of them finished:` +

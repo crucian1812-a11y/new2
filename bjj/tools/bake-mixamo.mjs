@@ -21,6 +21,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { readMixamo, bare as bareName } from './mixamo.mjs';
 import { vertexAO } from './ao.mjs';
+import { decimate, deviation } from './decimate.mjs';
 import { Skeleton, BONES, BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
 
 const argv = process.argv.slice(2);
@@ -35,6 +36,9 @@ const REPORT = argv.includes('--report');
 // a collar, a skirt and a belt — is put on the body instead. --nogi keeps what
 // the character arrived in.
 const NOGI = argv.includes('--nogi');
+// Thin the merged mesh to about this many triangles before baking. 0 leaves it
+// alone. See the decimation block at the bottom of this file.
+const TRIS = +flag('tris', 0);
 
 /* --------------------------------------------------------- the bone map */
 
@@ -822,8 +826,35 @@ function encode(P, N, UV, bone, wt, mat, ao, idx) {
   return buf.subarray(0, o);
 }
 
-const AO = bakeAO(pos, N, idx);
-const out = encode(pos, N, UV, BONE, WT, MAT, AO, idx);
+/* ------------------------------------------------------------ decimation */
+
+// --tris N thins the mesh to about N triangles before anything is measured on
+// it. Off by default: the first fighter is 29 865 triangles and needs no help.
+// The second arrived at 46 314 and is drawn three times a frame.
+//
+// It runs here, after everything that is measured off the mesh and before the
+// one thing that is measured off the surface: the eyeball UVs and the gi's
+// patch rectangles are per-vertex and survive a collapse untouched, because a
+// collapse moves a vertex onto one that already exists and keeps that one's
+// attributes; the occlusion is a property of the surface, so it is baked on
+// the triangles that will actually be lit rather than on the ones that were
+// thrown away.
+let FINAL = { pos, nrm: N, uv: UV, bone: BONE, wt: WT, mat: MAT, ao: null, idx: Array.from(idx) };
+if (TRIS > 0 && idx.length / 3 > TRIS) {
+  const t0 = Date.now();
+  const before = { pos, idx: Array.from(idx) };
+  const thin = decimate(FINAL, TRIS);
+  const dev = deviation(before, thin);
+  console.log(`decimated ${idx.length / 3} -> ${thin.idx.length / 3} tris, ` +
+    `${pos.length / 3} -> ${thin.count} verts in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(`  the surface moved ${(dev.mean * 1000).toFixed(1)}mm on average, ` +
+    `${(dev.worst * 1000).toFixed(0)}mm at worst, over ${dev.seen} samples`);
+  FINAL = thin;
+}
+
+const AO = bakeAO(FINAL.pos, FINAL.nrm, FINAL.idx);
+const out = encode(FINAL.pos, FINAL.nrm, FINAL.uv, FINAL.bone, FINAL.wt, FINAL.mat, AO, FINAL.idx);
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, out);
-console.log(`\nwrote ${OUT}  ${(out.length / 1024).toFixed(0)} KB  ${pos.length / 3} verts  ${idx.length / 3} tris`);
+console.log(`\nwrote ${OUT}  ${(out.length / 1024).toFixed(0)} KB  ` +
+  `${FINAL.pos.length / 3} verts  ${FINAL.idx.length / 3} tris`);

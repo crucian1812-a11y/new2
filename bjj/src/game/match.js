@@ -33,6 +33,13 @@ const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
 // one, get flattened, see less, miss more.
 const DENY_READ = 70;
 
+// The competition square is eight metres, so its edge is four from the middle.
+// A second and a bit outside it is a referee noticing rather than a referee
+// twitching, and coming back at a metre and a half a second is a walk.
+const MAT_HALF = 4;
+const OUT_PATIENCE = 1.2;
+const RECALL_SPEED = 1.5;
+
 // How long a submission can be on before the man in it stops being able to
 // read the way out, in seconds. See visibleEscape.
 //
@@ -102,6 +109,9 @@ export class Match {
                    subTries: 0, subDenied: 0, subFailed: 0, subLanded: 0 };
     this.winBy = null;
     this.origin = [0, 0, 0];
+    // Out of bounds, and being walked back in. See _drift.
+    this.outT = 0;
+    this.recall = false;
     this.yaw = 0;
     this.intensity = 0;
     this.gripAdv = [0, 0]; // won grip exchanges, decays
@@ -860,6 +870,41 @@ export class Match {
     const p = POSES[this.position];
     const c0 = control && control[0];
     if (!c0) return;
+
+    // The referee's one job, and until now nobody did it.
+    //
+    // The mat is an eight-metre square and the drift was clamped at 4.6, which
+    // is not a rule, it is a wall: a thumb held in one direction walks the pair
+    // into it in six seconds and the fight goes on there. The AI never does
+    // this — sim-check measures 0.0% of the clock off the square — but a hand
+    // does it immediately, and the first run of the thumb that counted found
+    // **85% of the match** being fought outside the competition area with both
+    // men pinned against the clamp.
+    //
+    // So the sport's own rule: out of the square, and the referee stops them
+    // and restarts in the middle in the position they were in. Nothing about
+    // the fight itself changes — no points, no reset of the position, the
+    // clock keeps running — the pair is simply walked back, and while they are
+    // being walked back the left thumb does not steer.
+    const out = Math.max(Math.abs(this.origin[0]), Math.abs(this.origin[2]));
+    if (this.recall) {
+      const d = Math.hypot(this.origin[0], this.origin[2]);
+      const step = Math.min(d, RECALL_SPEED * dt);
+      if (d > 1e-4) {
+        this.origin[0] -= (this.origin[0] / d) * step;
+        this.origin[2] -= (this.origin[2] / d) * step;
+      }
+      if (d - step < 1.6) this.recall = false;
+      return;
+    }
+    this.outT = out > MAT_HALF ? this.outT + dt : 0;
+    if (this.outT > OUT_PATIENCE) {
+      this.outT = 0;
+      this.recall = true;
+      this.emit('СТОП — В ЦЕНТР', 'ref');
+      this.onEvent({ kind: 'recall' });
+      return;
+    }
     const speed = p.ground ? 0.22 : 1.35;
     this.origin[0] = clamp(this.origin[0] + c0.mx * speed * dt, -4.6, 4.6);
     this.origin[2] = clamp(this.origin[2] + c0.mz * speed * dt, -4.6, 4.6);
