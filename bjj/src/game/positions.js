@@ -148,9 +148,15 @@ export const TRANSITIONS = [
     name: 'Вернуть гард', en: 'Recover guard', points: 0, cost: 20,
     base: 0.45, time: 0.85, deny: 'up', becomes: 'bottom',
   }),
+  // The only edge in the graph that ends where it began, and the one place the
+  // paired-pose scheme shows its seam: side control is side control whichever
+  // of the two is underneath, so with `to` naming the position there was
+  // nothing for the rig to interpolate and the two men changed places in a
+  // single frame. `mirror` says the blend runs to the same tangle stored the
+  // other way round — which is what a bridge and roll is.
   T('SIDE_CONTROL', 'bottom', 'left', 'SIDE_CONTROL', {
     name: 'Мост и переворот', en: 'Bridge and roll', points: 2, cost: 30,
-    base: 0.26, time: 1.0, deny: 'right', swap: true, becomes: 'top',
+    base: 0.26, time: 1.0, deny: 'right', swap: true, becomes: 'top', mirror: true,
   }),
   T('SIDE_CONTROL', 'bottom', 'right', 'TURTLE', {
     name: 'В черепаху', en: 'Turtle up', points: 0, cost: 16, base: 0.6,
@@ -237,6 +243,11 @@ for (const t of TRANSITIONS) {
   const roles = t.role === 'any' ? ['top', 'bottom'] : [t.role];
   for (const r of roles) BY_POSITION[t.from][r][t.dir] = t;
 }
+
+// Where the picture goes during a transition, which is not always where the
+// fight goes: a sweep travels to the mirror of its destination and the roles
+// change hands on arrival. See MIRRORS in poses.js.
+export const visualTo = (tr) => (tr.mirror ? tr.to + '_X' : tr.to);
 
 export function optionsFor(position, role) {
   const p = BY_POSITION[position];

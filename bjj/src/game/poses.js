@@ -1391,6 +1391,47 @@ for (const p of Object.values(POSES)) {
   for (const k of Object.keys(base)) if (!VARIANT_OWN.has(k)) p[k] = base[k];
 }
 
+// Poses that also exist with their two slots exchanged.
+//
+// A sweep is the two of them trading places, and the pose library on its own
+// cannot say that. SIDE_CONTROL has slot A on top, and so does MOUNT, so the
+// blend from one to the other carries the top man to the top — whoever the
+// sweep belonged to. Measured on the hips, the two never cross: slot A's pelvis
+// stays above slot B's for the whole of every sweep in the game, and the only
+// thing that ever changed hands was the label, in the final frame.
+//
+// The mirror is the same tangle stored the other way round. Blending into it
+// carries each body to the other's place, which is the motion; arriving flips
+// the roles, which renders identically to the last frame of the blend, so the
+// exchange costs nothing at the join.
+//
+// Nothing is authored twice: A and B are exchanged, and so is every reference
+// to a role inside `hold` and `grips`.
+const MIRRORS = ['SIDE_CONTROL'];
+const flipRole = (r) => (r === 'A' ? 'B' : r === 'B' ? 'A' : r);
+const flipRef = (ref) =>
+  (typeof ref === 'string' && /^[AB]\./.test(ref) ? flipRole(ref[0]) + ref.slice(1) : ref);
+export const mirrorId = (id) => id + '_X';
+for (const id of MIRRORS) {
+  const p = POSES[id];
+  if (!p) throw new Error(`no pose to mirror: ${id}`);
+  POSES[mirrorId(id)] = {
+    ...p,
+    id: mirrorId(id),
+    mirrorOf: id,
+    A: p.B,
+    B: p.A,
+    top: flipRole(p.top),
+    hold: (p.hold || []).map((h) => {
+      const o = { ...h };
+      for (const k of ['of', 'above', 'near', 'far', 'straddle']) if (o[k]) o[k] = flipRef(o[k]);
+      if (o.with) o.with = o.with.map(flipRef);
+      return o;
+    }),
+    grips: (p.grips || []).map((g) => ({ ...g, role: flipRole(g.role) })),
+  };
+}
+
 export const POSE_IDS = Object.keys(POSES);
 
 // What each held position cycles through while it is held.
@@ -1409,7 +1450,7 @@ export const HOLD_LOOPS = (() => {
 // Positions the game can actually be in — the graph's nodes, without the
 // variants that only exist inside one of them.
 export const POSITION_IDS = Object.keys(POSES)
-  .filter((id) => !POSES[id].variantOf && !POSES[id].waypoint);
+  .filter((id) => !POSES[id].variantOf && !POSES[id].waypoint && !POSES[id].mirrorOf);
 
 // Poses that exist only to be passed through: see ACROSS. They are real poses —
 // solved, measured, held to the same standards — and they are not places the

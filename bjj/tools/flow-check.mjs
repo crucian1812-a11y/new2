@@ -21,7 +21,7 @@
 
 import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
 import { AI } from '../src/game/ai.js';
-import { POSES } from '../src/game/poses.js';
+import { POSES, POSITION_IDS } from '../src/game/poses.js';
 import { optionsFor, DIRS } from '../src/game/positions.js';
 import { seedRandom } from '../src/game/rng.js';
 
@@ -42,11 +42,11 @@ const check = (ok, msg, extra = '') => {
 /* ------------------------------------------------ what the ring is wired to */
 
 // Only positions the fight can actually be in. Variants are the hold loop's
-// business and waypoints are the rig's; neither is ever `match.position`, and
-// counting them made a first pass at this report say 77% of the ring was blank.
-const PLAYABLE = Object.keys(POSES).filter(
-  (id) => POSES[id].name && !POSES[id].variantOf && !POSES[id].waypoint && !POSES[id].submission
-);
+// business, waypoints are the rig's and mirrors are the sweep's; none of them
+// is ever `match.position`, and counting them made a first pass at this report
+// say 77% of the ring was blank. POSITION_IDS is where that list already
+// lives, so this asks for it rather than rebuilding the filter and drifting.
+const PLAYABLE = POSITION_IDS.filter((id) => !POSES[id].submission);
 
 function ringCoverage() {
   const rows = [];
@@ -65,6 +65,47 @@ function ringCoverage() {
 }
 
 /* ---------------------------------------------------------- how it plays out */
+
+// Is the picture in this frame next to the picture in the last one?
+//
+// Not "did the parameter go backwards" — a failed attempt is *meant* to unwind,
+// and a first pass at this counted every frame of that as a jump and reported
+// six hundred of them. What the eye objects to is a discontinuity: the bodies
+// somewhere, and one frame later somewhere they cannot have travelled to.
+//
+// Two frames are next to each other if they are on the same segment and close
+// along it, or if both are parked on the same pose — which is what the start of
+// an attempt and the end of a retreat both are, even though the two ends of the
+// blend get renamed underneath them. Returns how far apart they are, 0 for
+// continuous.
+function discontinuity(a, b) {
+  if (a.from === b.from && a.to === b.to) {
+    const d = Math.abs(a.t - b.t);
+    // A blend at its fastest covers about 0.08 of itself in a frame; anything
+    // past twice that did not travel, it cut.
+    return d > 0.15 ? d : 0;
+  }
+  // Different segments, so the question is whether they touch. How far a frame
+  // sits from a given pose: nothing if the segment is that pose at both ends,
+  // otherwise how far along it has gone from it or has left to reach it.
+  const distTo = (s, x) => {
+    if (s.from === x && s.to === x) return 0;
+    if (s.from === x) return s.t;
+    if (s.to === x) return 1 - s.t;
+    return null;
+  };
+  // Testing an exact endpoint is too strict: an attempt's first frame is
+  // already two or three hundredths along, and counting that as a cut put a
+  // hundred and fifty phantom breaks a match in this report.
+  let best = Infinity;
+  for (const x of new Set([a.from, a.to, b.from, b.to])) {
+    const da = distTo(a, x), db = distTo(b, x);
+    if (da === null || db === null) continue;
+    best = Math.min(best, da + db);
+  }
+  if (best === Infinity) return 1;   // no pose in common at all
+  return best > 0.15 ? best : 0;
+}
 
 function play(level) {
   const m = new Match([new Fighter('вы'), new Fighter('соперник')], { time: MATCH_TIME });
@@ -91,23 +132,8 @@ function play(level) {
     s.frames++;
 
     const now = shot();
-    // Two ways the picture can jump, and they are the same defect seen from
-    // either side of a resolution.
-    //
-    //   · the pair being blended stayed the same and the parameter went
-    //     backwards — that is a failed attempt snapping home;
-    //   · the pair changed while the parameter was well along and restarted
-    //     near zero — that is a successful one being replayed from the top.
-    //
-    // Either way the bodies are somewhere, and one frame later they are
-    // somewhere they already were.
-    if (now.from === prev.from && now.to === prev.to) {
-      const back = prev.t - now.t;
-      if (back > 0.02) { s.breaks++; s.worstBreak = Math.max(s.worstBreak, back); }
-    } else if (prev.t > 0.3 && now.t < 0.05) {
-      s.breaks++;
-      s.worstBreak = Math.max(s.worstBreak, prev.t);
-    }
+    const gap = discontinuity(prev, now);
+    if (gap > 0) { s.breaks++; s.worstBreak = Math.max(s.worstBreak, gap); }
     prev = now;
 
     if (m.state === 'live') {
@@ -147,8 +173,8 @@ console.log(`     ${runs} matches in ${ms}ms, ${(agg.positions / runs).toFixed(1
 // eye reads that as the game glitching rather than as the fighter moving.
 check(
   breaksPer < 0.5,
-  'the picture never jumps backwards',
-  `${breaksPer.toFixed(1)} per match, worst ${(agg.worstBreak * 100).toFixed(0)}% of a blend`
+  'the picture never cuts',
+  `${breaksPer.toFixed(1)} discontinuities per match, worst ${(agg.worstBreak * 100).toFixed(0)}% of a blend`
 );
 
 // Some of this is right: during an attempt the four labels genuinely have
