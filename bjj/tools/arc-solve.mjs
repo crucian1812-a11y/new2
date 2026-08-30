@@ -369,7 +369,23 @@ if (WRITE) {
   // The two accidents above both ended in a file with forty arcs missing and a
   // cheerful "wrote 1 arcs" underneath, so the check is here rather than in a
   // comment: a run that would drop somebody else's work writes nothing.
-  const lost = [...WAS].filter((key) => !solving.has(key) && !results.some((r) => r.key === key && r.arc));
+  //
+  // An arc for a blend the graph no longer has is a different thing, and the
+  // check could not tell them apart. Pointing the sweeps at mirrored
+  // destinations retired CLOSED_GUARD>MOUNT and five like it — nothing looks
+  // them up any more — and the guard refused every subsequent write to protect
+  // them, so four solved arcs were computed and thrown away twice before the
+  // reason surfaced. A key that is not in this run's list of live blends at all
+  // is dropped and said out loud; a key that is live and merely not named is
+  // still untouchable.
+  const live = new Set(keys);
+  const orphans = [...WAS].filter((key) => !live.has(key));
+  const lost = [...WAS].filter((key) =>
+    live.has(key) && !solving.has(key) && !results.some((r) => r.key === key && r.arc));
+  if (orphans.length) {
+    console.log(`\ndropping ${orphans.length} arc(s) whose blend is no longer in the graph:`);
+    console.log(orphans.map((k) => `  ${k}`).join('\n'));
+  }
   if (lost.length) {
     console.error(`\nrefusing to write: ${lost.length} arc(s) this run was not asked to touch would be lost`);
     console.error(lost.slice(0, 8).map((k) => `  ${k}`).join('\n'));
