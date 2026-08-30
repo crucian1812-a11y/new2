@@ -14,7 +14,7 @@
 // stays welded through the whole move even while everything else interpolates.
 
 import {
-  quat, qIdent, qEuler, qMul, qSlerp, qBetween, m4, m4compose, m4mul,
+  quat, qIdent, qEuler, qMul, qSlerp, qCopy, qBetween, m4, m4compose, m4mul,
   m4invRigid, m4dir, v3, v3set, v3copy, v3sub, v3norm, v3len, v3dot, v3cross, clamp,
 } from '../core/m4.js';
 
@@ -175,6 +175,9 @@ const _q = quat(), _q2 = quat();
 // inverse is more arithmetic than a local-space solve, but it is the only
 // version that stays correct when the fighter's root is upside down, which on
 // the bottom of side control it very often is.
+const _kU = quat();
+const _kL = quat();
+
 export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1) {
   const iU = BONE_INDEX[upper];
   const iL = BONE_INDEX[lower];
@@ -217,16 +220,36 @@ export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1)
   // Upper-bone direction = goal direction rotated by angU about the bend axis.
   rotAbout(_f, _d, _e, angU);
 
-  applyWorldAim(sk, iU, _f, weight);
-  sk.poseFrom(iU);
+  // Solved whole, then eased into — rather than each bone eased separately.
+  //
+  // The two aims used to take `weight` one at a time, and that is not the same
+  // thing: the upper bone stops part of the way to its solution while the
+  // forearm is aimed all the way at the target from wherever the elbow actually
+  // ended up, so the joint between them has to make up the difference. At half
+  // weight it made it up by folding past what an elbow does, and sometimes by
+  // folding the other way — joint-check counted 3672 samples bending backwards
+  // with the grips on against 288 with them off.
+  //
+  // Both ends of this interpolation are now poses that exist: the authored one
+  // and the fully solved one. Sliding between them cannot invent a joint that
+  // is in neither.
+  qCopy(_kU, sk.local[iU]);
+  qCopy(_kL, sk.local[iL]);
 
+  applyWorldAim(sk, iU, _f, 1);
+  sk.poseFrom(iU);
   // With the shoulder placed, the elbow's new world position is known; aim the
   // forearm straight at the target from there.
   sk.boneHead(_b, lower);
   v3sub(_f, target, _b);
   v3norm(_f, _f);
-  applyWorldAim(sk, iL, _f, weight);
-  sk.poseFrom(iL);
+  applyWorldAim(sk, iL, _f, 1);
+
+  if (weight < 0.999) {
+    qSlerp(sk.local[iU], _kU, sk.local[iU], weight);
+    qSlerp(sk.local[iL], _kL, sk.local[iL], weight);
+  }
+  sk.poseFrom(iU);
   return iE;
 }
 

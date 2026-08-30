@@ -1097,9 +1097,25 @@ export class Match {
       this.onEvent({ kind: 'recall' });
       return;
     }
-    const speed = p.ground ? 0.22 : 1.35;
-    this.origin[0] = clamp(this.origin[0] + c0.mx * speed * dt, -4.6, 4.6);
-    this.origin[2] = clamp(this.origin[2] + c0.mz * speed * dt, -4.6, 4.6);
+    // On the ground the left thumb is weight, not a throttle.
+    //
+    // It used to translate the pair at 0.22 m/s down there as well, and nothing
+    // plants a contact in a ground position — the step planner only runs
+    // standing, and says so: "on the ground the pose owns the feet completely".
+    // So every point touching the tatami moved at exactly the drift speed:
+    // measured at 0.22 m/s for the shoulder, hip and knee of a man lying on his
+    // back, which is a body being slid across the mat rather than one moving on
+    // it. Ice, in one number.
+    //
+    // What the thumb is *for* down there is already written down and already
+    // wired: weight and hip pressure, which is `drive`, and it goes straight
+    // into whether a transition lands. Taking the translation away costs the
+    // ground game nothing it was using and takes the skating with it.
+    const speed = p.ground ? 0 : 1.35;
+    if (speed) {
+      this.origin[0] = clamp(this.origin[0] + c0.mx * speed * dt, -4.6, 4.6);
+      this.origin[2] = clamp(this.origin[2] + c0.mz * speed * dt, -4.6, 4.6);
+    }
     if (!p.ground) this.yaw += c0.turn * dt * 0.9;
     else this.yaw += c0.turn * dt * 0.2;
     this.drive = c0.drive;

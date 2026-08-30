@@ -85,6 +85,34 @@ const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
 // the part on the mat and the knees carry half the positions in this game.
 const LOW = ['handL', 'handR', 'footL', 'footR', 'hips', 'shinL', 'shinR', 'chest', 'head'];
 
+// The joints that only bend one way, and how far this pose has pushed them.
+// Same convention and same axis as tools/joint-check.mjs, which judges the
+// result: flexion is negative about the upper bone's own X.
+const CHAINS = [
+  ['armL', 'foreL', 'handL'], ['armR', 'foreR', 'handR'],
+  ['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR'],
+];
+const _ja = [0, 0, 0], _jb = [0, 0, 0], _jc = [0, 0, 0];
+function joint(sk, upper, mid, low) {
+  sk.boneHead(_ja, upper); sk.boneHead(_jb, mid); sk.boneHead(_jc, low);
+  const ux = _jb[0] - _ja[0], uy = _jb[1] - _ja[1], uz = _jb[2] - _ja[2];
+  const fx = _jc[0] - _jb[0], fy = _jc[1] - _jb[1], fz = _jc[2] - _jb[2];
+  const ul = Math.hypot(ux, uy, uz) || 1, fl = Math.hypot(fx, fy, fz) || 1;
+  const u = [ux / ul, uy / ul, uz / ul], f = [fx / fl, fy / fl, fz / fl];
+  const m = sk.world[BONE_INDEX[upper]];
+  const al = Math.hypot(m[0], m[1], m[2]) || 1;
+  const ax = [m[0] / al, m[1] / al, m[2] / al];
+  const c = [u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0]];
+  const along = c[0] * ax[0] + c[1] * ax[1] + c[2] * ax[2];
+  const flex = Math.atan2(along, u[0] * f[0] + u[1] * f[1] + u[2] * f[2]) * (180 / Math.PI);
+  const cl = Math.hypot(c[0], c[1], c[2]);
+  const a = Math.abs(flex);
+  const side = a < 15 || a > 165 || cl < 1e-6
+    ? 0
+    : Math.acos(Math.min(1, Math.abs((c[0] * ax[0] + c[1] * ax[1] + c[2] * ax[2]) / cl))) * (180 / Math.PI);
+  return { flex, side };
+}
+
 function measure(from, to) {
   let sum = 0, worst = 0, where = null;
   const low = new Array(STEPS);
@@ -113,6 +141,23 @@ function measure(from, to) {
       for (const b of LOW) lo = Math.min(lo, rig.skel[role].world[BONE_INDEX[b]][13]);
     }
     low[i] = lo;
+    // Nor into an arm that cannot exist.
+    //
+    // The correction moves forearms and shins on three axes and nothing held it
+    // to the one axis those joints turn about, so it bought its way out of
+    // collisions by hinging elbows sideways: joint-check found the median at 7
+    // degrees off-axis and the ninetieth percentile at 55, with the grips
+    // switched off so the blame was unambiguous. Charged here, in the same
+    // squared units as everything else, so the solver trades it against depth
+    // rather than being forbidden it.
+    for (const role of ['A', 'B']) {
+      for (const [upper, mid, low] of CHAINS) {
+        const j = joint(rig.skel[role], upper, mid, low);
+        if (j.flex > 4) sum += (j.flex - 4) * (j.flex - 4) * 4e-4;
+        if (j.flex < -150) sum += (j.flex + 150) * (j.flex + 150) * 4e-4;
+        if (j.side > 20) sum += (j.side - 20) * (j.side - 20) * 2e-4;
+      }
+    }
   }
   // Nor off it.
   //

@@ -545,29 +545,50 @@ console.log(
   // And where he actually stands, against the fight he is watching. He is
   // placed off the pair's own frame, so this is the same number wherever the
   // fight has drifted to.
-  ref.placed = false;
-  ref.update(0.5, 'live', true, [0, 0, 0], 0);
   // The pair goes back to the middle of the mat: an earlier section walks it
   // five metres sideways, and a referee measured against a fight that is not
   // there is measuring the mat.
   rig.origin[0] = 0; rig.origin[2] = 0;
-  rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
-  rig.applyAt('MOUNT', 'MOUNT', 1, 0.016);
-  let near = 9;
-  for (const role of ['A', 'B']) {
-    const d = overlap.measure(rig.skel[role], ref.skel);
-    if (d.deepest > 0) near = -d.deepest;
-    for (const b of READ) {
-      const m = rig.skel[role].world[BONE_INDEX[b]];
-      for (const c of READ) {
-        const n = ref.skel.world[BONE_INDEX[c]];
-        near = Math.min(near, Math.hypot(m[12] - n[12], m[13] - n[13], m[14] - n[14]));
+
+  // Every position, all the way round, and every frame of the walk.
+  //
+  // This used to be one pose from one camera angle at one instant, and it
+  // reported seventy-nine centimetres of daylight while the referee was walking
+  // through people. He is placed off the camera's bearing, so when the shot
+  // cuts to the other side of the action he crosses the mat to keep his view —
+  // in a straight line, at 1.3 m/s, and the straight line goes through the
+  // fight. Standing still he clears a mount; it is the crossing that does not,
+  // and nothing sampled the crossing.
+  let near = 9, worstPose = null, worstAt = 0;
+  for (const id of Object.keys(POSES)) {
+    if (POSES[id].waypoint) continue;
+    rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
+    rig.applyAt(id, id, 1, 0.016);
+    ref.placed = false;
+    ref.update(0.5, 'live', POSES[id].ground, [0, 0, 0], 0);
+    // Four seconds of the camera going all the way round, stepped like the game
+    // steps it, so both where he settles and how he gets there are measured.
+    for (let f = 0; f < 240; f++) {
+      const bearing = (f / 240) * Math.PI * 2;
+      ref.update(1 / 60, 'live', POSES[id].ground, [0, 0, 0], bearing);
+      for (const role of ['A', 'B']) {
+        const d = overlap.measure(rig.skel[role], ref.skel);
+        let here = d.deepest > 0 ? -d.deepest : 9;
+        for (const b of READ) {
+          const m = rig.skel[role].world[BONE_INDEX[b]];
+          for (const c of READ) {
+            const n = ref.skel.world[BONE_INDEX[c]];
+            here = Math.min(here, Math.hypot(m[12] - n[12], m[13] - n[13], m[14] - n[14]));
+          }
+        }
+        if (here < near) { near = here; worstPose = id; worstAt = bearing; }
       }
     }
   }
   const clear = near > 0.5;
   if (!clear) problems++;
-  console.log(`${clear ? ' ' : '!'} referee stands ${(near * 100).toFixed(0)}cm clear of the fight`);
+  console.log(`${clear ? ' ' : '!'} referee stands ${(near * 100).toFixed(0)}cm clear of the fight` +
+    (worstPose ? `  (closest in ${worstPose}, camera at ${((worstAt * 180) / Math.PI).toFixed(0)}deg)` : ''));
 }
 
 console.log(problems ? `\n${problems} problem(s)` : '\nall poses clean');
