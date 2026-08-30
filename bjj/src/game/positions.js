@@ -88,11 +88,11 @@ export const TRANSITIONS = [
   }),
   T('CLOSED_GUARD', 'bottom', 'left', 'MOUNT', {
     name: 'Переворот', en: 'Hip bump sweep', points: 2, cost: 26, base: 0.38,
-    time: 0.95, deny: 'right', swap: true, becomes: 'top',
+    time: 0.95, deny: 'right', swap: true, mirror: true, becomes: 'top',
   }),
   T('CLOSED_GUARD', 'bottom', 'right', 'BACK', {
     name: 'Выход на спину', en: 'Take the back', points: 4, cost: 30, base: 0.24,
-    time: 1.0, deny: 'left', swap: true, becomes: 'top', big: true,
+    time: 1.0, deny: 'left', swap: true, mirror: true, becomes: 'top', big: true,
   }),
 
   /* ---------------------------------------------------------- open guard */
@@ -113,7 +113,7 @@ export const TRANSITIONS = [
   }),
   T('OPEN_GUARD', 'bottom', 'left', 'MOUNT', {
     name: 'Свип', en: 'Sweep', points: 2, cost: 26, base: 0.36, time: 0.95,
-    deny: 'right', swap: true, becomes: 'top',
+    deny: 'right', swap: true, mirror: true, becomes: 'top',
   }),
   T('OPEN_GUARD', 'bottom', 'right', 'STANDING', {
     name: 'Подъём', en: 'Technical stand-up', points: 0, cost: 20, base: 0.55,
@@ -139,11 +139,11 @@ export const TRANSITIONS = [
   }),
   T('HALF_GUARD', 'bottom', 'left', 'SIDE_CONTROL', {
     name: 'Свип из-под низа', en: 'Underhook sweep', points: 2, cost: 28,
-    base: 0.32, time: 1.0, deny: 'right', swap: true, becomes: 'top',
+    base: 0.32, time: 1.0, deny: 'right', swap: true, mirror: true, becomes: 'top',
   }),
   T('HALF_GUARD', 'bottom', 'right', 'BACK', {
     name: 'Выход на спину', en: 'Back take', points: 4, cost: 30, base: 0.22,
-    time: 1.0, deny: 'left', swap: true, becomes: 'top', big: true,
+    time: 1.0, deny: 'left', swap: true, mirror: true, becomes: 'top', big: true,
   }),
 
   /* -------------------------------------------------------- side control */
@@ -220,7 +220,7 @@ export const TRANSITIONS = [
   }),
   T('MOUNT', 'bottom', 'left', 'CLOSED_GUARD', {
     name: 'Мост (упа)', en: 'Upa escape', points: 2, cost: 32, base: 0.26,
-    time: 1.05, deny: 'right', swap: true, becomes: 'top',
+    time: 1.05, deny: 'right', swap: true, mirror: true, becomes: 'top',
   }),
   T('MOUNT', 'bottom', 'down', 'HALF_GUARD', {
     name: 'Выкрут бедром', en: 'Elbow escape', points: 0, cost: 24, base: 0.4,
