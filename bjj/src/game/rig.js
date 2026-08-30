@@ -774,6 +774,29 @@ export class PairRig {
     // to be releasing would be gripping harder.
     const PASSES = 3;
     for (const g of list) g.pass = 1 - Math.pow(1 - g.w, 1 / PASSES);
+
+    // Where the pose put each elbow, remembered before anything moves.
+    //
+    // The solver decides which side the elbow goes on from a pole vector, and
+    // with none supplied it uses the arm's *current* direction — which is the
+    // authored one on the first pass and, by the second, a direction that has
+    // already been swung most of the way towards the target. Once the pole and
+    // the goal are nearly parallel the plane they define is noise, and the
+    // elbow lands on whichever side the noise pointed: measured across the
+    // library, the back's right elbow was authored at -82 degrees and came out
+    // of three passes at +155.
+    //
+    // Snapshotting it here makes all three passes solve the same shape of arm.
+    // It is the sentence the solver's own comment already claims — the pose
+    // decides how the arm is bent, IK decides where the hand ends up — made
+    // true for passes two and three as well as one.
+    for (const g of list) {
+      const sk = this.skel[g.role];
+      const L = g.hand === 'L';
+      sk.boneHead(_t3, L ? 'armL' : 'armR');
+      sk.boneHead(_t2, L ? 'foreL' : 'foreR');
+      g.pole = [_t2[0] - _t3[0], _t2[1] - _t3[1], _t2[2] - _t3[2]];
+    }
     this.curl = {};
     for (let pass = 0; pass < PASSES; pass++) this._solveGrips(list);
 
@@ -847,7 +870,7 @@ export class PairRig {
         upper,
         L ? 'foreL' : 'foreR',
         L ? 'handL' : 'handR',
-        _t2, null, w
+        _t2, g.pole || null, w
       );
       const w2 = w;
 
