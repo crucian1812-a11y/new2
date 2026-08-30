@@ -21,6 +21,7 @@ const steps = [
   ['club marks', 'mark-check.mjs', []],
   ['match simulation', 'sim-check.mjs', ['400']],
   ['the way out', 'escape-check.mjs', ['240']],
+  ['how it flows', 'flow-check.mjs', ['40']],
 ];
 if (withBrowser) {
   steps.push(['browser smoke', 'smoke.mjs', []]);

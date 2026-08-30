@@ -53,6 +53,23 @@ const MAT_Y = 0.05;
 // where it starts being seen.
 const LIMIT = 0.11;
 const FAIL = 0.22;
+// And two more for the other direction.
+//
+// Everything above measures bodies going *into* each other, and `sunk`
+// measures them going into the mat. Nothing measured them coming off it, and
+// that is a gap the solver can walk through: arc-solve is asked to stop two
+// tangles intersecting, and pulling the pair straight up is a perfectly good
+// answer to that question. Twelve transitions took it — the worst lifts the
+// whole pair twenty-four centimetres, which on screen is two men fighting a
+// hand's breadth above the tatami with their shadow lying underneath them.
+//
+// The baseline is the straight line between the two endpoints' own heights,
+// not the mat: a transition that ends standing is meant to rise, and asking it
+// not to would be asking the wrong question. What this measures is what the
+// correction *added* on top — the same shape as the correction itself, zero at
+// both ends.
+const LIFT_LIMIT = 0.06;
+const LIFT_FAIL = 0.12;
 
 const rig = new PairRig();
 // Measuring the path, not a performance of it: the step planner and the
@@ -61,6 +78,10 @@ const rig = new PairRig();
 rig.live = false;
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
+// What can be the lowest thing on a grappler. Not the same list as READ: the
+// top of the head is never the part touching the mat, and the knees — which
+// are the shin bones' own origins — carry half the positions in this game.
+const LOW = ['handL', 'handR', 'footL', 'footR', 'hips', 'shinL', 'shinR', 'chest', 'head'];
 
 // Everything the rig ever slerps through: the graph's transitions, and the
 // loops a held position runs while it is held. The loops are shorter and
@@ -80,6 +101,7 @@ for (const tr of BLENDS) {
   seen.add(key);
 
   let worst = 0, at = 0, where = null, sunk = 0, sunkAt = 0, sunkWho = null, ends = 0;
+  const low = new Array(STEPS);
   for (let i = 0; i < STEPS; i++) {
     const t = i / (STEPS - 1);
     // Fresh every sample: the rig integrates breathing off its own clock, and
@@ -101,8 +123,21 @@ for (const tr of BLENDS) {
         if (under > sunk) { sunk = under; sunkAt = t; sunkWho = `${role}.${b}`; }
       }
     }
+    let lo = Infinity;
+    for (const role of ['A', 'B']) {
+      for (const b of LOW) lo = Math.min(lo, rig.skel[role].world[BONE_INDEX[b]][13]);
+    }
+    low[i] = lo;
   }
-  rows.push({ key, name: tr.name, kind: tr.kind, worst, at, where, sunk, sunkAt, sunkWho, ends });
+  // How far the pair came off the mat, over and above the straight line
+  // between where it sits at either end.
+  let lift = 0, liftAt = 0;
+  for (let i = 1; i < STEPS - 1; i++) {
+    const t = i / (STEPS - 1);
+    const base = low[0] * (1 - t) + low[STEPS - 1] * t;
+    if (low[i] - base > lift) { lift = low[i] - base; liftAt = t; }
+  }
+  rows.push({ key, name: tr.name, kind: tr.kind, worst, at, where, sunk, sunkAt, sunkWho, ends, lift, liftAt });
 }
 
 rows.sort((a, b) => b.worst - a.worst);
@@ -118,10 +153,10 @@ for (const r of rows) {
   // anything the two poses do not already have.
   const limit = r.kind === 'hold' ? r.ends + 0.02 : LIMIT;
   const fail = r.kind === 'hold' ? r.ends + 0.03 : FAIL;
-  const flag = r.worst > limit || r.sunk > 0.04;
+  const flag = r.worst > limit || r.sunk > 0.04 || r.lift > LIFT_LIMIT;
   const bucket = r.kind === 'hold' ? 'hold' : 'move';
   if (flag) bad[bucket]++;
-  if (r.worst > fail || r.sunk > 0.06) fails[bucket]++;
+  if (r.worst > fail || r.sunk > 0.06 || r.lift > LIFT_FAIL) fails[bucket]++;
   if (!ALL && !flag) continue;
   const line =
     `${flag ? '!' : ' '} ${r.key.padEnd(28)} worst ${(r.worst * 100).toFixed(0).padStart(3)}cm ` +
@@ -130,6 +165,9 @@ for (const r of rows) {
   if (r.worst > limit) console.log(`      · ${r.where}`);
   if (r.sunk > 0.04) {
     console.log(`      · ${r.sunkWho} ${(r.sunk * 100).toFixed(0)}cm under the mat at t=${r.sunkAt.toFixed(2)}`);
+  }
+  if (r.lift > LIFT_LIMIT) {
+    console.log(`      · the pair is ${(r.lift * 100).toFixed(0)}cm off the mat at t=${r.liftAt.toFixed(2)}`);
   }
 }
 
@@ -150,5 +188,11 @@ console.log(
 console.log(
   `${rows.length - holds.length} transitions, worst moment ${(worstOverall * 100).toFixed(0)}cm — ` +
   verdict(rows.length - holds.length, fails.move, bad.move)
+);
+const worstLift = rows.reduce((m, r) => Math.max(m, r.lift), 0);
+const offMat = rows.filter((r) => r.lift > LIFT_LIMIT).length;
+console.log(
+  `off the mat: worst ${(worstLift * 100).toFixed(0)}cm, ${offMat} of ${rows.length} blends over ` +
+  `${(LIFT_LIMIT * 100).toFixed(0)}cm`
 );
 if (fails.hold + fails.move) process.exitCode = 1;

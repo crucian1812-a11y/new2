@@ -93,6 +93,7 @@ const seenTr = new Set();
 const outcomes = { submission: 0, points: 0, advantages: 0, draw: 0 };
 let hung = 0;
 let totalPoints = 0;
+const matchPoints = [];
 const t0 = Date.now();
 const mat = { off: 0, edge: 0, worst: 0 };
 for (let i = 0; i < N; i++) {
@@ -100,6 +101,7 @@ for (let i = 0; i < N; i++) {
   if (steps >= cap) hung++;
   outcomes[m.winBy] = (outcomes[m.winBy] || 0) + 1;
   totalPoints += m.f[0].points + m.f[1].points;
+  matchPoints.push(m.f[0].points + m.f[1].points);
   mat.off += off / N;
   mat.edge += edge / N;
   mat.worst = Math.max(mat.worst, worst);
@@ -119,7 +121,32 @@ check(outcomes.submission > 0, 'submissions happen', JSON.stringify(outcomes));
 // itself, it was the same question with a coarser answer — and the coarser one
 // is the one that goes stale: it was written when a purple belt could not
 // finish anybody, and it passed for exactly that reason.
-check(totalPoints / N > 2, 'points are actually scored', `${(totalPoints / N).toFixed(1)} per match`);
+// A floor and a ceiling, because a floor on its own cannot tell 8 from 92.
+//
+// This used to be `> 2`, and it passed at thirty-three points a match with a
+// ninetieth percentile of sixty-three and a worst match of ninety-two — on a
+// sheet where a takedown is worth two. A scoreboard that reads 51:41 is not a
+// scoreboard; nobody can hold those numbers in their head, and the advantage
+// column stops meaning anything because no match ever comes down to it.
+//
+// The range is a game's range, not the IBJJF's: a real adult five-minute match
+// is usually under fifteen on both cards together and often 2:0, and a game
+// wants more than that to look at. Six to sixteen on average keeps a scramble
+// worth watching and keeps the number readable. The percentile is the half
+// that matters — an average can sit in range while a long tail runs to ninety.
+const sorted = [...matchPoints].sort((a, b) => a - b);
+const p90 = sorted[Math.floor(sorted.length * 0.9)];
+const avgPoints = totalPoints / N;
+check(
+  avgPoints >= 6 && avgPoints <= 16,
+  'the scoreboard is a scoreboard',
+  `${avgPoints.toFixed(1)} per match on both cards together, want 6-16`
+);
+check(
+  p90 <= 24,
+  'and it does not run away in the tail',
+  `90th percentile ${p90}, worst ${sorted[sorted.length - 1]}, want under 24`
+);
 
 // The role belongs in the key. Half guard's back-take is authored twice, once
 // for the man on top and once for the man on the bottom, and without the role
