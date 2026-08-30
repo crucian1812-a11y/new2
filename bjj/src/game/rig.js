@@ -60,7 +60,7 @@ import { GRIP_POINTS } from '../render/body.js';
 import {
   Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone,
 } from '../render/skeleton.js';
-import { quat, qEuler, qMul, qSlerp, v3, v3set, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
+import { quat, qEuler, qMul, qSlerp, qCopy, v3, v3set, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
 
 const _t = v3();
 const _t2 = v3();
@@ -70,6 +70,8 @@ const ARM_REACH = 0.52;
 const _q = quat();
 const _rq = quat();
 const _b1 = quat();
+const _keepU = quat();
+const _keepL = quat();
 const _b2 = quat();
 // A deterministic scatter for the hold loop: same inputs, same numbers, every
 // run and every machine.
@@ -842,22 +844,80 @@ export class PairRig {
       const w = g.pass * fit;
       if (w < 0.02) continue;
 
-      solveTwoBone(
-        sk,
-        upper,
-        L ? 'foreL' : 'foreR',
-        L ? 'handL' : 'handR',
-        _t2, null, w
-      );
+      // Hold it only as hard as the elbow allows.
+      //
+      // The analytic solver places the elbow correctly for the *position* of
+      // the hand and has nothing to say about the joint it leaves behind. At
+      // full weight, and at partial weight most of all — where the upper arm is
+      // only part of the way to its solution while the forearm is aimed all the
+      // way at the target — it folds elbows past what an elbow does and, nine
+      // hundred times a library, folds them the other way entirely. Measured
+      // with joint-check: 3672 samples bending backwards with the grips on
+      // against 288 with them off, so this is where nearly all of it came from.
+      //
+      // The answer is the one the reach fade already takes: a hand exactly on
+      // the lapel is not worth an arm that cannot exist. Back the weight off
+      // until the elbow is an elbow again, and let the hand fall short — which
+      // is at worst where the pose put it, and the pose is right about arms.
+      const fore = L ? 'foreL' : 'foreR';
+      const hand = L ? 'handL' : 'handR';
+      qCopy(_keepU, sk.local[BONE_INDEX[upper]]);
+      qCopy(_keepL, sk.local[BONE_INDEX[fore]]);
+      let used = w;
+      for (const scale of [1, 0.55, 0.3, 0.15, 0]) {
+        used = w * scale;
+        if (scale < 1) {
+          qCopy(sk.local[BONE_INDEX[upper]], _keepU);
+          qCopy(sk.local[BONE_INDEX[fore]], _keepL);
+          sk.poseFrom(BONE_INDEX[upper]);
+        }
+        if (used < 0.02) break;
+        solveTwoBone(sk, upper, fore, hand, _t2, null, used);
+        if (elbowIsAnElbow(sk, upper, fore, hand)) break;
+      }
+      if (used < 0.02) continue;
+      const w2 = used;
 
       // Remember how closed this hand should be. Applied after the passes, not
       // inside them: a pose() in the middle of a pass changes the targets the
       // rest of the pass is solving against, and the whole point of three
       // passes is that they converge on one another.
       const key = g.role + (L ? 'L' : 'R');
-      this.curl[key] = Math.max(this.curl[key] || 0, w);
+      this.curl[key] = Math.max(this.curl[key] || 0, w2);
     }
   }
+}
+
+// Is this still a hinge?
+//
+// The fold, signed about the upper bone's own X — which is the axis every joint
+// in this rig turns about, and the axis the poses are authored in. Flexion is
+// negative there for an elbow, so a positive reading is an arm bending the
+// wrong way and anything past about 150 is one folded through itself.
+//
+// Deliberately generous: the job is to stop a limb that is obviously broken,
+// not to model a joint. joint-check holds the whole library to the same numbers
+// and reports what is left.
+const _eu = v3(), _ef = v3(), _ec = v3();
+function elbowIsAnElbow(sk, upper, mid, low) {
+  sk.boneHead(_eu, upper);
+  sk.boneHead(_ef, mid);
+  sk.boneHead(_ec, low);
+  const ux = _ef[0] - _eu[0], uy = _ef[1] - _eu[1], uz = _ef[2] - _eu[2];
+  const fx = _ec[0] - _ef[0], fy = _ec[1] - _ef[1], fz = _ec[2] - _ef[2];
+  const ul = Math.hypot(ux, uy, uz) || 1;
+  const fl = Math.hypot(fx, fy, fz) || 1;
+  const u = [ux / ul, uy / ul, uz / ul];
+  const f = [fx / fl, fy / fl, fz / fl];
+  const m = sk.world[BONE_INDEX[upper]];
+  const al = Math.hypot(m[0], m[1], m[2]) || 1;
+  const ax = [m[0] / al, m[1] / al, m[2] / al];
+  const cx = u[1] * f[2] - u[2] * f[1];
+  const cy = u[2] * f[0] - u[0] * f[2];
+  const cz = u[0] * f[1] - u[1] * f[0];
+  const along = cx * ax[0] + cy * ax[1] + cz * ax[2];
+  const flex = Math.atan2(along, u[0] * f[0] + u[1] * f[1] + u[2] * f[2]) * (180 / Math.PI);
+  return flex <= 6 && flex >= -152;
 }
 
 function collect(out, grips, w) {
