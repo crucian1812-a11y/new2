@@ -171,6 +171,11 @@ export class HUD {
   _ring(m, input) {
     const c = this.ctx;
     const opts = m.options(0);
+    // What is there, and separately what can be pressed. During the cooldown
+    // after a move the two differ, and showing the first while dimming to the
+    // second is the difference between "not yet" and a ring that has gone out.
+    const shown = m.preview(0);
+    const cool = m.cool[0] > 0 && !m.attempt;
     // The ring scales with the screen and is pinned far enough off the bottom
     // that the lowest label still lands on glass. On a short landscape phone
     // that margin is the whole difference between readable and cropped.
@@ -181,11 +186,13 @@ export class HUD {
     c.save();
     c.globalAlpha = m.attempt ? 0.35 : 1;
     for (const dir of ['up', 'down', 'left', 'right']) {
-      const tr = opts[dir];
+      const tr = shown[dir];
       const [dx, dy] = DIR_VEC[dir];
       const x = cx + dx * R;
       const y = cy + dy * R;
       const on = !!tr;
+      const ready = on && !!opts[dir];
+      c.globalAlpha = (m.attempt ? 0.35 : 1) * (on && !ready ? 0.45 : 1);
 
       const rr = R * 0.3;
       c.beginPath();
@@ -207,6 +214,16 @@ export class HUD {
         const ly = dy > 0 ? y + rr + 12 : y - rr - 8;
         wrapText(c, tr.name, x, ly, 100, 10);
       }
+    }
+    c.globalAlpha = m.attempt ? 0.35 : 1;
+    // How much of the cooldown is left, drawn round the ring itself: a dimmed
+    // label says "not yet" and this says how long.
+    if (cool) {
+      c.beginPath();
+      c.arc(cx, cy, R * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, m.cool[0] / 0.3));
+      c.strokeStyle = 'rgba(255,255,255,0.30)';
+      c.lineWidth = 2;
+      c.stroke();
     }
     // The centre: tap to fight for grips, and how that fight is going.
     c.beginPath();
@@ -244,7 +261,11 @@ export class HUD {
       const a = m.attempt;
       const bw = 190;
       const bx = this.w / 2 - bw / 2;
-      const by = 96;
+      // Clear of the position's two labels above it. At 96 the bar's top edge
+      // sat in the descenders of the English one and the three-second ring
+      // finished a pixel above it; there are four things stacked in this strip
+      // and they were sharing forty pixels.
+      const by = 108;
       c.fillStyle = 'rgba(6,8,12,0.8)';
       roundRect(c, bx, by, bw, 22, 5);
       c.fill();
@@ -255,7 +276,11 @@ export class HUD {
       c.font = `700 11px ${FONT}`;
       c.fillStyle = '#fff';
       c.textAlign = 'center';
-      c.fillText(a.tr.name.toUpperCase(), cx, by + 12);
+      // Over the bar, not over the ring. This read `cx`, which is the centre
+      // of the control ring in the bottom corner, so on an 812-wide screen the
+      // name of the move being attempted was drawn 290 pixels to the right of
+      // the bar filling up underneath it, out over the hoardings.
+      c.fillText(a.tr.name.toUpperCase(), bx + bw / 2, by + 12);
     }
   }
 

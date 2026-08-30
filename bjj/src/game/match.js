@@ -13,13 +13,17 @@
 // worth.
 
 import { POSES } from './poses.js';
-import { optionsFor, TRANSITIONS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT, GRIP_LOSS } from './positions.js';
+import { optionsFor, visualTo, TRANSITIONS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT, GRIP_LOSS } from './positions.js';
 import { clamp, lerp } from '../core/m4.js';
 import { rand, randInt, pick } from './rng.js';
 
 export const MATCH_TIME = 300;
 
 const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
+// How long the fight may stand still before the referee says something, and how
+// often he says it after that.
+export const STALL_CALL = 12;
+const STALL_AGAIN = 8;
 // Posture at or above this and you can see which way it is coming; below it
 // you know only that it is coming. See visibleDeny.
 //
@@ -82,8 +86,26 @@ export class Match {
     this.f = fighters;
     this.position = 'STANDING';
     this.prevPosition = 'STANDING';
-    this.blend = 1; // 0 = prevPosition, 1 = position
+    this.blend = 1; // 0 = prevPosition, 1 = position (or `pending`, in flight)
     this.blendSpeed = 4;
+    // Where the blend is going, which is not always forwards.
+    //
+    // An attempt runs the pair 82% of the way to its destination, and both
+    // outcomes used to break the picture: arriving reset `blend` to 0 and
+    // replayed the same blend from the top, and failing pointed `prevPosition`
+    // at `position` so the bodies cut back to the pose they left. flow-check
+    // counted 117 of those jumps in an average match, the worst the whole
+    // length of a blend. Neither is a small artefact — the eye reads a body
+    // that returns to where it has already been as the game glitching.
+    //
+    // So the blend has a direction. Arriving carries the parameter it already
+    // has and finishes it; failing runs the same parameter back down to zero
+    // over a third of a second, which is what giving up on a position looks
+    // like from the outside.
+    this.blendTo = 1;
+    this.pending = null;
+    // A transition waiting for the picture to finish unwinding before it runs.
+    this.queued = null;
     // Role A of the paired pose is always the better position; who is playing
     // it changes every time somebody sweeps.
     this.roleOf = ['A', 'B'];
@@ -114,6 +136,19 @@ export class Match {
     this.recall = false;
     this.yaw = 0;
     this.intensity = 0;
+    // Which positions each of them has already been paid for, this time round.
+    //
+    // The sheet says a position scores once: to score mount again you have to
+    // lose it and take it back, and stepping from mount to the back and rolling
+    // down again is one possession, not three. Without that the graph pays for
+    // a loop — mount to back is worth four and back to mount is free and almost
+    // certain — and the fight farmed it: back was being paid twelve times in a
+    // match, mount seven, and the two of them were thirty of the thirty-four
+    // points on the board. A scoreboard reading 51:41 is not a scoreboard.
+    //
+    // A man's slate is wiped the moment he is not on top any more, which is
+    // exactly the escape the sheet is asking for.
+    this.paid = [new Set(), new Set()];
     this.gripAdv = [0, 0]; // won grip exchanges, decays
     this.driveOf = [0, 0]; // how hard each of them is leaning in, this frame
     this.onEvent = opts.onEvent || (() => {});
@@ -142,6 +177,18 @@ export class Match {
 
   options(i) {
     if (this.state !== 'live' || this.attempt || this.cool[i] > 0) return {};
+    return optionsFor(this.position, this.tagOf(i));
+  }
+
+  // What this role has from here, whether or not it can be pressed yet.
+  //
+  // The ring used to be drawn from `options` alone, so for the third of a
+  // second of cooldown after every transition all four labels went dark and
+  // came back — the player was reading a blank ring for eight per cent of the
+  // match with nothing saying why. The names are worth showing while they are
+  // recharging; what changes is whether they look pressable.
+  preview(i) {
+    if (this.state !== 'live') return {};
     return optionsFor(this.position, this.tagOf(i));
   }
 
@@ -188,7 +235,17 @@ export class Match {
       denied: false,
       denyOpen: !!tr.deny,
       resolved: false,
+      // When the picture started moving, which is not when the clock did: the
+      // last move may still be landing or unwinding, and taking the blend over
+      // mid-flight is the cut this field exists to avoid.
+      vis: null,
     };
+    // Deliberately not touching blendTo here. A new attempt can be fired while
+    // the last failed one is still unwinding, and forcing the blend forwards
+    // again ran the picture all the way into a position the fight never
+    // entered — and then left it there, because the attempt that owned the
+    // picture had already been replaced. The unwind finishes on its own, and
+    // _liveUpdate takes the blend over when there is a blend to take over.
     this.deny = tr.deny
       ? { dir: tr.deny, t: 0, window: DENY_WINDOW, by: this.other(i) }
       : null;
@@ -307,7 +364,24 @@ export class Match {
     for (let i = 0; i < 2; i++) this.cool[i] = Math.max(0, this.cool[i] - dt);
     for (let i = 0; i < 2; i++) this.gripAdv[i] = Math.max(0, this.gripAdv[i] - dt * 0.16);
 
-    this.blend = Math.min(1, this.blend + dt * this.blendSpeed);
+    if (this.blend < this.blendTo) {
+      this.blend = Math.min(this.blendTo, this.blend + dt * this.blendSpeed);
+    } else if (this.blend > this.blendTo) {
+      this.blend = Math.max(this.blendTo, this.blend - dt * this.blendSpeed);
+    }
+    // A retreat that has arrived is simply the position being held again, and
+    // the hold loop only runs when the two ends of the blend are the same pose.
+    if (this.blendTo === 0 && this.blend <= 0 && this.pending) {
+      this.pending = null;
+      this.prevPosition = this.position;
+      this.blend = 1;
+      this.blendTo = 1;
+      if (this.queued) {
+        const q = this.queued;
+        this.queued = null;
+        this.goTo(q.tr, q.by);
+      }
+    }
     this._stamina(dt, control);
 
     if (this.state === 'sub') this._subUpdate(dt);
@@ -326,6 +400,7 @@ export class Match {
     if (!a) {
       this.intensity = lerp(this.intensity, 0.1, dt * 2);
       this.stallTimer += dt;
+      this._stall(dt);
       return;
     }
     this.stallTimer = 0;
@@ -337,15 +412,52 @@ export class Match {
     this.intensity = lerp(this.intensity, 1, dt * 6);
     const dur = a.tr.time;
     if (a.t < dur) {
+      // Let the last move finish before starting the next one.
+      //
+      // A transition can be fired while the pair is still landing in the
+      // position it just reached, or still unwinding out of one that failed,
+      // and taking the blend over at that moment threw away whatever was left:
+      // the bodies were 85% of the way somewhere and the next frame had them at
+      // the start of a different journey. The attempt's own clock keeps
+      // running through the wait, so nothing is lost but the cut — the picture
+      // simply sets off a beat later and travels at the same rate.
+      const settled = !this.pending && (this.prevPosition === this.position || this.blend >= 1);
+      if (a.vis === null) {
+        if (!settled) return;
+        a.vis = a.t;
+      }
       // The blend towards the destination runs while the attempt is live, so a
       // contested pass looks contested: bodies already halfway there, and then
       // either arriving or snapping back.
-      this.blend = Math.min(0.82, a.t / dur);
+      this.blend = Math.min(0.82, (a.t - a.vis) / dur);
       this.prevPosition = this.position;
-      this.pending = a.tr.to;
+      this.pending = visualTo(a.tr);
+      this.blendTo = 1;
       return;
     }
     this._resolve(a);
+  }
+
+  // The referee's one job, and the field that has been counting it since the
+  // first version of this file without anybody reading the number.
+  //
+  // A position held with nothing being attempted from it is free: the man on
+  // top rests at five and a half stamina a second and the clock runs out. That
+  // is not a tactic the sheet rewards — it is stalling, and a referee stops it.
+  // So after twelve quiet seconds he says so, and says it again every eight
+  // after that, and the man in the better position pays for the silence
+  // because it is worth more to him.
+  _stall(dt) {
+    if (this.stallTimer < STALL_CALL) return;
+    this.stallTimer = STALL_CALL - STALL_AGAIN;
+    const top = this.isDominant(0) ? 0 : this.isDominant(1) ? 1 : -1;
+    if (top < 0) {
+      this.emit('судья: работайте', 'warn');
+    } else {
+      this.f[top].stamina = clamp(this.f[top].stamina - 9, 0, 100);
+      this.emit(`судья: ${this.f[top].name}, работай`, 'warn');
+    }
+    this.onEvent({ kind: 'stall', on: top });
   }
 
   _resolve(a) {
@@ -353,8 +465,9 @@ export class Match {
     const me = this.f[a.by];
     const you = this.f[a.defender];
     this.attempt = null;
-    this.pending = null;
     this.deny = null;
+    // `pending` is deliberately left alone here: it is how goTo and _snapBack
+    // tell that there is a blend already in flight to pick up or to unwind.
 
     if (a.denied) {
       this.tally.denied++;
@@ -386,9 +499,13 @@ export class Match {
         const out = this._escapeFrom(this.position);
         if (out) {
           me.posture = clamp(me.posture - 8, 0, 100);
-          this.cool[a.by] = 0.8;
           this.emit(`${you.name}: вывернулся`, 'escape');
-          this.goTo(out, a.defender);
+          // Unwind out of the attack first, then leave. Going straight from
+          // "four fifths of the way into a choke" to "the start of a scramble
+          // out of the back" is a cut of the whole blend, and it is also the
+          // wrong story: he fights the choke off, and then he moves.
+          this._snapBack(a.by, 0.8);
+          this.queued = { tr: out, by: a.defender };
           return;
         }
       }
@@ -470,10 +587,20 @@ export class Match {
     return pick(outs);
   }
 
+  // A transition that did not come off. The pair is most of the way to
+  // somewhere else, and it has to come back — over about a third of a second,
+  // not between two frames. `pending` stays until it lands, because it is the
+  // far end of the blend the pair is still on.
   _snapBack(by, cool) {
-    this.prevPosition = this.position;
-    this.blend = 0;
-    this.blendSpeed = 4.5;
+    if (this.pending && this.pending !== this.position) {
+      this.blendTo = 0;
+      this.blendSpeed = Math.max(this.blend, 0.05) / 0.35;
+    } else {
+      this.pending = null;
+      this.prevPosition = this.position;
+      this.blend = 1;
+      this.blendTo = 1;
+    }
     this.cool[by] = cool;
   }
 
@@ -484,9 +611,17 @@ export class Match {
     this.posT = 0;
     const me = this.f[by];
     const you = this.f[this.other(by)];
-    this.prevPosition = this.position;
+    // Pick up the blend the attempt already ran rather than replaying it. The
+    // pair is 82% of the way to exactly this pose; starting again from zero is
+    // the single most visible break in the game.
+    const carrying = this.pending === visualTo(tr) && this.prevPosition !== this.pending;
+    if (!carrying) {
+      this.prevPosition = this.position;
+      this.blend = 0;
+    }
+    this.pending = null;
+    this.blendTo = 1;
     this.position = tr.to;
-    this.blend = 0;
     this.blendSpeed = 1 / Math.max(0.22, tr.time * 0.55);
 
     if (tr.swap) {
@@ -514,7 +649,11 @@ export class Match {
       return;
     }
 
-    if (tr.points > 0) {
+    // Whoever is not on top has escaped whatever he was under, so everything
+    // he was holding is his to win again.
+    for (let i = 0; i < 2; i++) if (!this.isDominant(i)) this.paid[i].clear();
+
+    if (tr.points > 0 && !this.paid[by].has(tr.to)) {
       this.hold = { by, points: tr.points, t: 0, pos: tr.to, note: tr.note || tr.name };
     } else {
       this.hold = null;
@@ -827,6 +966,7 @@ export class Match {
     }
     this.hold.t += dt;
     if (this.hold.t >= POINTS_TO_HOLD) {
+      this.paid[by].add(this.hold.pos);
       this.f[by].points += this.hold.points;
       this.emit(`${this.f[by].name}: +${this.hold.points} (${this.hold.note})`, 'points');
       this.onEvent({ kind: 'points', by, points: this.hold.points });
@@ -929,6 +1069,7 @@ export class Match {
 
   _finish(w, by) {
     this.state = 'over';
+    this.queued = null;
     this.winner = w;
     this.winBy = by;
     this.attempt = null;

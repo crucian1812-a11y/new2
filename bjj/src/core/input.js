@@ -3,10 +3,17 @@
 //
 // Left half of the screen is a floating stick. Standing, it walks; on the
 // ground it is weight and hip position, and it feeds directly into whether a
-// transition lands. Right half is a flick pad: a swipe is a direction, a tap
-// is a grip fight, a press-and-hold is a defensive frame. Nothing is a button
-// you have to find, because on a phone in landscape your thumbs are already
-// where they are going to be and they cannot see what is under them.
+// transition lands. Right half is a flick pad: a swipe is a direction and a tap
+// is a grip fight. Nothing is a button you have to find, because on a phone in
+// landscape your thumbs are already where they are going to be and they cannot
+// see what is under them.
+//
+// A press-and-hold was described here as a defensive frame for a long time and
+// never existed: `hold` and `drag` were computed every frame and read by
+// nothing, all the way down to the pointer bookkeeping that fed them. A field
+// in the hot path that nobody reads is a promise to whoever reads this file
+// next, so they are gone. If a frame is wanted it is a mechanic to design and
+// measure, not a flag to switch on.
 //
 // The flick fires the moment the swipe passes its threshold rather than on
 // release. Waiting for the finger to lift costs about 120 ms, and in a game
@@ -25,9 +32,6 @@ export class Input {
 
     this.flick = null; // consumed by the game each frame
     this.tap = false;
-    this.hold = false;
-    this.drag = null; // { x, y, dx, dy } while a right-hand drag is live
-    this.dragId = -1;
 
     this.keys = new Set();
     this.keyFlickBuffer = [];
@@ -51,8 +55,6 @@ export class Input {
     this.stick.active = false;
     this.stick.mag = 0;
     this.stick.x = this.stick.y = 0;
-    this.hold = false;
-    this.drag = null;
   }
 
   _pos(e) {
@@ -82,8 +84,6 @@ export class Input {
     this.pointers.set(e.pointerId, {
       role: 'flick', x0: p.x, y0: p.y, x: p.x, y: p.y, t0: performance.now(), fired: false,
     });
-    this.dragId = e.pointerId;
-    this.drag = { x: p.x, y: p.y, dx: 0, dy: 0, sx: p.x, sy: p.y };
   }
 
   _move(e) {
@@ -111,12 +111,6 @@ export class Input {
     }
     rec.x = p.x;
     rec.y = p.y;
-    if (this.drag && this.dragId === e.pointerId) {
-      this.drag.x = p.x;
-      this.drag.y = p.y;
-      this.drag.dx = p.x - this.drag.sx;
-      this.drag.dy = p.y - this.drag.sy;
-    }
     if (rec.fired) return;
     const dx = p.x - rec.x0;
     const dy = p.y - rec.y0;
@@ -136,10 +130,6 @@ export class Input {
       this.stick.active = false;
       this.stick.x = this.stick.y = this.stick.mag = 0;
       return;
-    }
-    if (this.dragId === e.pointerId) {
-      this.dragId = -1;
-      this.drag = null;
     }
     if (!rec.fired) {
       const dt = performance.now() - rec.t0;
@@ -186,8 +176,5 @@ export class Input {
     } else if (!this.stick.active) {
       this.stick.x = this.stick.y = this.stick.mag = 0;
     }
-    this.hold = this.keys.has('shift') || [...this.pointers.values()].some(
-      (r) => r.role === 'flick' && !r.fired && performance.now() - r.t0 > TAP_TIME
-    );
   }
 }

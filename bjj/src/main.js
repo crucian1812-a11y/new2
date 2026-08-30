@@ -227,6 +227,11 @@ function onMatchEvent(e) {
     // 'stop', held long enough to cover the walk.
     referee.gesture('stop', 2.2);
     audio.confirm();
+  } else if (e.kind === 'stall') {
+    // He stands them up out of it: the same call he uses to start, held long
+    // enough to read from the mat.
+    referee.gesture('call', 1.4);
+    audio.whistle();
   } else if (e.kind === 'escape') {
     audio.cloth(0.9);
     audio.swell(0.5, 1.4);
