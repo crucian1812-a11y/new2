@@ -508,7 +508,12 @@ function drawFrame(now, real) {
   const body = (i) => (i === 0 ? gpuYou : gpuOpp);
   renderer.render({
     camera,
-    time: now / 1000,
+    // Pinned along with everything else while a tool is measuring. The clock
+    // reaches the shader as well as the rig — the broadcast grain crawls with
+    // it, and a grain that redraws itself every frame is two levels of
+    // brightness on every pixel of two grabs that were meant to differ in one
+    // thing. That is a third of what look-check was calling a fold.
+    time: window.__still != null ? window.__still : now / 1000,
     focus,
     // A list, and it always was one: the renderer has never known how many
     // bodies are on the mat, and this is where the third one joins.

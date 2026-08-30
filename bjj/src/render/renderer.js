@@ -343,6 +343,10 @@ uniform float u_contact;
 // The same switch for the cloth, and for the same reason: the tool measures
 // the frame with the folds on and off and reports the difference.
 uniform float u_folds;
+// And the same for the face. The features there are drawn into the albedo, so
+// the honest question is whether they do anything to the light, and the only
+// way to ask it is the same frame with them shaping the surface and without.
+uniform float u_face;
 
 // How much of the sky a point can still see, given those capsules. One minus
 // the product rather than a sum: two limbs pressing on the same patch of cloth
@@ -1071,9 +1075,53 @@ export class Renderer {
     };
   }
 
+  // The frame as it stands, before the browser swaps it away.
+  _readback() {
+    const gl = this.gl;
+    const w = this.canvas.width, h = this.canvas.height;
+    const px = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  }
+
   render(scene) {
     const gl = this.gl;
     const { camera, fighters, time } = scene;
+
+    // Tooling hook: one instant, drawn several times over.
+    //
+    // Every number look-check reports is a difference between two frames that
+    // are meant to differ in exactly one shading term. Grabbing them one after
+    // another does not give that: the clock moves, the springs settle, the
+    // broadcast grain redraws itself, and two grabs of a switch that changes
+    // nothing came back three levels apart — as much as some of the effects
+    // being measured. So the whole frame is drawn again inside the same
+    // callback, from the same simulation state, with one uniform flipped. The
+    // browser only swaps buffers when the callback returns, so every pass can
+    // be read back before it is overwritten, and the floor under all of it is
+    // exactly zero.
+    if (Array.isArray(this.want)) {
+      const list = this.want.slice();
+      const keep = { contactAO: this.contactAO, folds: this.folds, faceRelief: this.faceRelief };
+      const shots = {};
+      this._grabbing = true;
+      for (let i = 0; i < list.length; i++) {
+        const v = list[i];
+        this.contactAO = v !== 'contact';
+        this.folds = v !== 'folds';
+        this.faceRelief = v !== 'face';
+        // The last pass carries the mask, so the identity buffer belongs to a
+        // frame with everything switched on.
+        this.want = i === list.length - 1;
+        this.render(scene);
+        if (!this.want) shots[v] = this._readback();
+        this.want = false;
+      }
+      Object.assign(this, keep);
+      this._grabbing = false;
+      this.grabbed = Object.assign(this.grabbed || {}, { shots });
+      return;
+    }
 
     // The light rides with the action so the shadow map spends its whole
     // resolution on the two people in it.
@@ -1200,6 +1248,7 @@ export class Renderer {
       gl.uniform1fv(this.progSkin.u.u_bend, this.bend);
       gl.uniform1f(this.progSkin.u.u_contact, this.contactAO === false ? 0 : 1);
       gl.uniform1f(this.progSkin.u.u_folds, this.folds === false ? 0 : 1);
+      gl.uniform1f(this.progSkin.u.u_face, this.faceRelief === false ? 0 : 1);
       gl.uniform4fv(this.progSkin.u.u_occA, this.occA);
       gl.uniform4fv(this.progSkin.u.u_occB, this.occB);
       gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
@@ -1301,8 +1350,7 @@ export class Renderer {
     if (this.want) {
       this.want = false;
       const w = this.canvas.width, h = this.canvas.height;
-      const shaded = new Uint8Array(w * h * 4);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, shaded);
+      const shaded = this._readback();
 
       // Who is where, in one channel each. The shadow program already draws a
       // skinned body as flat white and has a vertex array of its own, so the
