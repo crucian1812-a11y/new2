@@ -56,6 +56,10 @@ const CFG = {
   // minute: this puts the pair into a submission, lets the thumb work it, and
   // does it again the moment it ends.
   drill: +flag('drill', 0),
+  // One seed for the fight and one for the hand, derived from it. With it the
+  // same run can be played twice with one thing changed — which is the only
+  // way to tell a change in the game from a change in the dice.
+  seed: (flag('seed', null) !== null ? Number(flag('seed')) : Date.now() & 0x7fffffff) | 0,
 };
 const PORT = +(process.env.PORT || 8099);
 
@@ -85,11 +89,13 @@ const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (msg) => { if (msg.type() === 'error') errors.push('console: ' + msg.text()); });
-await page.goto(`http://127.0.0.1:${PORT}/bjj/index.html?belt=${CFG.belt}`, { waitUntil: 'domcontentloaded' });
+await page.goto(`http://127.0.0.1:${PORT}/bjj/index.html?belt=${CFG.belt}&seed=${CFG.seed}`,
+  { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => window.__bjj && window.__stats, null, { timeout: 60000 });
 
 console.log(`${CFG.matches} match(es) of ${CFG.seconds}s against a ${CFG.belt} belt` +
-  `, thumb: ${CFG.react}±${CFG.jitter} ms, beat ±${CFG.beat} ms, reading ${CFG.play}\n`);
+  `, thumb: ${CFG.react}±${CFG.jitter} ms, beat ±${CFG.beat} ms, reading ${CFG.play}` +
+  `, seed ${CFG.seed}\n`);
 
 const out = await page.evaluate((cfg) => new Promise((done) => {
   const ui = document.getElementById('ui');
@@ -101,6 +107,21 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
   const rx = () => ui.clientWidth * 0.78;
   const ry = () => ui.clientHeight * 0.6;
   const VEC = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+
+  // The hand's own dice, seeded and kept apart from the match's.
+  //
+  // The fight draws from src/game/rng.js and the page is seeded through
+  // ?seed=, so the same seed is the same opponent doing the same things; if
+  // the hand drew from that stream too, every hesitation would shift the whole
+  // fight and two runs could not be compared. Same generator, its own state.
+  let rs = (cfg.seed ^ 0x5f356495) >>> 0;
+  const rnd = () => {
+    rs = (rs + 0x6d2b79f5) >>> 0;
+    let t = rs;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 
   function tap() {
     const id = ++pid, x = rx(), y = ry();
@@ -126,7 +147,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
   function gauss(sigma) {
     if (spare !== null) { const v = spare; spare = null; return v * sigma; }
     let u = 0, v = 0, s = 0;
-    do { u = Math.random() * 2 - 1; v = Math.random() * 2 - 1; s = u * u + v * v; } while (s >= 1 || s === 0);
+    do { u = rnd() * 2 - 1; v = rnd() * 2 - 1; s = u * u + v * v; } while (s >= 1 || s === 0);
     const f = Math.sqrt(-2 * Math.log(s) / s);
     spare = v * f;
     return u * f * sigma;
@@ -212,7 +233,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
     const dirs = Object.keys(opts);
     if (cfg.play === 'random') {
       const all = ['up', 'down', 'left', 'right'];
-      return all[(Math.random() * 4) | 0];
+      return all[(rnd() * 4) | 0];
     }
     if (!dirs.length) return null;
     // The stamina bar is on screen, and a player who has watched it empty once
@@ -227,10 +248,10 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
     const red = afford.filter((d) => opts[d].sub);
     const yellow = afford.filter((d) => opts[d].big && !opts[d].sub);
     const rest = afford.filter((d) => !opts[d].sub && !opts[d].big);
-    const bag = red.length && Math.random() < 0.55 ? red
-              : yellow.length && Math.random() < 0.7 ? yellow
+    const bag = red.length && rnd() < 0.55 ? red
+              : yellow.length && rnd() < 0.7 ? yellow
               : rest.length ? rest : afford;
-    return bag[(Math.random() * bag.length) | 0];
+    return bag[(rnd() * bag.length) | 0];
   }
 
   function step() {
@@ -282,7 +303,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       // floor for the defence as well, or it is only a floor for the attack.
       const seen = cfg.play === 'random' ? null : m.visibleDeny(0);
       if (!seen) st.blind++;
-      const dir = seen || ['up', 'down', 'left', 'right'][(Math.random() * 4) | 0];
+      const dir = seen || ['up', 'down', 'left', 'right'][(rnd() * 4) | 0];
       plan = { at: gt + late(), do: () => m.input(0, dir) };
     } else if (cfg.drill && m.state === 'live' && !m.attempt && !plan) {
       // Straight to the lock. This reaches past `input` into the sim the same
@@ -311,13 +332,13 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       } else if (gt > nextEscape) {
         nextEscape = gt + 0.38;
         const dir = cfg.play === 'random'
-          ? ['up', 'down', 'left', 'right'][(Math.random() * 4) | 0]
+          ? ['up', 'down', 'left', 'right'][(rnd() * 4) | 0]
           : s.escapeDir;
         plan = { at: gt + late(), do: () => m.input(0, dir) };
       }
     } else if (m.state === 'live' && !m.attempt && gt > nextMove && !plan) {
       // Its own turn. A hand does not fire four times a second.
-      nextMove = gt + 0.7 + Math.random() * 0.7;
+      nextMove = gt + 0.7 + rnd() * 0.7;
       const dir = pick(m);
       plan = { at: gt + late(), do: () => { if (dir) flick(dir); else tap(); } };
     }

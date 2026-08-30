@@ -7,6 +7,7 @@ import { loadFighter } from './render/asset.js';
 import { PairRig } from './game/rig.js';
 import { Skeleton, poseToQuats, BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
+import { seedRandom } from './game/rng.js';
 import { AI } from './game/ai.js';
 import { Camera } from './game/camera.js';
 import { Referee } from './game/referee.js';
@@ -147,6 +148,14 @@ const SAVE = 'bjj.progress';
 // tool in bjj/tools drives the game with ?belt=, and a measurement must not
 // promote anybody.
 const FORCED = new URLSearchParams(location.search).get('belt');
+// And ?seed= fixes the fight. Every chance the match takes comes out of one
+// stream (src/game/rng.js), so the same seed against the same belt is the same
+// match, flick for flick — which is what a replay is, and what a tool needs to
+// run the same fight twice with one thing changed.
+{
+  const s = new URLSearchParams(location.search).get('seed');
+  if (s !== null && s !== '') seedRandom(Number(s) | 0);
+}
 
 function loadProgress() {
   try {

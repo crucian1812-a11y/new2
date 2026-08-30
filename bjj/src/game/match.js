@@ -15,6 +15,7 @@
 import { POSES } from './poses.js';
 import { optionsFor, TRANSITIONS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT, GRIP_LOSS } from './positions.js';
 import { clamp, lerp } from '../core/m4.js';
+import { rand, randInt, pick } from './rng.js';
 
 export const MATCH_TIME = 300;
 
@@ -237,7 +238,7 @@ export class Match {
     if (me.stamina < 6) return null;
     me.stamina -= 4;
     const mine = 0.5 + (me.technique - you.technique) * 0.45 + (me.stamina - you.stamina) / 320;
-    if (Math.random() < clamp(mine, 0.12, 0.88)) {
+    if (rand() < clamp(mine, 0.12, 0.88)) {
       this.gripAdv[i] = clamp(this.gripAdv[i] + 0.34, 0, 1);
       you.posture = clamp(you.posture - 7, 0, 100);
       return 'win';
@@ -320,7 +321,7 @@ export class Match {
 
     me.stamina = clamp(me.stamina - tr.cost * 0.55, 0, 100);
 
-    if (Math.random() > p) {
+    if (rand() > p) {
       this.tally.failed++;
       if (tr.sub) this.tally.subFailed++;
       // A choke that misses is a choke the other man has turned into.
@@ -331,7 +332,7 @@ export class Match {
       // nearly half the clock and hunted a choke it could not have. The
       // defender comes out through his own escape from the position, the same
       // way he does when he strips the grip.
-      if (tr.sub && Math.random() < 0.4) {
+      if (tr.sub && rand() < 0.4) {
         const out = this._escapeFrom(this.position);
         if (out) {
           me.posture = clamp(me.posture - 8, 0, 100);
@@ -416,7 +417,7 @@ export class Match {
   _escapeFrom(from) {
     const outs = TRANSITIONS.filter(
       (t) => t.from === from && t.role === 'bottom' && t.becomes === 'bottom');
-    return outs.length ? outs[(Math.random() * outs.length) | 0] : null;
+    return pick(outs);
   }
 
   _snapBack(by, cool) {
@@ -676,7 +677,7 @@ export class Match {
     if (s.escapeT > 1.4) {
       s.escapeT = 0;
       const dirs = ['up', 'down', 'left', 'right'];
-      s.escapeDir = dirs[(Math.random() * 4) | 0];
+      s.escapeDir = dirs[randInt(4)];
     }
 
     // The creep. A submission that is on tightens by itself; the defender's

@@ -12,6 +12,7 @@
 
 import { optionsFor } from './positions.js';
 import { POSES } from './poses.js';
+import { rand, randInt } from './rng.js';
 
 const LEVELS = {
   white: { react: 0.62, read: 0.24, aggression: 0.5, patience: 1.5, tapSkill: 0.4 },
@@ -66,7 +67,7 @@ export class AI {
     this.subTapTimer = 0;
     this.subWant = 0.74;
     this.control = { mx: 0, mz: 0, turn: 0, drive: 0 };
-    this.wander = Math.random() * 10;
+    this.wander = rand() * 10;
   }
 
   update(dt, match, onFlick, onTap) {
@@ -88,12 +89,12 @@ export class AI {
     const threat = match.attempt && match.attempt.defender === this.i && match.deny;
     if (threat) {
       if (this.reactTimer < 0) {
-        this.reactTimer = this.level.react * (0.7 + Math.random() * 0.6);
+        this.reactTimer = this.level.react * (0.7 + rand() * 0.6);
         // The read. On a hit it answers correctly; on a miss it picks any
         // other direction, which is worse than doing nothing — as it should be.
-        const right = Math.random() < this.level.read * (0.6 + me.posture / 250);
+        const right = rand() < this.level.read * (0.6 + me.posture / 250);
         const dirs = ['up', 'down', 'left', 'right'].filter((d) => d !== match.deny.dir);
-        this.reactDir = right ? match.deny.dir : dirs[(Math.random() * 3) | 0];
+        this.reactDir = right ? match.deny.dir : dirs[randInt(3)];
       }
       this.reactTimer -= dt;
       if (this.reactTimer <= 0 && this.reactDir) {
@@ -130,11 +131,11 @@ export class AI {
         if (this.subTapTimer <= 0 && s.phase >= this.subWant) {
           onTap();
           this.subTapTimer = 0.12;
-          this.subWant = Math.random() < hit
-            ? SUB_WINDOW[0] + Math.random() * (SUB_WINDOW[1] - SUB_WINDOW[0])
-            : Math.random() < 0.5
-              ? Math.random() * SUB_WINDOW[0]
-              : SUB_WINDOW[1] + Math.random() * (1 - SUB_WINDOW[1]);
+          this.subWant = rand() < hit
+            ? SUB_WINDOW[0] + rand() * (SUB_WINDOW[1] - SUB_WINDOW[0])
+            : rand() < 0.5
+              ? rand() * SUB_WINDOW[0]
+              : SUB_WINDOW[1] + rand() * (1 - SUB_WINDOW[1]);
         }
       } else if (this.subTapTimer <= 0) {
         // The defence has a rhythm too, and it is the same rhythm: an escape
@@ -144,11 +145,11 @@ export class AI {
         // going. Mashing is what a white belt does, and it is what mashing
         // should get him.
         const err = (1 - this.level.tapSkill) * 0.75;
-        const want = 0.85 - Math.random() * err;
+        const want = 0.85 - rand() * err;
         if (s.sinceEscape < want) return;
-        const right = Math.random() < this.level.read;
+        const right = rand() < this.level.read;
         const dirs = ['up', 'down', 'left', 'right'];
-        onFlick(right ? s.escapeDir : dirs[(Math.random() * 4) | 0]);
+        onFlick(right ? s.escapeDir : dirs[randInt(4)]);
         this.subTapTimer = 0.12;
       }
       return;
@@ -157,7 +158,7 @@ export class AI {
     /* --- choosing something to do --------------------------------------- */
     this.think -= dt;
     if (this.think > 0 || match.attempt || match.state !== 'live') return;
-    this.think = this.level.patience * (0.6 + Math.random() * 0.8);
+    this.think = this.level.patience * (0.6 + rand() * 0.8);
 
     const opts = optionsFor(match.position, match.tagOf(this.i));
     const keys = Object.keys(opts);
@@ -191,7 +192,7 @@ export class AI {
       s -= tr.cost * (me.stamina < 40 ? 0.09 : 0.03);
       if (me.stamina < tr.cost * 0.5) s -= 8;
       s *= 0.75 + this.level.aggression * 0.5;
-      s += (Math.random() - 0.5) * 2.4 * (1.3 - this.level.read);
+      s += (rand() - 0.5) * 2.4 * (1.3 - this.level.read);
       if (s > bestScore) {
         bestScore = s;
         best = tr;
@@ -209,7 +210,7 @@ export class AI {
     // what he has left. That is the whole of pacing, and it is one line.
     const reserve = match.isDominant(this.i) ? 20 : 8;
     if (best && me.stamina - best.cost * 0.45 < reserve) {
-      if (Math.random() < 0.3) onTap();
+      if (rand() < 0.3) onTap();
       return;
     }
 
@@ -219,7 +220,7 @@ export class AI {
     // scores above now fall when the moment is wrong, this is the branch that
     // performs the set-up, and it takes it nearly every time rather than half.
     if (!best || bestScore < (match.isDominant(this.i) ? 0.4 : -2.5)) {
-      if (Math.random() < 0.85) onTap();
+      if (rand() < 0.85) onTap();
       return;
     }
     onFlick(best.dir);

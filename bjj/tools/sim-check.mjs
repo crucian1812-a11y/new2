@@ -11,9 +11,25 @@ import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
 import { AI, AI_LEVELS } from '../src/game/ai.js';
 import { POSITION_IDS } from '../src/game/poses.js';
 import { TRANSITIONS } from '../src/game/positions.js';
+import { seedRandom, rand, randInt } from '../src/game/rng.js';
 
 const DT = 1 / 30;
-const N = +(process.argv[2] || 200);
+const N = +(process.argv[2] || Number(flag('matches')) || 200);
+
+// The fight draws from one stream and so does this driver, so a seed fixes the
+// whole run: `--seed 1` twice is the same numbers twice, down to the last
+// digit. Without one the run is seeded from the clock and reported, so a run
+// that finds something can be repeated.
+//
+// This is what the coverage checks needed. "Every position is reached" and
+// "every transition runs" are checks on unseeded random play, and they used to
+// fail every so often on the rare positions with nobody able to say whether a
+// change had done it or the dice had.
+function flag(name) {
+  const i = process.argv.indexOf('--' + name);
+  return i >= 0 ? process.argv[i + 1] : null;
+}
+const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : (Date.now() & 0x7fffffff));
 
 function play(l0, l1, seenPos, seenTr) {
   const a = new Fighter('A');
@@ -45,8 +61,8 @@ function randomPlay(seenPos, seenTr) {
   while (m.state !== 'over' && steps++ < 120 / DT) {
     for (const i of [0, 1]) {
       m.f[i].stamina = 100; // coverage, not balance: never gate on gas
-      if (Math.random() < 0.12) m.input(i, dirs[(Math.random() * 4) | 0]);
-      if (m.state === 'sub' && m.sub.attacker === i && Math.random() < 0.2) m.subTap(i);
+      if (rand() < 0.12) m.input(i, dirs[randInt(4)]);
+      if (m.state === 'sub' && m.sub.attacker === i && rand() < 0.2) m.subTap(i);
     }
     m.update(DT, [ZERO, ZERO]);
     seenPos.add(m.position);
@@ -76,7 +92,7 @@ for (let i = 0; i < N; i++) {
 }
 const ms = Date.now() - t0;
 
-check(hung === 0, 'every match reaches an end', `${N} matches in ${ms}ms`);
+check(hung === 0, 'every match reaches an end', `${N} matches in ${ms}ms, seed ${SEED}`);
 check(outcomes.submission > 0, 'submissions happen', JSON.stringify(outcomes));
 // How matches end is asked per belt further down, where the numbers are, and
 // with a target written next to them. Asked here as well, of one belt against
@@ -315,6 +331,35 @@ const finishes = (lvl) => {
 const wFin = finishes('white'), bFin = finishes('black');
 check(bFin >= wFin, 'a black belt finishes more than a white belt does',
   `against a blue belt: white ${(wFin * 100).toFixed(0)}%, black ${(bFin * 100).toFixed(0)}%`);
+
+/* --- and that any of the above can be run again ---------------------------- */
+
+// Last, because it re-seeds the stream and everything above wanted the run's
+// own seed. A match is boiled down to what it did rather than to who won:
+// every position it passed through, in order, with the score and the clock at
+// the end. Two runs of the same seed agree on all of it or the fight is not
+// reproducible, and a replay, a lockstep network match and any measurement
+// that changes one thing at a time all rest on that.
+function fingerprint(seed) {
+  seedRandom(seed);
+  const m = new Match([new Fighter('A'), new Fighter('B')], { time: MATCH_TIME });
+  const ai = [new AI(0, 'purple'), new AI(1, 'brown')];
+  m.start();
+  const trail = [];
+  let last = null;
+  for (let steps = 0; m.state !== 'over' && steps < Math.ceil((MATCH_TIME + 5) / DT); steps++) {
+    for (const a of ai) {
+      a.update(DT, m, (d) => m.input(a.i, d),
+        () => (m.state === 'sub' && m.sub.attacker === a.i ? m.subTap(a.i) : m.grip(a.i)));
+    }
+    m.update(DT, [ai[0].control, ai[1].control]);
+    if (m.position !== last) { trail.push(m.position); last = m.position; }
+  }
+  return `${trail.join('>')}|${m.f[0].points}:${m.f[1].points}|${m.winBy}|${m.time.toFixed(3)}`;
+}
+const one = fingerprint(20260830), two = fingerprint(20260830), other = fingerprint(20260831);
+check(one === two && one !== other, 'the same seed plays the same match',
+  `${one.split('|')[0].split('>').length} positions, ${one.split('|').slice(1).join(' ')}`);
 
 console.log(fail ? `\n${fail} check(s) failed` : '\nall checks passed');
 process.exit(fail ? 1 : 0);
