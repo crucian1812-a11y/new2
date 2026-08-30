@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { Skeleton, BONE_COUNT, BONES } from '../src/render/skeleton.js';
+import { vertexAO } from './ao.mjs';
 
 /* ------------------------------------------------------------------- args */
 
@@ -1158,7 +1159,19 @@ function materials(P, bone, target, H, ownerDist) {
 
 /* ------------------------------------------------------------------ output */
 
-function encode(P, N, UV, bone, wt, mat, idx) {
+// Ambient occlusion, baked in. See tools/ao.mjs for why a face needs it.
+function bakeAO(P, N, idx) {
+  const t0 = Date.now();
+  const ao = vertexAO(P, N, idx);
+  let sum = 0, dark = 0;
+  for (const v of ao) { sum += v; if (v < 0.5) dark++; }
+  console.log(`ambient occlusion: mean ${(sum / ao.length).toFixed(2)}, ` +
+    `${((dark / ao.length) * 100).toFixed(1)}% of vertices see less than half the room, ` +
+    `${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  return ao;
+}
+
+function encode(P, N, UV, bone, wt, mat, ao, idx) {
   const n = P.length / 3;
   let minX = 1e9, minY = 1e9, minZ = 1e9, maxX = -1e9, maxY = -1e9, maxZ = -1e9;
   for (let i = 0; i < n; i++) {
@@ -1170,11 +1183,12 @@ function encode(P, N, UV, bone, wt, mat, idx) {
   for (let i = 0; i < UV.length; i++) uvMax = Math.max(uvMax, Math.abs(UV[i]));
 
   const HEAD = 48;
-  const bytes = HEAD + n * (6 + 3 + 4 + 2 + 1 + 1) + idx.length * 2;
+  const bytes = HEAD + n * (6 + 3 + 4 + 2 + 1 + 1 + 1) + idx.length * 2;
   const buf = Buffer.alloc(bytes + 8);
   let o = 0;
   buf.write('BJJF', o); o += 4;
-  buf.writeUInt16LE(1, o); o += 2;          // version
+  // Version 2: one byte of baked ambient occlusion per vertex, on the end.
+  buf.writeUInt16LE(2, o); o += 2;          // version
   buf.writeUInt16LE(0, o); o += 2;          // flags
   buf.writeUInt32LE(n, o); o += 4;
   buf.writeUInt32LE(idx.length, o); o += 4;
@@ -1208,6 +1222,9 @@ function encode(P, N, UV, bone, wt, mat, idx) {
   }
   for (let i = 0; i < n; i++) {
     buf.writeUInt8(mat[i], o); o += 1;
+  }
+  for (let i = 0; i < n; i++) {
+    buf.writeUInt8(Math.round(Math.min(1, Math.max(0, ao[i])) * 255), o); o += 1;
   }
   for (let i = 0; i < idx.length; i++) {
     buf.writeUInt16LE(idx[i], o); o += 2;
@@ -1296,7 +1313,8 @@ if (STATIC) {
   for (const v of MAT) counts[v] = (counts[v] || 0) + 1;
   console.log('material split:', Object.entries(counts)
     .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair', 'face'][k]}:${v}`).join(' '));
-  const out = encode(one.pos, N, UV, bone, wt, MAT, one.idx);
+  const AO = bakeAO(one.pos, N, one.idx);
+  const out = encode(one.pos, N, UV, bone, wt, MAT, AO, one.idx);
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, out);
   console.log(
@@ -1371,7 +1389,8 @@ for (const v of MAT) counts[v] = (counts[v] || 0) + 1;
 console.log('\nmaterial split:', Object.entries(counts)
   .map(([k, v]) => `${['skin', 'jacket', 'pants', 'belt', 'lapel', 'hair', 'face'][k]}:${v}`).join(' '));
 
-const out = encode(warped, N, UV, bone, wt, MAT, one.idx);
+const AO = bakeAO(warped, N, one.idx);
+const out = encode(warped, N, UV, bone, wt, MAT, AO, one.idx);
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, out);
 console.log(

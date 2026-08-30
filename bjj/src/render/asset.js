@@ -22,7 +22,7 @@ export function decodeFighter(buffer) {
   const dv = new DataView(buffer);
   if (dv.getUint32(0, true) !== MAGIC) throw new Error('not a baked fighter');
   const version = dv.getUint16(4, true);
-  if (version !== 1) throw new Error(`fighter asset version ${version} not supported`);
+  if (version !== 1 && version !== 2) throw new Error(`fighter asset version ${version} not supported`);
   const n = dv.getUint32(8, true);
   const idxCount = dv.getUint32(12, true);
   const minX = dv.getFloat32(16, true), minY = dv.getFloat32(20, true), minZ = dv.getFloat32(24, true);
@@ -66,10 +66,22 @@ export function decodeFighter(buffer) {
     mat[i] = dv.getUint8(o);
     o += 1;
   }
+  // Baked ambient occlusion, from version 2 on. A version 1 file — one still
+  // sitting in somebody's cache — loads and is lit exactly as it was, which is
+  // the whole reason the old version is still read rather than rejected.
+  const ao = new Float32Array(n);
+  if (version >= 2) {
+    for (let i = 0; i < n; i++) {
+      ao[i] = dv.getUint8(o) / 255;
+      o += 1;
+    }
+  } else {
+    ao.fill(1);
+  }
   const idx = new Uint16Array(idxCount);
   for (let i = 0; i < idxCount; i++) {
     idx[i] = dv.getUint16(o, true);
     o += 2;
   }
-  return { pos, nrm, uv, bone, wt, mat, idx, count: idxCount };
+  return { pos, nrm, uv, bone, wt, mat, ao, idx, count: idxCount };
 }

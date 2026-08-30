@@ -279,6 +279,10 @@ in vec2 a_uv;
 in vec2 a_bone;
 in vec2 a_wt;
 in float a_mat;
+// How much of the room this vertex can see, measured on the mesh by the baker
+// (tools/ao.mjs). One byte per vertex, and the only thing in the shading that
+// knows a face has an eye socket in it.
+in float a_ao;
 
 uniform mat4 u_viewProj;
 uniform mat4 u_bones[${BONE_COUNT}];
@@ -291,6 +295,7 @@ out vec3 v_world;
 out vec3 v_nrm;
 out vec2 v_uv;
 out float v_bend;
+out float v_ao;
 // Flat, and it matters. A material id is a name, not a quantity: interpolate
 // between hair (5) and jacket (1) and the fragments in between round to belt
 // and lapel, which paints a rainbow seam along every hem on the body.
@@ -310,6 +315,7 @@ void main() {
   v_uv = a_uv;
   v_mat = a_mat;
   v_bend = u_bend[int(a_bone.x)] * a_wt.x + u_bend[int(a_bone.y)] * a_wt.y;
+  v_ao = a_ao;
   gl_Position = u_viewProj * p;
 }`;
 
@@ -318,6 +324,7 @@ in vec3 v_world;
 in vec3 v_nrm;
 in vec2 v_uv;
 in float v_bend;
+in float v_ao;
 flat in float v_mat;
 out vec4 outColor;
 
@@ -347,6 +354,14 @@ uniform float u_folds;
 // the honest question is whether they do anything to the light, and the only
 // way to ask it is the same frame with them shaping the surface and without.
 uniform float u_face;
+// And one for the eyes, which is the only switch in here that turns an asset
+// off rather than an effect: with it down the eyeballs are shaded as though
+// they were the skin around them, which is exactly what a character baked
+// without an eye material looks like. That makes "what are the eyes worth on
+// this head" a number instead of an opinion.
+uniform float u_eyes;
+// And for what the baker measured on the mesh.
+uniform float u_ao;
 
 // How much of the sky a point can still see, given those capsules. One minus
 // the product rather than a sum: two limbs pressing on the same patch of cloth
@@ -379,13 +394,22 @@ uniform float u_flash;   // hit flash, 0..1
 uniform float u_gas;     // how far out of gas he is, 0..1
 uniform vec4 u_patch[3];      // centre u, half width, centre v, half height
 uniform vec4 u_patchCell[3];
+// Tooling: draw which material each pixel is instead of what it looks like.
+// A mask by fighter is not enough to say anything about a face — most of a
+// head on screen is hair, and averaging a face number over a head disc that is
+// two thirds hair says nothing about either.
+uniform float u_ident;
 
 void main() {
+  if (u_ident > 0.5) {
+    outColor = vec4(v_mat / 255.0, 0.0, 0.0, 1.0);
+    return;
+  }
   int m = int(v_mat + 0.5);
   vec3 N = normalize(v_nrm);
   vec3 albedo; float rough; float spec; float wrap;
 
-  if (m == 0) {
+  if (m == 0 || (m == 7 && u_eyes < 0.5)) {
     vec4 t = texture(u_skin, v_uv * 1.6);
     N = applyBump(N, v_world, v_uv * 1.6, t.rgb * 2.0 - 1.0, 0.35);
     // Sweat, and a lot of translucency. How wet he is is the one thing the
@@ -413,7 +437,13 @@ void main() {
     albedo *= 1.0 - smoothstep(0.55, 1.0, abs(across)) * 0.5;
     rough = 0.14; spec = 0.85; wrap = 0.1;
   } else if (m == 6) {
-    // The face.
+    // The face — for a sculpt that has none of one.
+    //
+    // Nothing shipped wears this material. Both fighters on the mat are baked
+    // by bake-mixamo from characters that arrived with sockets, lids, a nose
+    // and a mouth already modelled, and that baker deliberately leaves a real
+    // face alone; material 6 comes from bake-fighter, which warps a shell with
+    // no features onto the rig. The branch is kept because that baker is kept.
     //
     // The sculpt has a nose and a brow and a jaw, and from three metres away
     // none of that reads without eyes: a head with correct geometry and no
@@ -456,6 +486,10 @@ void main() {
     // Nostrils and the shadow under the nose.
     float nose = exp(-(pow((ax - 0.8) / 0.45, 2.0) + pow((F.y - 4.35) / 0.35, 2.0)));
     albedo *= 1.0 - nose * 0.45 * on;
+    // The bridge, which is a ridge and nothing else — it has no albedo term at
+    // all and before this it did not exist. It is here because a face lit from
+    // above is read off the bridge and the brow before anything else.
+    float bridge = exp(-(pow(F.x / 0.85, 2.0) + pow((F.y - 5.6) / 1.9, 2.0)));
 
     // Mouth. A line, not a shape: at this distance a drawn mouth with lips on
     // it looks like a wound.
@@ -464,6 +498,26 @@ void main() {
     // The lower lip catches light just under it.
     float lipLit = 1.0 - smoothstep(0.6, 1.0, length(vec2(F.x / 1.7, (F.y - 1.95) / 0.3)));
     albedo *= 1.0 + lipLit * 0.10 * on;
+
+    // And the same features again, as a surface.
+    //
+    // Everything above multiplies the albedo and nothing else, which makes a
+    // face a picture of a face: the brow does not take the light from over the
+    // hall, the socket beneath it does not fall into shadow, and the whole
+    // thing reads the same however the head turns. look-check measured exactly
+    // that — the frame with the features on and the frame with them off were
+    // the same frame, to the last level of brightness, in all five shots.
+    //
+    // So they are also a height off the sculpted surface, in metres, and the
+    // numbers are the ones a face has: a brow ridge stands about five
+    // millimetres proud of the socket under it, a nostril is four deep, the
+    // line between the lips three. Real depths and a bump amount of one, so
+    // there is no gain to tune here — the only way to make this read stronger
+    // is to claim a bigger nose.
+    float relief = brow * 0.005 - socket * 0.0035 - lid * 0.0015
+                 + bridge * 0.004 - nose * 0.004
+                 - mouth * 0.003 + lipLit * 0.002;
+    N = bumpFromHeight(N, v_world, relief * on * u_face, 1.0);
 
     rough = mix(0.66, 0.28, u_gas); spec = mix(0.24, 0.78, u_gas); wrap = 0.55;
   } else if (m == 5 || m == 8) {
@@ -554,6 +608,13 @@ void main() {
   // the few centimetres nearest it are where contact reads — this is stronger
   // and tighter than a generic ambient term would be.
   float ao = clamp(0.24 + v_world.y * 1.9, 0.0, 1.0);
+  // What this vertex can see of the room, from the mesh itself, used as what
+  // it is: the fraction of the hemispheric ambient that reaches this point.
+  // Straight, not curved — the baker already answered the question, and a
+  // gamma on top of it would only be a knob. The floor is the light that comes
+  // back off the man himself and off the mat, which in a hall this dark is
+  // very little.
+  ao *= mix(1.0, 0.10 + 0.90 * v_ao, u_ao);
   // And the other man. Bounded at a third: a crease between two bodies is dark,
   // not black, and an unbounded product turns the inside of every tangle into
   // a hole.
@@ -1048,6 +1109,9 @@ export class Renderer {
         { name: 'a_bone', data: m.bone, size: 2 },
         { name: 'a_wt', data: m.wt, size: 2 },
         { name: 'a_mat', data: m.mat, size: 1 },
+        // The procedural body carries no baked occlusion — it is built at run
+        // time and never went through a baker — so it sees the whole room.
+        { name: 'a_ao', data: m.ao || new Float32Array(m.pos.length / 3).fill(1), size: 1 },
       ], m.idx),
       shadow: vao(gl, this.progShadowSkin.p, [
         { name: 'a_pos', data: m.pos, size: 3 },
@@ -1102,7 +1166,8 @@ export class Renderer {
     // exactly zero.
     if (Array.isArray(this.want)) {
       const list = this.want.slice();
-      const keep = { contactAO: this.contactAO, folds: this.folds, faceRelief: this.faceRelief };
+      const keep = { contactAO: this.contactAO, folds: this.folds,
+        faceRelief: this.faceRelief, eyes: this.eyes, bakedAO: this.bakedAO };
       const shots = {};
       this._grabbing = true;
       for (let i = 0; i < list.length; i++) {
@@ -1110,6 +1175,8 @@ export class Renderer {
         this.contactAO = v !== 'contact';
         this.folds = v !== 'folds';
         this.faceRelief = v !== 'face';
+        this.eyes = v !== 'eyes';
+        this.bakedAO = v !== 'ao';
         // The last pass carries the mask, so the identity buffer belongs to a
         // frame with everything switched on.
         this.want = i === list.length - 1;
@@ -1249,6 +1316,8 @@ export class Renderer {
       gl.uniform1f(this.progSkin.u.u_contact, this.contactAO === false ? 0 : 1);
       gl.uniform1f(this.progSkin.u.u_folds, this.folds === false ? 0 : 1);
       gl.uniform1f(this.progSkin.u.u_face, this.faceRelief === false ? 0 : 1);
+      gl.uniform1f(this.progSkin.u.u_eyes, this.eyes === false ? 0 : 1);
+      gl.uniform1f(this.progSkin.u.u_ao, this.bakedAO === false ? 0 : 1);
       gl.uniform4fv(this.progSkin.u.u_occA, this.occA);
       gl.uniform4fv(this.progSkin.u.u_occB, this.occB);
       gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
@@ -1372,10 +1441,28 @@ export class Renderer {
         }
       });
       gl.colorMask(true, true, true, true);
-      const id = new Uint8Array(w * h * 4);
-      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, id);
+      const id = this._readback();
+
+      // And once more as which material, in the red channel. Same program as
+      // the lit pass so the materials are exactly the ones that were shaded,
+      // drawn after the post pass like the mask above so that no grade, bloom
+      // or grain touches the numbers.
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      gl.useProgram(this.progSkin.p);
+      gl.uniformMatrix4fv(this.progSkin.u.u_viewProj, false, this.viewProj);
+      gl.uniform1f(this.progSkin.u.u_ident, 1);
+      for (const f of fighters) {
+        gl.uniformMatrix4fv(this.progSkin.u.u_bones, false, f.skeleton.skin);
+        for (const part of f.gpu.parts) {
+          gl.bindVertexArray(part.main);
+          gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
+        }
+      }
+      gl.uniform1f(this.progSkin.u.u_ident, 0);
+      const mat = this._readback();
       gl.disable(gl.DEPTH_TEST);
-      this.grabbed = { w, h, shaded, id };
+      this.grabbed = { w, h, shaded, id, mat };
     }
 
     gl.bindVertexArray(null);

@@ -137,6 +137,34 @@ const mats = new Set(m.mat);
 check(mats.has(0) && mats.has(1), 'the fighter has both skin and cloth on it',
   `materials present: ${[...mats].sort().join(',')}`);
 
+// Baked ambient occlusion (see tools/ao.mjs). Two ways for this to be wrong
+// and both of them load and run: the field can be missing, in which case the
+// decoder fills it with ones and every cavity on the body is lit like a
+// cheek, or it can be flat, which is the same thing with extra bytes.
+{
+  let open = 0, shut = 0;
+  for (const v of m.ao) {
+    if (v > 0.8) open++;
+    if (v < 0.35) shut++;
+  }
+  check(open / n > 0.10 && shut / n > 0.05,
+    'the mesh carries occlusion and the occlusion discriminates',
+    `${((open / n) * 100).toFixed(0)}% of vertices see most of the room, ` +
+    `${((shut / n) * 100).toFixed(0)}% see almost none of it`);
+
+  // And on the face in particular, which is what it was baked for: a socket
+  // and the cheek beside it cannot be the same number.
+  const head = [];
+  for (let v = 0; v < n; v++) {
+    if (m.bone[v * 2] === BONE_INDEX.head && (m.mat[v] === 0 || m.mat[v] === 6)) head.push(m.ao[v]);
+  }
+  head.sort((a, b) => a - b);
+  const p = (f) => (head.length ? head[Math.floor(head.length * f)] : 0);
+  check(head.length > 200 && p(0.9) - p(0.1) > 0.3,
+    'the head has hollows in it as well as cheeks',
+    `${head.length} head verts, ${p(0.1).toFixed(2)} in the deepest tenth against ${p(0.9).toFixed(2)} in the most open`);
+}
+
 console.log(`\n${(raw.length / 1024).toFixed(0)} KB on disk`);
 console.log(fail ? `${fail} check(s) failed` : 'the bake is sound');
 process.exit(fail ? 1 : 0);

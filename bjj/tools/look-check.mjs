@@ -98,28 +98,38 @@ async function look(pose) {
     // switches nothing, so whatever it reports is the instrument's own floor,
     // and it should be zero.
     r.grabbed = null;
-    r.want = ['contact', 'folds', 'face', 'ctrl', 'all'];
+    r.want = ['contact', 'folds', 'face', 'eyes', 'ao', 'ctrl', 'all'];
     for (let i = 0; i < 300 && !(r.grabbed && r.grabbed.shots); i++) await wait(30);
     const on = r.grabbed;
     if (!on || !on.shots || !on.shots.ctrl) return { error: 'no frame came back' };
     const off = on.shots.contact, flatFrame = on.shots.folds;
-    const flatFace = on.shots.face, ctrl = on.shots.ctrl;
+    const flatFace = on.shots.face, ctrl = on.shots.ctrl, blind = on.shots.eyes;
+    const noAO = on.shots.ao;
 
-    const { w, h, shaded, id } = on;
+    const { w, h, shaded, id, mat } = on;
     const lum = (px, k) => 0.2126 * px[k] + 0.7152 * px[k + 1] + 0.0722 * px[k + 2];
     const L = new Float32Array(w * h);
     const L0 = new Float32Array(w * h);
     const Lf = new Float32Array(w * h);
     const Lc = new Float32Array(w * h);
     const Ln = new Float32Array(w * h);
+    const Le = new Float32Array(w * h);
+    const La = new Float32Array(w * h);
     const who = new Uint8Array(w * h);       // 0 nobody, 1 red, 2 green, 3 blue
+    // Which material each pixel is, from the same instant (see `u_ident`).
+    // 0 skin, 5 hair, 6 the drawn face, 7 eyeballs, 8 lashes and brows; the
+    // rest is cloth.
+    const skinPx = new Uint8Array(w * h);
     for (let i = 0, k = 0; i < shaded.length; i += 4, k++) {
       L[k] = lum(shaded, i);
       L0[k] = lum(off, i);
       Lf[k] = lum(flatFrame, i);
       Lc[k] = lum(flatFace, i);
       Ln[k] = lum(ctrl, i);
+      Le[k] = lum(blind, i);
+      La[k] = lum(noAO, i);
       who[k] = id[i] > 127 ? 1 : id[i + 1] > 127 ? 2 : id[i + 2] > 127 ? 3 : 0;
+      skinPx[k] = mat[i] === 0 || mat[i] === 6 || mat[i] === 7 || mat[i] === 8 ? 1 : 0;
     }
 
     // Where the other man is near, in screen space: B's mask grown by a
@@ -171,16 +181,15 @@ async function look(pose) {
     // the whole mask, because a silhouette is a step of a hundred levels and
     // swamps a crease worth five. Four pixels of erosion is enough to lose the
     // rim and keep the cloth.
-    const inner = new Uint8Array(w * h);
-    {
+    const erode = (val) => {
       const E = 4;
-      const t1 = new Uint8Array(w * h);
+      const t1 = new Uint8Array(w * h), out2 = new Uint8Array(w * h);
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           let ok = 1;
           for (let d = -E; d <= E && ok; d++) {
             const j = x + d;
-            if (j < 0 || j >= w || who[y * w + j] !== 1) ok = 0;
+            if (j < 0 || j >= w || who[y * w + j] !== val) ok = 0;
           }
           t1[y * w + x] = ok;
         }
@@ -192,10 +201,13 @@ async function look(pose) {
             const j = y + d;
             if (j < 0 || j >= h || !t1[j * w + x]) ok = 0;
           }
-          inner[y * w + x] = ok;
+          out2[y * w + x] = ok;
         }
       }
-    }
+      return out2;
+    };
+    const inner = erode(1);
+    const innerB = erode(2);
 
     // Structure at the scale of a crease.
     //
@@ -240,7 +252,7 @@ async function look(pose) {
     // global dimming darkens both and is worth nothing.
     let dNear = 0, nNear = 0, dFar = 0, nFar = 0;
     const vals = [];
-    let clipped = 0, n = 0, flatN = 0, flat = 0, flatOff = 0, creaseOn = 0, creaseOff = 0, creaseN = 0, foldDelta = 0, foldNoise = 0;
+    let clipped = 0, n = 0, flatN = 0, flat = 0, flatOff = 0, creaseOn = 0, creaseOff = 0, creaseN = 0, foldDelta = 0, foldNoise = 0, cavityDelta = 0;
     for (let k = 0; k < who.length; k++) {
       if (who[k] !== 1) continue;
       n++;
@@ -264,6 +276,7 @@ async function look(pose) {
           // can, and this is that difference.
           foldDelta += Math.abs(L[k] - Lf[k]);
           foldNoise += Math.abs(L[k] - Ln[k]);
+          cavityDelta += Math.abs(L[k] - La[k]);
           creaseN++;
         }
       }
@@ -300,25 +313,30 @@ async function look(pose) {
       return c > 60 ? { on: on / c, off: off / c, n: c } : null;
     };
 
-    // The head, in screen space, and what the face does inside it.
+    // The head, in screen space, and what is on it.
     //
-    // A face is the one surface in the frame where the eye knows what it is
-    // looking at, so a flat one is expensive: everything else can be a little
-    // wrong and read as a photograph of a man, and a mannequin's head reads as
-    // a mannequin however good the gi is. The features on this face are drawn
-    // — dark patches multiplied into the albedo — and a drawn feature is flat
-    // by construction: it does not catch light on the brow, it does not put
-    // shadow under the nose when the light comes from above, and it looks the
-    // same painted on a ball as on a face.
+    // A face is the one surface in the frame where the eye knows exactly what
+    // it is looking at, so a flat one is expensive: everything else can be a
+    // little wrong and still read as a photograph of a man, and a mannequin's
+    // head reads as a mannequin however good the gi is.
     //
-    // Two numbers, and only the second is a claim:
+    // Both heads are measured, not just the near one. The two fighters are
+    // baked from different characters by the same tool, and the thing this
+    // found — one of them shaded with no eyes at all, his eyeballs painted the
+    // colour of his cheeks because they arrived welded into the body mesh
+    // instead of as a part of their own — only shows up if you look at the
+    // other man too.
     //
-    //   spread   the tonal spread over the head, which says the face is not one
-    //            even patch. Drawn features raise it too, so it is reported.
-    //   relief   the same frame with the features shaping the surface and
-    //            without, pixel for pixel — the same instrument the folds are
-    //            measured with, and the only one that can tell a shaded brow
-    //            from a brown smudge.
+    // Three numbers per head, and the middle one is the claim:
+    //
+    //   eyes     the same frame with the eyeballs shaded as skin, pixel for
+    //            pixel. This is what the eyes are worth on that head, and on a
+    //            character baked without an eye material it is exactly zero.
+    //   drawn    the same for the drawn features of material 6. Nothing
+    //            shipped wears it, so this is zero and should be: it is here
+    //            so that a sculpt baked by the other tool can be judged too.
+    //   spread   the tonal spread over the head, reported, never checked —
+    //            hair against skin dominates it.
     const project = (X, Y, Z) => {
       const vp = r.viewProj;
       const cw = vp[3] * X + vp[7] * Y + vp[11] * Z + vp[15];
@@ -327,39 +345,52 @@ async function look(pose) {
       const cy = vp[1] * X + vp[5] * Y + vp[9] * Z + vp[13];
       return [((cx / cw) * 0.5 + 0.5) * w, ((cy / cw) * 0.5 + 0.5) * h];
     };
-    const faceLook = () => {
-      const sk = window.__bjj.rig.skel.A;
+    const headLook = (role, val, mask) => {
+      const sk = window.__bjj.rig.skel[role];
       const mm = sk.world[window.__bjj.BONE_INDEX.head];
       const c = project(mm[12], mm[13], mm[14]);
-      // A head is about eleven centimetres across; the radius is taken from
-      // the projection of that, not from a fraction of the frame, so a
+      // A head is about eleven centimetres across; the radius comes from the
+      // projection of that rather than from a fraction of the frame, so a
       // close-up and a wide shot measure the same amount of man.
-      const s = project(mm[12], mm[13] + 0.11, mm[14]);
-      if (!c || !s) return null;
-      const RR = Math.hypot(s[0] - c[0], s[1] - c[1]) * 1.25;
+      const s2 = project(mm[12], mm[13] + 0.11, mm[14]);
+      if (!c || !s2) return null;
+      const RR = Math.hypot(s2[0] - c[0], s2[1] - c[1]) * 1.25;
       if (!(RR > 5)) return null;
-      let d = 0, cn = 0, moved = 0, noise = 0;
-      const vs = [];
+      let dEye = 0, dFace = 0, dAO = 0, noise = 0, cn = 0;
+      const vs = [], cav = [];
       for (let y = Math.max(0, c[1] - RR | 0); y < Math.min(h, c[1] + RR); y++) {
         for (let x = Math.max(0, c[0] - RR | 0); x < Math.min(w, c[0] + RR); x++) {
           const k = y * w + x;
-          if (!inner[k]) continue;
+          // Skin only: on a head with long hair two thirds of the disc is
+          // hair, which is nearly black albedo and answers no shading term at
+          // all, and averaging over it hides whatever the face is doing.
+          if (!mask[k] || who[k] !== val || !skinPx[k]) continue;
           if (Math.hypot(x - c[0], y - c[1]) > RR) continue;
           vs.push(L[k]);
-          const dd = Math.abs(L[k] - Lc[k]);
-          d += dd;
+          dEye += Math.abs(L[k] - Le[k]);
+          // As a fraction of the brightness that is there, not in levels.
+          // Two levels off a head lit to twenty is a quarter of it and reads
+          // as a hollow; two levels off a head lit to two hundred is nothing.
+          // On the ground both men are in their own shadow, and an absolute
+          // number says the term stopped working there when what stopped is
+          // the light.
+          dAO += Math.abs(L[k] - La[k]) / Math.max(6, L[k]);
+          cav.push(Math.abs(L[k] - La[k]) / Math.max(6, L[k]));
+          dFace += Math.abs(L[k] - Lc[k]);
           noise += Math.abs(L[k] - Ln[k]);
-          if (dd > 2) moved++;
           cn++;
         }
       }
-      if (cn < 80) return null;
+      if (cn < 60) return null;
       vs.sort((a, b) => a - b);
+      cav.sort((a, b) => a - b);
       return {
-        n: cn, r: RR,
-        relief: d / cn,
-        noise: noise / cn,
-        moved: moved / cn,
+        n: cn, r: RR, eyes: dEye / cn, drawn: dFace / cn, cavity: dAO / cn, noise: noise / cn,
+        // What it does where it does the most, which is the socket and the
+        // under-jaw. A face reads by the difference between a cheek and the
+        // hollow beside it, and a mean over the whole of a head averages the
+        // one into the other.
+        deep: cav[Math.floor(cav.length * 0.9)],
         spread: vs[Math.floor(vs.length * 0.95)] - vs[Math.floor(vs.length * 0.05)],
       };
     };
@@ -372,18 +403,24 @@ async function look(pose) {
       flat: flatN ? flat / flatN : 0,
       flatOff: flatN ? flatOff / flatN : 0,
       fold: creaseN ? foldDelta / creaseN : 0,
+      cavity: creaseN ? cavityDelta / creaseN : 0,
       foldNoise: creaseN ? foldNoise / creaseN : 0,
       crease: creaseN ? creaseOn / creaseN : 0,
       creaseOff: creaseN ? creaseOff / creaseN : 0,
       relief: { foreL: rel('foreL'), foreR: rel('foreR'), thighL: rel('thighL'), shinR: rel('shinR') },
-      face: faceLook(),
+      // Which baked character is wearing which role this second: role A is the
+      // first man in the render list, and whether that is the player's mesh or
+      // the opponent's depends on who is on top.
+      wears: { A: m.roleOf.indexOf('A') === 0 ? 'you' : 'opp', B: m.roleOf.indexOf('B') === 0 ? 'you' : 'opp' },
+      heads: { A: headLook('A', 1, inner), B: headLook('B', 2, innerB) },
     };
     if (window.__dump) { out.shaded = Array.from(shaded); out.id = Array.from(id); }
     return out;
   }, pose);
 }
 
-console.log('  frame            of A  | darkened near / away |  seam  merged | fold crease | relief on/off        |  face  spread');
+console.log('  frame            of A  | darkened near / away |  seam  merged | fold  cav | relief on/off' +
+  '        | head: cavity/deep eyes');
 const rows = [];
 for (const pose of SHOTS) {
   if (dump) await page.evaluate(() => { window.__dump = true; });
@@ -394,12 +431,15 @@ for (const pose of SHOTS) {
   console.log(
     `  ${pose.padEnd(14)} ${String(r.pixels).padStart(6)} | ${f(r.near)} ${f(r.far)}` +
     `        | ${String(r.seam).padStart(5)} ${(r.merged * 100).toFixed(0).padStart(4)}%` +
-    ` | ${r.fold.toFixed(1).padStart(4)}/${r.foldNoise.toFixed(1)} ${r.crease.toFixed(1).padStart(5)}` +
+    ` | ${r.fold.toFixed(1).padStart(4)}/${r.foldNoise.toFixed(1)} ${r.cavity.toFixed(1).padStart(4)}` +
     ` | ${['foreL', 'foreR', 'thighL', 'shinR'].map((b) => {
       const v = r.relief[b];
       return v ? `${v.on.toFixed(1)}/${v.off.toFixed(1)}` : '  --  ';
     }).join(' ')}` +
-    ` | ${r.face ? `${r.face.relief.toFixed(1).padStart(5)}/${r.face.noise.toFixed(1)} ${r.face.spread.toFixed(0).padStart(6)}` : '   --      --'}`
+    ` | ${['A', 'B'].map((k) => {
+      const f = r.heads[k];
+      return f ? `${r.wears[k]} ${(f.cavity * 100).toFixed(0).padStart(3)}%/${(f.deep * 100).toFixed(0)}% ${f.eyes.toFixed(1).padStart(4)}` : `${r.wears[k]}    --   --`;
+    }).join('  ')}`
   );
   if (dump) {
     const png = (name, data) => {
@@ -449,22 +489,48 @@ const fold = med(rows.map((r) => r.fold - r.foldNoise));
 check(fold > 2.0, 'the folds are worth something on the cloth',
   rows.map((r) => `${r.pose} ${(r.fold - r.foldNoise).toFixed(1)}`).join(', '));
 
-// The face.
+// The eyes.
 //
-// Measured on the frames where the head is actually turned towards the camera
-// and big enough to have pixels — in a tangle it often is neither — so this is
-// the median of what came back, and it is a check only if two frames or more
-// had a head to look at.
-const faces = rows.map((r) => r.face).filter((f) => f && f.n > 200);
-if (faces.length > 1) {
-  check(med(faces.map((f) => f.relief - f.noise)) > 2.0, 'the features on the face shape the light',
-    rows.filter((r) => r.face && r.face.n > 200)
-      .map((r) => `${r.pose} ${(r.face.relief - r.face.noise).toFixed(1)}`).join(', '));
-  console.log(`  (the head spans ${faces.map((f) => (f.r * 2).toFixed(0)).join('/')} px` +
-    ` and ${(med(faces.map((f) => f.moved)) * 100).toFixed(0)}% of it moves when they are switched off)`);
-} else {
-  console.log('  (no frame had a head large enough to measure — face not judged)');
+// Per baked character rather than per role, because a role changes hands
+// several times a match and a mesh does not: the question is whether the man
+// baked from that file has eyes, and it is answered on whichever frames his
+// head was turned enough towards the camera to have pixels.
+const heads = {};
+for (const r of rows) {
+  for (const k of ['A', 'B']) {
+    const f = r.heads[k];
+    if (!f || f.n < 200) continue;
+    (heads[r.wears[k]] = heads[r.wears[k]] || []).push({ pose: r.pose, ...f });
+  }
 }
+// What the baked occlusion is worth where a face is. The claim is physical and
+// it is about geometry the mesh already had: an eye socket is a cavity, a
+// cavity cannot see the room, and until the baker measured that the shading
+// treated a socket exactly like a cheek.
+for (const who of ['you', 'opp']) {
+  const hs = heads[who] || [];
+  if (hs.length < 2) continue;
+  check(med(hs.map((f) => f.deep)) > 0.10, `the sockets and the jaw are shaded on ${who}'s head`,
+    hs.map((f) => `${f.pose} ${(f.deep * 100).toFixed(0)}% deep, ${(f.cavity * 100).toFixed(0)}% over the face`).join('; '));
+}
+// The eyes, reported and deliberately not checked.
+//
+// The eyeball material is worth between nothing and three tenths of a level of
+// brightness on a head in a match frame: at three metres the visible sclera is
+// two pixels across and the lids and lashes cover most of it. It is not a
+// check because there is nothing here to defend — a fighter baked without an
+// eye material at all, which is what the opponent is, measures the same as one
+// baked with 764 vertices of eyeball, which is what the player is. It would
+// start to matter in a close-up, and if one ever arrives this is the number
+// that says so.
+for (const who of ['you', 'opp']) {
+  const hs = heads[who] || [];
+  if (hs.length < 2) { console.log(`  (no frame had ${who}'s head large enough to measure)`); continue; }
+  console.log(`  (the eyes are worth ${med(hs.map((f) => f.eyes)).toFixed(1)} levels on ${who}'s head` +
+    ` — ${hs.map((f) => `${f.pose} ${f.eyes.toFixed(1)}`).join(', ')})`);
+}
+const drawn = Object.values(heads).flat().filter((f) => f.drawn > 0.05);
+if (drawn.length) console.log(`  (drawn features of material 6 are worth ${med(drawn.map((f) => f.drawn)).toFixed(1)})`);
 
 if (errors.length) for (const e of errors) check(false, 'page error', e);
 console.log(fail ? `\n${fail} problem(s)` : '\nthe picture reads');

@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { readMixamo, bare as bareName } from './mixamo.mjs';
+import { vertexAO } from './ao.mjs';
 import { Skeleton, BONES, BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
 
 const argv = process.argv.slice(2);
@@ -771,7 +772,19 @@ if (REPORT) {
 
 /* ------------------------------------------------------------- encoding */
 
-function encode(P, N, UV, bone, wt, mat, idx) {
+// Ambient occlusion, baked in. See tools/ao.mjs for why a face needs it.
+function bakeAO(P, N, idx) {
+  const t0 = Date.now();
+  const ao = vertexAO(P, N, idx);
+  let sum = 0, dark = 0;
+  for (const v of ao) { sum += v; if (v < 0.5) dark++; }
+  console.log(`ambient occlusion: mean ${(sum / ao.length).toFixed(2)}, ` +
+    `${((dark / ao.length) * 100).toFixed(1)}% of vertices see less than half the room, ` +
+    `${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  return ao;
+}
+
+function encode(P, N, UV, bone, wt, mat, ao, idx) {
   const n = P.length / 3;
   let mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
   for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) {
@@ -782,10 +795,11 @@ function encode(P, N, UV, bone, wt, mat, idx) {
   for (let i = 0; i < UV.length; i++) uvMax = Math.max(uvMax, Math.abs(UV[i]));
 
   const HEAD = 48;
-  const buf = Buffer.alloc(HEAD + n * 17 + idx.length * 2 + 8);
+  const buf = Buffer.alloc(HEAD + n * 18 + idx.length * 2 + 8);
   let o = 0;
   buf.write('BJJF', o); o += 4;
-  buf.writeUInt16LE(1, o); o += 2;
+  // Version 2: one byte of baked ambient occlusion per vertex, on the end.
+  buf.writeUInt16LE(2, o); o += 2;
   buf.writeUInt16LE(0, o); o += 2;
   buf.writeUInt32LE(n, o); o += 4;
   buf.writeUInt32LE(idx.length, o); o += 4;
@@ -803,11 +817,13 @@ function encode(P, N, UV, bone, wt, mat, idx) {
   for (let i = 0; i < n * 2; i++) { buf.writeUInt8(bone[i], o); o += 1; }
   for (let i = 0; i < n; i++) { buf.writeUInt8(Math.round(wt[i * 2] * 255), o); o += 1; }
   for (let i = 0; i < n; i++) { buf.writeUInt8(mat[i], o); o += 1; }
+  for (let i = 0; i < n; i++) { buf.writeUInt8(Math.round(Math.min(1, Math.max(0, ao[i])) * 255), o); o += 1; }
   for (let i = 0; i < idx.length; i++) { buf.writeUInt16LE(idx[i], o); o += 2; }
   return buf.subarray(0, o);
 }
 
-const out = encode(pos, N, UV, BONE, WT, MAT, idx);
+const AO = bakeAO(pos, N, idx);
+const out = encode(pos, N, UV, BONE, WT, MAT, AO, idx);
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, out);
 console.log(`\nwrote ${OUT}  ${(out.length / 1024).toFixed(0)} KB  ${pos.length / 3} verts  ${idx.length / 3} tris`);
