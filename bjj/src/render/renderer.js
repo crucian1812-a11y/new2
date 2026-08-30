@@ -208,6 +208,23 @@ void main() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
+  // Nor hands and feet, which are skin — material 0 — and so were being inked
+  // along with the rest of the body.
+  //
+  // The mittens themselves are the Mixamo geometry and the baker is where they
+  // get fixed; a frame rendered with this whole pass switched off still has
+  // them. But the outline makes them a great deal worse: the notches between
+  // the fingers are shallower than two and a bit screen pixels, so at any
+  // distance where a hand is worth looking at the hull closes them up and the
+  // hand comes out as a black paddle. Excluded by bone rather than by material
+  // because that needs no change to the baked file — the skin of a hand and the
+  // skin of a shoulder are the same material and always will be.
+  int nb = a_wt.x >= a_wt.y ? int(a_bone.x) : int(a_bone.y);
+  if (nb == ${BONE_INDEX.handL} || nb == ${BONE_INDEX.handR} ||
+      nb == ${BONE_INDEX.footL} || nb == ${BONE_INDEX.footR}) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
   mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
   vec4 p = s * vec4(a_pos, 1.0);
   vec3 n = normalize(mat3(s) * a_nrm);

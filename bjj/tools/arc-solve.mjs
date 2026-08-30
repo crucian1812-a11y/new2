@@ -38,7 +38,7 @@
 import { writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
 import { ARCS, VIAS } from '../src/game/arcs.js';
-import { TRANSITIONS } from '../src/game/positions.js';
+import { TRANSITIONS, visualTo } from '../src/game/positions.js';
 import { HOLD_LOOPS } from '../src/game/poses.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
@@ -80,9 +80,14 @@ const rig = new PairRig();
 rig.live = false;
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
+// What can be the lowest thing on a grappler — the same list blend-check
+// judges the lift on, and for the same reason: the crown of the head is never
+// the part on the mat and the knees carry half the positions in this game.
+const LOW = ['handL', 'handR', 'footL', 'footR', 'hips', 'shinL', 'shinR', 'chest', 'head'];
 
 function measure(from, to) {
   let sum = 0, worst = 0, where = null;
+  const low = new Array(STEPS);
   for (let i = 0; i < STEPS; i++) {
     const t = i / (STEPS - 1);
     rig.effort.A = rig.effort.B = 0;
@@ -103,8 +108,28 @@ function measure(from, to) {
         if (under > 0) sum += under * under * 3;
       }
     }
+    let lo = Infinity;
+    for (const role of ['A', 'B']) {
+      for (const b of LOW) lo = Math.min(lo, rig.skel[role].world[BONE_INDEX[b]][13]);
+    }
+    low[i] = lo;
   }
-  return { sum, worst, where };
+  // Nor off it.
+  //
+  // Everything above this asks the correction not to put bodies inside each
+  // other or inside the floor, and "lift the pair into the air" satisfies all
+  // of it. One transition took that answer and left the two of them thirteen
+  // centimetres clear of the tatami with their shadow underneath. The baseline
+  // is the straight line between the endpoints' own heights, so a transition
+  // that legitimately stands up is not charged for standing up.
+  let lift = 0;
+  for (let i = 1; i < STEPS - 1; i++) {
+    const t = i / (STEPS - 1);
+    const base = low[0] * (1 - t) + low[STEPS - 1] * t;
+    const up = low[i] - base - 0.02;
+    if (up > 0) { sum += up * up * 3; lift = Math.max(lift, low[i] - base); }
+  }
+  return { sum, worst, where, lift };
 }
 
 // The graph's transitions, and the loops a held position runs inside itself.
@@ -113,7 +138,9 @@ function measure(from, to) {
 const keys = [];
 const seen = new Set();
 for (const [from, to] of [
-  ...TRANSITIONS.map((tr) => [tr.from, tr.to]),
+  // The mirror of a destination, where there is one: that is the blend the eye
+  // is on, so that is the blend that needs a correction.
+  ...TRANSITIONS.map((tr) => [tr.from, visualTo(tr)]),
   ...Object.entries(HOLD_LOOPS).flatMap(([pos, loop]) => loop.map((v) => [pos, v])),
 ]) {
   const key = `${from}>${to}`;

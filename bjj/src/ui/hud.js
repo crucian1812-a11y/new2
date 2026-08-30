@@ -244,7 +244,11 @@ export class HUD {
       const a = m.attempt;
       const bw = 190;
       const bx = this.w / 2 - bw / 2;
-      const by = 96;
+      // Clear of the position's two labels above it. At 96 the bar's top edge
+      // sat in the descenders of the English one and the three-second ring
+      // finished a pixel above it; there are four things stacked in this strip
+      // and they were sharing forty pixels.
+      const by = 108;
       c.fillStyle = 'rgba(6,8,12,0.8)';
       roundRect(c, bx, by, bw, 22, 5);
       c.fill();
@@ -255,7 +259,11 @@ export class HUD {
       c.font = `700 11px ${FONT}`;
       c.fillStyle = '#fff';
       c.textAlign = 'center';
-      c.fillText(a.tr.name.toUpperCase(), cx, by + 12);
+      // Over the bar, not over the ring. This read `cx`, which is the centre
+      // of the control ring in the bottom corner, so on an 812-wide screen the
+      // name of the move being attempted was drawn 290 pixels to the right of
+      // the bar filling up underneath it, out over the hoardings.
+      c.fillText(a.tr.name.toUpperCase(), bx + bw / 2, by + 12);
     }
   }
 

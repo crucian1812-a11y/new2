@@ -113,7 +113,7 @@ function play(level) {
   m.start();
   const dt = 1 / 60;
   const s = {
-    frames: 0, live: 0, blank: 0, breaks: 0, worstBreak: 0, stall: 0, positions: 0,
+    frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, worstBreak: 0, stall: 0, positions: 0,
   };
 
   // The picture the player is looking at, taken the same way main.js takes it.
@@ -138,7 +138,14 @@ function play(level) {
 
     if (m.state === 'live') {
       s.live++;
-      if (Object.keys(m.options(0)).length === 0) s.blank++;
+      if (Object.keys(m.options(0)).length === 0) {
+        s.blank++;
+        // Blank because an attempt is in flight is the game working: neither
+        // man can start something while something is already happening, and
+        // the defender has the denial prompt instead. Blank because of the
+        // cooldown after a move is the game not explaining itself.
+        if (!m.attempt) s.blankCool++;
+      }
     }
     s.stall = Math.max(s.stall, m.stallTimer);
     if (m.position !== lastPos) { s.positions++; lastPos = m.position; }
@@ -150,12 +157,12 @@ function play(level) {
 
 console.log(`${N} matches, seed ${SEED}\n`);
 
-const agg = { frames: 0, live: 0, blank: 0, breaks: 0, worstBreak: 0, stall: 0, positions: 0 };
+const agg = { frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, worstBreak: 0, stall: 0, positions: 0 };
 const t0 = Date.now();
 for (const level of ['white', 'blue', 'purple', 'black']) {
   for (let i = 0; i < Math.ceil(N / 4); i++) {
     const s = play(level);
-    for (const k of ['frames', 'live', 'blank', 'breaks', 'positions']) agg[k] += s[k];
+    for (const k of ['frames', 'live', 'blank', 'blankCool', 'breaks', 'positions']) agg[k] += s[k];
     agg.worstBreak = Math.max(agg.worstBreak, s.worstBreak);
     agg.stall = Math.max(agg.stall, s.stall);
   }
@@ -165,6 +172,7 @@ const ms = Date.now() - t0;
 
 const breaksPer = agg.breaks / runs;
 const blankPct = (agg.blank / Math.max(1, agg.live)) * 100;
+const coolPct = (agg.blankCool / Math.max(1, agg.live)) * 100;
 
 console.log(`     ${runs} matches in ${ms}ms, ${(agg.positions / runs).toFixed(1)} position changes each\n`);
 
@@ -177,14 +185,19 @@ check(
   `${breaksPer.toFixed(1)} discontinuities per match, worst ${(agg.worstBreak * 100).toFixed(0)}% of a blend`
 );
 
-// Some of this is right: during an attempt the four labels genuinely have
-// nothing to say, and that is the tension. All of it is not — after a
-// transition lands the ring goes dark for another third of a second, and a
-// player who flicks into that hole gets no answer and no reason why.
+// The threshold here was 15% of every blank frame, picked before anything was
+// measured — the exact mistake this file exists to stop. Measured, the ring is
+// blank for 39% of live frames and three quarters of that is an attempt in
+// flight, which is the game working: nobody can start a move while one is
+// already happening, and the defender has the denial prompt in the middle of
+// the screen instead. What is left is the cooldown after a move lands, where
+// the ring goes dark for a third of a second and the player who flicks into it
+// gets no answer and no reason why. That is the part with a number on it.
 check(
-  blankPct < 15,
-  'there is usually something to press',
-  `the ring is blank for ${blankPct.toFixed(1)}% of live frames, want under 15`
+  coolPct < 6,
+  'the ring is only dark when something is happening',
+  `${coolPct.toFixed(1)}% of live frames dark on the cooldown (want under 6), ` +
+  `${(blankPct - coolPct).toFixed(1)}% during an attempt, ${blankPct.toFixed(1)}% in all`
 );
 
 // The referee's one job. stallTimer has been counted since the first version
