@@ -116,6 +116,11 @@ export class Match {
     this.deny = null;
     this.sub = null;
     this.cool = [0, 0];
+    // How long each cooldown was when it started, so the ring can draw how much
+    // of it is left rather than guessing against a constant. They run from 0.18
+    // after somebody else's move to 0.9 after a submission comes apart, and a
+    // sweep drawn against a flat third of a second sat full and then jumped.
+    this.coolFull = [0.3, 0.3];
     this.hold = null; // pending points
     this.posT = 0;    // seconds in the current position, however it was reached
     this.events = [];
@@ -376,11 +381,7 @@ export class Match {
       this.prevPosition = this.position;
       this.blend = 1;
       this.blendTo = 1;
-      if (this.queued) {
-        const q = this.queued;
-        this.queued = null;
-        this.goTo(q.tr, q.by);
-      }
+      this._flushQueued();
     }
     this._stamina(dt, control);
 
@@ -400,7 +401,7 @@ export class Match {
     if (!a) {
       this.intensity = lerp(this.intensity, 0.1, dt * 2);
       this.stallTimer += dt;
-      this._stall(dt);
+      this._stall();
       return;
     }
     this.stallTimer = 0;
@@ -447,7 +448,7 @@ export class Match {
   // So after twelve quiet seconds he says so, and says it again every eight
   // after that, and the man in the better position pays for the silence
   // because it is worth more to him.
-  _stall(dt) {
+  _stall() {
     if (this.stallTimer < STALL_CALL) return;
     this.stallTimer = STALL_CALL - STALL_AGAIN;
     const top = this.isDominant(0) ? 0 : this.isDominant(1) ? 1 : -1;
@@ -504,8 +505,14 @@ export class Match {
           // "four fifths of the way into a choke" to "the start of a scramble
           // out of the back" is a cut of the whole blend, and it is also the
           // wrong story: he fights the choke off, and then he moves.
-          this._snapBack(a.by, 0.8);
+          //
+          // Queued before the unwind is asked for, not after: an attempt whose
+          // whole duration went on waiting for the previous move to land never
+          // owns a blend, so there is nothing to unwind and _snapBack has to be
+          // able to let the escape straight through. Set afterwards it was
+          // stranded, and the escape vanished without a trace.
           this.queued = { tr: out, by: a.defender };
+          this._snapBack(a.by, 0.8);
           return;
         }
       }
@@ -600,8 +607,23 @@ export class Match {
       this.prevPosition = this.position;
       this.blend = 1;
       this.blendTo = 1;
+      this._flushQueued();
     }
-    this.cool[by] = cool;
+    this._cool(by, cool);
+  }
+
+  _cool(i, secs) {
+    this.cool[i] = secs;
+    this.coolFull[i] = secs;
+  }
+
+  // A transition parked behind an unwind, once the unwind is done — or at once,
+  // if there was never anything to unwind.
+  _flushQueued() {
+    if (!this.queued) return;
+    const q = this.queued;
+    this.queued = null;
+    this.goTo(q.tr, q.by);
   }
 
   // Arrive somewhere. This is the only place the position, the roles and the
@@ -640,8 +662,8 @@ export class Match {
 
     you.posture = clamp(you.posture - (tr.big ? 22 : 12), 0, 100);
     me.posture = clamp(me.posture + 6, 0, 100);
-    this.cool[by] = 0.3;
-    this.cool[this.other(by)] = 0.18;
+    this._cool(by, 0.3);
+    this._cool(this.other(by), 0.18);
     you.flash = 1;
 
     if (tr.sub) {
@@ -932,7 +954,7 @@ export class Match {
       const out = stripped ? this._escapeFrom(s.from) : null;
       this.state = 'live';
       this.sub = null;
-      this.cool[s.attacker] = 0.9;
+      this._cool(s.attacker, 0.9);
       att.stamina = clamp(att.stamina - 12, 0, 100);
       if (out) {
         // Through his own escape from the position, scored and re-roled by the

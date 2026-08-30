@@ -220,7 +220,7 @@ export class HUD {
     // label says "not yet" and this says how long.
     if (cool) {
       c.beginPath();
-      c.arc(cx, cy, R * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, m.cool[0] / 0.3));
+      c.arc(cx, cy, R * 0.62, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, m.cool[0] / m.coolFull[0]));
       c.strokeStyle = 'rgba(255,255,255,0.30)';
       c.lineWidth = 2;
       c.stroke();

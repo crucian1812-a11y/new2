@@ -14,6 +14,13 @@
 // belly 2, mount and back 4 — and are only ever awarded for arriving somewhere
 // and holding it, which is what `hold` is for.
 
+// Two of the escapes added to fill the ring first pointed at half guard, and
+// that was the wrong end of the graph. Half guard already had eight ways in and
+// took a third of the clock with them; closed guard had four and was visited
+// for none of it — an authored position with two working variants that nobody
+// ever saw. Escaping the back or the turtle into your own guard is the read
+// anyway, and it spreads the fight instead of funnelling it.
+
 export const DIRS = ['up', 'down', 'left', 'right'];
 
 // from, role, dir, to, { ... }
@@ -67,6 +74,10 @@ export const TRANSITIONS = [
     name: 'Встать в стойку', en: 'Stand up', points: 0, cost: 18, base: 0.55,
     time: 0.8, deny: 'up',
   }),
+  T('CLOSED_GUARD', 'top', 'left', 'HALF_GUARD', {
+    name: 'Разорвать замок', en: 'Break and slide', points: 0, cost: 20,
+    base: 0.4, time: 0.9, deny: 'right',
+  }),
   T('CLOSED_GUARD', 'bottom', 'up', 'TRIANGLE', {
     name: 'Треугольник', en: 'Triangle', points: 0, cost: 26, base: 0.32,
     time: 0.9, deny: 'down', sub: true,
@@ -117,6 +128,10 @@ export const TRANSITIONS = [
   T('HALF_GUARD', 'top', 'right', 'BACK', {
     name: 'Выход на спину', en: 'Take the back', points: 4, cost: 26, base: 0.3,
     time: 1.0, deny: 'left', big: true,
+  }),
+  T('HALF_GUARD', 'top', 'left', 'KNEE_ON_BELLY', {
+    name: 'Колено на живот', en: 'Free the leg to knee on belly', points: 2,
+    cost: 18, base: 0.44, time: 0.8, deny: 'right',
   }),
   T('HALF_GUARD', 'bottom', 'down', 'OPEN_GUARD', {
     name: 'Восстановить гард', en: 'Recompose', points: 0, cost: 18,
@@ -171,9 +186,23 @@ export const TRANSITIONS = [
   T('KNEE_ON_BELLY', 'top', 'down', 'SIDE_CONTROL', {
     name: 'Обратно в сторону', en: 'Back to side', points: 0, cost: 8, base: 0.9, time: 0.5,
   }),
+  T('KNEE_ON_BELLY', 'top', 'right', 'ARMBAR', {
+    name: 'Рычаг локтя', en: 'Far-side armbar', points: 0, cost: 24, base: 0.3,
+    time: 0.95, deny: 'left', sub: true,
+  }),
   T('KNEE_ON_BELLY', 'bottom', 'left', 'HALF_GUARD', {
     name: 'Сбить колено', en: 'Shrimp out', points: 0, cost: 22, base: 0.42,
     time: 0.85, deny: 'right', becomes: 'bottom',
+  }),
+  // Underneath a knee on the sternum used to be the most helpless place on the
+  // board: one way out of four, and the other three flicks did nothing at all.
+  T('KNEE_ON_BELLY', 'bottom', 'down', 'OPEN_GUARD', {
+    name: 'Вернуть гвардию', en: 'Push the knee, recompose', points: 0,
+    cost: 24, base: 0.36, time: 0.9, deny: 'up', becomes: 'bottom',
+  }),
+  T('KNEE_ON_BELLY', 'bottom', 'up', 'TURTLE', {
+    name: 'Развернуться', en: 'Turn in', points: 0, cost: 20, base: 0.44,
+    time: 0.8, deny: 'down', becomes: 'bottom',
   }),
 
   /* --------------------------------------------------------------- mount */
@@ -184,6 +213,10 @@ export const TRANSITIONS = [
   T('MOUNT', 'top', 'right', 'BACK', {
     name: 'На спину', en: 'Take the back', points: 4, cost: 18, base: 0.55,
     time: 0.8, deny: 'left', big: true,
+  }),
+  T('MOUNT', 'top', 'left', 'KIMURA', {
+    name: 'Кимура', en: 'Kimura from mount', points: 0, cost: 22, base: 0.36,
+    time: 0.9, deny: 'right', sub: true,
   }),
   T('MOUNT', 'bottom', 'left', 'CLOSED_GUARD', {
     name: 'Мост (упа)', en: 'Upa escape', points: 2, cost: 32, base: 0.26,
@@ -206,6 +239,14 @@ export const TRANSITIONS = [
   T('BACK', 'top', 'down', 'MOUNT', {
     name: 'В маунт', en: 'Roll to mount', points: 0, cost: 14, base: 0.7, time: 0.7,
   }),
+  T('BACK', 'top', 'left', 'ARMBAR', {
+    name: 'Рычаг локтя', en: 'Armbar from the back', points: 0, cost: 24,
+    base: 0.32, time: 0.95, deny: 'right', sub: true,
+  }),
+  T('BACK', 'bottom', 'up', 'CLOSED_GUARD', {
+    name: 'Выкрутиться в гвардию', en: 'Spin out to guard', points: 0, cost: 24,
+    base: 0.36, time: 0.9, deny: 'down', becomes: 'bottom',
+  }),
   T('BACK', 'bottom', 'left', 'TURTLE', {
     name: 'Скинуть крюки', en: 'Shake the hooks', points: 0, cost: 26,
     base: 0.34, time: 0.95, deny: 'right', becomes: 'bottom',
@@ -223,6 +264,16 @@ export const TRANSITIONS = [
   T('TURTLE', 'top', 'right', 'SIDE_CONTROL', {
     name: 'Передний захват', en: 'Front headlock', points: 3, cost: 18,
     base: 0.5, time: 0.85, deny: 'left', note: 'прошёл в сторону',
+  }),
+  // Letting him up is a real choice from on top of a turtle, and it is the one
+  // the graph was missing: everything else here commits.
+  T('TURTLE', 'top', 'down', 'STANDING', {
+    name: 'Отпустить в стойку', en: 'Break off', points: 0, cost: 10,
+    base: 0.85, time: 0.5,
+  }),
+  T('TURTLE', 'bottom', 'up', 'CLOSED_GUARD', {
+    name: 'Подвернуться в гвардию', en: 'Granby to guard', points: 0, cost: 22,
+    base: 0.4, time: 0.9, deny: 'down', becomes: 'bottom',
   }),
   T('TURTLE', 'bottom', 'down', 'OPEN_GUARD', {
     name: 'Сесть в гард', en: 'Sit to guard', points: 0, cost: 18,
