@@ -21,23 +21,25 @@ export const VIAS = {
   'BACK>MOUNT': 'HALF_GUARD@late+A',
   'BACK>SIDE_CONTROL': 'CLINCH@early+B',
   'CLINCH>SIDE_CONTROL': 'SIDE_ENTRY@mid+B',
-  'CLOSED_GUARD>BACK': 'STANDING',
+  'CLOSED_GUARD>BACK_X': 'ACROSS@early',
   'CLOSED_GUARD>HALF_GUARD': 'STANDING@mid+B',
+  'CLOSED_GUARD>MOUNT_X': 'KNEE_ON_BELLY',
   'CLOSED_GUARD>TRIANGLE': 'OPEN_GUARD@mid+A',
   'HALF_GUARD>BACK': 'CLINCH',
   'HALF_GUARD>KNEE_ON_BELLY': 'KIMURA@early',
+  'HALF_GUARD>SIDE_CONTROL_X': 'STANDING@mid+A',
   'KNEE_ON_BELLY>ARMBAR': 'BACK@early+A',
   'KNEE_ON_BELLY>MOUNT': 'CLINCH@mid+B',
   'KNEE_ON_BELLY>OPEN_GUARD': 'TURTLE',
   'KNEE_ON_BELLY>TURTLE': 'CLINCH@mid+B',
   'MOUNT>BACK': 'HALF_GUARD@early+A',
-  'MOUNT>CLOSED_GUARD': 'CLINCH',
+  'MOUNT>CLOSED_GUARD_X': 'HALF_GUARD',
   'MOUNT>HALF_GUARD': 'CLINCH@early',
   'MOUNT>KIMURA': 'CLINCH',
   'MOUNT>TURTLE': 'RNC@late+B',
   'OPEN_GUARD>CLOSED_GUARD': 'GUILLOTINE@early+B',
   'OPEN_GUARD>HALF_GUARD': 'CLINCH@mid+A',
-  'OPEN_GUARD>MOUNT': 'STANDING@early+B',
+  'OPEN_GUARD>MOUNT_X': 'HALF_GUARD',
   'OPEN_GUARD>SIDE_CONTROL': 'HALF_GUARD@early+B',
   'SIDE_CONTROL>HALF_GUARD': 'RNC@mid+B',
   'SIDE_CONTROL>KIMURA': 'ARMBAR@mid+B',
@@ -107,10 +109,6 @@ export const ARCS = {
   'CLINCH>TURTLE': [
     { p: [-0.041, 0.078, -0.075], r: { A: [-0.5, -4, -0.5], B: [-4.5, 1, 1] }, j: { A: { foreL: [1.1, -1.1, -0.6], armL: [0.6, -0.6, 1.2], armR: [-0.6, 0, 1.1] }, B: { spine: [1.7, -0.5, 0.7], hips: [-5.6, 0.6, 2.3], armR: [0.6, 0, -1.1], armL: [0, 0.6, 1.7] } } },
     { p: [0.063, 0.128, -0.150], r: { A: [6.5, 4, -1], B: [-16, -0.5, 9.5] }, j: { A: { armR: [0, 0, 7.9], foreL: [1.1, -0.6, -0.6], clavL: [0.6, -0.6, 0.6] }, B: { spine: [2.8, -1, 6.8], hips: [6.2, 2.2, 2.9], armR: [0.6, 0, -1.1], chest: [-1, -0.5, -0.5], armL: [0, 0.5, 1.1] } } },
-  ],
-  'CLOSED_GUARD>BACK': [
-    { p: [-0.006, 0.097, 0.041], r: { A: [14.5, -0.5, 0], B: [-3, 2.5, -2.5] }, j: { A: { foreR: [2.8, 1.1, -0.6], armR: [1.7, -0.6, -5.1], chest: [2.8, -0.6, -1.1], spine: [0, -0.6, -1.1], clavL: [0.6, -2.2, 1.1] }, B: { hips: [-2.2, 2.3, -0.6], chest: [-1.1, 0.6, -0.6], thighR: [-2.2, 0, 4], armL: [0, 0, 2.3], spine: [0, -2.2, 0], armR: [0.6, -0.6, -0.6] } } },
-    { p: [0.015, 0.022, -0.003], r: { A: [0, 4, 4.5], B: [6.5, 0.5, 0] }, j: { A: { hips: [-4.5, -1.1, 1.1], clavL: [0.1, -1.1, 3.4], spine: [0, -10.1, 0], chest: [-4.5, 0, 7.9], foreR: [1.1, 0.6, -0.6], armR: [1.1, 0, -1.2] }, B: { hips: [2.3, -1.6, -4.5], chest: [0, -7.8, -1.1], spine: [0, -4.6, -1.1], thighR: [-0.6, 0, 1.1] } } },
   ],
   'CLOSED_GUARD>GUILLOTINE': [
     { p: [0.000, 0.053, -0.059], r: { A: [-3.5, -3, -2.5], B: [2, -1, 2] }, j: { A: { spine: [-3.9, -5.1, 2.2], hips: [-6.1, -2.2, -0.5], foreR: [-2.2, 0, 1.2], armR: [-1, 0, -0.5], clavR: [0, -2.8, 0.6], chest: [-1.1, -2.8, 2.3], foreL: [1.1, 0, 0.6] }, B: { thighL: [1.7, 0, 4], hips: [-0.6, -0.6, 1.7], thighR: [0.6, 2.2, 0], shinR: [1.1, 0, -3.3] } } },
@@ -189,10 +187,6 @@ export const ARCS = {
     { p: [-0.059, 0.031, -0.150], r: { A: [0, 0, 3.5], B: [8, -1.5, -14] }, j: { A: { hips: [0, 7.3, -6.2], armL: [-0.6, 1.1, -2.2], armR: [1.7, 0, 0.6], handR: [-1.1, 0, 0] }, B: { spine: [0, -2.2, 1.7], hips: [0, -1.7, 1.1] } } },
     { p: [-0.056, 0.053, -0.050], r: { A: [-8, -8, -1], B: [0, -7.5, 0] }, j: { A: { hips: [-9, 9, -9], foreL: [-6.7, 8.4, 9], armL: [0, 0.6, 1.7], head: [-1.1, 0, 1.7], neck: [-1.1, 0.6, 2.8] }, B: { chest: [9, 0, -2.8], armR: [-1.7, -0.6, 1.1] } } },
   ],
-  'MOUNT>CLOSED_GUARD': [
-    { p: [0.050, 0.053, -0.050], r: { A: [0.5, -7.5, -4.5], B: [-8, 8, 1.5] }, j: { A: { foreR: [-3.3, 0, 0], armR: [1.7, -0.6, -1.1], thighR: [1.1, 0, -1.6], hips: [0, -1.1, 1.1], clavR: [2.3, -1.1, -1.1], chest: [-1.1, 0.6, 1.7] }, B: { thighR: [-3.4, 2.8, 0], hips: [-0.6, 0, -2.8], armR: [-0.5, 1.1, -2.2], spine: [0, 0, 1.1] } } },
-    { p: [0.050, 0.050, -0.050], r: { A: [8, -0.5, 0], B: [0, 0, 4] }, j: { A: { foreR: [-3.3, 0, -0.6], armR: [-5, 0, -5], clavR: [0, -0.6, -6.7] }, B: { thighR: [-10.1, 4.5, 0], hips: [0, 0, 4.5], shinR: [0.6, 0, -1.1], armR: [-2.2, -1.1, -3.4], spine: [0, 0, 2.2] } } },
-  ],
   'MOUNT>HALF_GUARD': [
     { p: [0.100, 0.056, -0.050], r: { A: [8, -2, 0], B: [-8, 6, 0] }, j: { A: { spine: [-2.8, -1.1, -6.7], hips: [9, 0, 0], armR: [3.4, -0.6, -1.1], chest: [1.1, 1.1, -1.1], thighR: [5.6, -2.8, 2.3], foreL: [1.7, 0.6, 1.1] }, B: { foreR: [-1.1, -0.6, 1.1], armR: [0, 5.1, -9], handR: [0, 0, 1.1] } } },
     { p: [0.050, -0.050, -0.050], r: { A: [7, 2, 0], B: [-1.5, 1.5, 0] }, j: { A: { spine: [-2.2, 0, -9], hips: [-9, 0, 0], chest: [2.3, 0, -1.1], thighR: [-1.7, -3.4, 4.5], handL: [-1.7, 0, 0] }, B: { foreR: [-1.1, -0.6, 2.3], armR: [9, 3.4, 1.7], handR: [0.6, 0, 1.7] } } },
@@ -220,10 +214,6 @@ export const ARCS = {
   'OPEN_GUARD>HALF_GUARD': [
     { p: [0.038, 0.059, -0.041], r: { A: [-0.5, 0, -1], B: [-8, 0, 0] }, j: { A: { thighR: [1.1, 0, 0.6], hips: [0, -5.6, 0], chest: [-2.2, 0, -1.7] }, B: { foreR: [1.7, 0.6, -0.6], armR: [-1.1, 0, 1.7], handR: [2.3, 0, -2.2], hips: [9, 0, 2.3], armL: [-1.7, 0, -0.6] } } },
     { p: [0.000, 0.050, -0.050], r: { A: [0, 6, 8], B: [-6, 0, 0] }, j: { A: { armR: [-2.2, 0.6, 1.1], hips: [-9, 0, 0] }, B: { foreR: [3.4, 1.7, -1.7], armR: [-1.7, -0.6, 3.9], handR: [4.5, 0.6, -4.5], armL: [-1.7, 0, -0.6] } } },
-  ],
-  'OPEN_GUARD>MOUNT': [
-    { p: [0.050, 0.000, -0.150], r: { A: [8, 0, 0], B: [0, 2, 0] }, j: { A: { foreL: [-8.4, -1.7, 1.1], armL: [-9, 0, 2.8], foreR: [-9, 0, -1.1], armR: [-6.7, -2.2, 3.9] }, B: { chest: [0, 1.1, 0], spine: [-2.2, -0.6, 0], shinL: [6.8, 0.6, 1.1], thighL: [0, 0, 2.8], thighR: [-3.9, -1.7, -1.1] } } },
-    { p: [0.047, 0.000, -0.053], r: { B: [0, 3.5, 0] }, j: { A: { foreL: [-7.3, -1.7, 1.1], armL: [5.6, -1.7, 0], foreR: [-5.1, 0, -2.8], armR: [-8.4, -2.2, 5.1] }, B: { spine: [-2.2, -1.1, 0], shinL: [1.7, 0.6, 0.6], thighL: [1.1, 0, 2.3], hips: [0, 1.7, 0], thighR: [-1.7, -0.6, -1.1] } } },
   ],
   'OPEN_GUARD>OPEN_GUARD_WORK': [
     { p: [-0.003, 0.003, -0.013], r: { B: [-1, 0, 0] } },
