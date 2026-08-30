@@ -16,16 +16,24 @@
 // the midpoint of the blend. These are the ones where no amount of shoving
 // helps, because a limb has to travel around a body rather than through it.
 export const VIAS = {
+  'BACK>ARMBAR': 'MOUNT@late+B',
+  'BACK>HALF_GUARD': 'STANDING@late',
   'BACK>MOUNT': 'HALF_GUARD@late+A',
   'BACK>SIDE_CONTROL': 'CLINCH@early+B',
   'CLINCH>SIDE_CONTROL': 'SIDE_ENTRY@mid+B',
   'CLOSED_GUARD>BACK': 'STANDING',
+  'CLOSED_GUARD>HALF_GUARD': 'STANDING@mid+B',
   'CLOSED_GUARD>TRIANGLE': 'OPEN_GUARD@mid+A',
   'HALF_GUARD>BACK': 'CLINCH',
+  'HALF_GUARD>KNEE_ON_BELLY': 'KIMURA@early',
+  'KNEE_ON_BELLY>ARMBAR': 'BACK@early+A',
   'KNEE_ON_BELLY>MOUNT': 'CLINCH@mid+B',
+  'KNEE_ON_BELLY>OPEN_GUARD': 'TURTLE',
+  'KNEE_ON_BELLY>TURTLE': 'CLINCH@mid+B',
   'MOUNT>BACK': 'HALF_GUARD@early+A',
   'MOUNT>CLOSED_GUARD': 'CLINCH',
   'MOUNT>HALF_GUARD': 'CLINCH@early',
+  'MOUNT>KIMURA': 'CLINCH',
   'MOUNT>TURTLE': 'RNC@late+B',
   'OPEN_GUARD>CLOSED_GUARD': 'GUILLOTINE@early+B',
   'OPEN_GUARD>HALF_GUARD': 'CLINCH@mid+A',
@@ -36,6 +44,7 @@ export const VIAS = {
   'SIDE_CONTROL>MOUNT': 'TURTLE@late',
   'SIDE_CONTROL>SIDE_CONTROL_X': 'STANDING@early',
   'SIDE_CONTROL>TURTLE': 'RNC@mid+B',
+  'TURTLE>HALF_GUARD': 'STANDING@early+B',
   'TURTLE>SIDE_CONTROL': 'RNC@mid+B',
 };
 
