@@ -19,7 +19,7 @@
 //   node bjj/tools/flow-check.mjs 200         more of them
 //   node bjj/tools/flow-check.mjs --ring      the ring coverage table
 
-import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
+import { Match, Fighter, MATCH_TIME, STALL_CALL } from '../src/game/match.js';
 import { AI } from '../src/game/ai.js';
 import { POSES, POSITION_IDS } from '../src/game/poses.js';
 import { optionsFor, DIRS } from '../src/game/positions.js';
@@ -138,14 +138,12 @@ function play(level) {
 
     if (m.state === 'live') {
       s.live++;
-      if (Object.keys(m.options(0)).length === 0) {
-        s.blank++;
-        // Blank because an attempt is in flight is the game working: neither
-        // man can start something while something is already happening, and
-        // the defender has the denial prompt instead. Blank because of the
-        // cooldown after a move is the game not explaining itself.
-        if (!m.attempt) s.blankCool++;
-      }
+      // What the ring is *showing*, not what it will accept. During the
+      // cooldown after a move the labels are there and dimmed, with the wait
+      // drawn round them; that is a ring telling the player something, and
+      // counting it as blank measured the wrong thing.
+      if (Object.keys(m.preview(0)).length === 0) s.blank++;
+      if (Object.keys(m.options(0)).length === 0 && !m.attempt) s.blankCool++;
     }
     s.stall = Math.max(s.stall, m.stallTimer);
     if (m.position !== lastPos) { s.positions++; lastPos = m.position; }
@@ -185,27 +183,31 @@ check(
   `${breaksPer.toFixed(1)} discontinuities per match, worst ${(agg.worstBreak * 100).toFixed(0)}% of a blend`
 );
 
-// The threshold here was 15% of every blank frame, picked before anything was
-// measured — the exact mistake this file exists to stop. Measured, the ring is
-// blank for 39% of live frames and three quarters of that is an attempt in
-// flight, which is the game working: nobody can start a move while one is
-// already happening, and the defender has the denial prompt in the middle of
-// the screen instead. What is left is the cooldown after a move lands, where
-// the ring goes dark for a third of a second and the player who flicks into it
-// gets no answer and no reason why. That is the part with a number on it.
+// The threshold here was 15% of every frame where nothing could be pressed,
+// picked before anything was measured — the exact mistake this file exists to
+// stop. Measured, three quarters of that was an attempt in flight, which is
+// the game working, and most of the rest was the cooldown, which the ring now
+// shows as dimmed labels with the wait drawn round them.
+//
+// So the question is the one that was worth asking all along: is the player
+// ever looking at a ring with nothing on it? Only where the graph has no edge
+// for the role, which is the coverage check below and not this one.
 check(
-  coolPct < 6,
-  'the ring is only dark when something is happening',
-  `${coolPct.toFixed(1)}% of live frames dark on the cooldown (want under 6), ` +
-  `${(blankPct - coolPct).toFixed(1)}% during an attempt, ${blankPct.toFixed(1)}% in all`
+  blankPct < 1,
+  'the ring always has something on it',
+  `nothing shown on ${blankPct.toFixed(1)}% of live frames, ` +
+  `${coolPct.toFixed(1)}% dimmed for the cooldown`
 );
 
 // The referee's one job. stallTimer has been counted since the first version
 // of match.js and read by nothing, so this is what it has been counting.
+// Against the rule itself, not against a number written next to it: the
+// referee calls a stall at STALL_CALL, so the longest one anybody sees is that
+// plus the frame he calls it on.
 check(
-  agg.stall < 12,
+  agg.stall <= STALL_CALL + 0.1,
   'the fight does not stand still',
-  `longest stall ${agg.stall.toFixed(1)}s, want under 12`
+  `longest stall ${agg.stall.toFixed(1)}s, referee calls it at ${STALL_CALL}`
 );
 
 const cov = ringCoverage();

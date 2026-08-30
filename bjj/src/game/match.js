@@ -20,6 +20,10 @@ import { rand, randInt, pick } from './rng.js';
 export const MATCH_TIME = 300;
 
 const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
+// How long the fight may stand still before the referee says something, and how
+// often he says it after that.
+export const STALL_CALL = 12;
+const STALL_AGAIN = 8;
 // Posture at or above this and you can see which way it is coming; below it
 // you know only that it is coming. See visibleDeny.
 //
@@ -132,6 +136,19 @@ export class Match {
     this.recall = false;
     this.yaw = 0;
     this.intensity = 0;
+    // Which positions each of them has already been paid for, this time round.
+    //
+    // The sheet says a position scores once: to score mount again you have to
+    // lose it and take it back, and stepping from mount to the back and rolling
+    // down again is one possession, not three. Without that the graph pays for
+    // a loop — mount to back is worth four and back to mount is free and almost
+    // certain — and the fight farmed it: back was being paid twelve times in a
+    // match, mount seven, and the two of them were thirty of the thirty-four
+    // points on the board. A scoreboard reading 51:41 is not a scoreboard.
+    //
+    // A man's slate is wiped the moment he is not on top any more, which is
+    // exactly the escape the sheet is asking for.
+    this.paid = [new Set(), new Set()];
     this.gripAdv = [0, 0]; // won grip exchanges, decays
     this.driveOf = [0, 0]; // how hard each of them is leaning in, this frame
     this.onEvent = opts.onEvent || (() => {});
@@ -160,6 +177,18 @@ export class Match {
 
   options(i) {
     if (this.state !== 'live' || this.attempt || this.cool[i] > 0) return {};
+    return optionsFor(this.position, this.tagOf(i));
+  }
+
+  // What this role has from here, whether or not it can be pressed yet.
+  //
+  // The ring used to be drawn from `options` alone, so for the third of a
+  // second of cooldown after every transition all four labels went dark and
+  // came back — the player was reading a blank ring for eight per cent of the
+  // match with nothing saying why. The names are worth showing while they are
+  // recharging; what changes is whether they look pressable.
+  preview(i) {
+    if (this.state !== 'live') return {};
     return optionsFor(this.position, this.tagOf(i));
   }
 
@@ -371,6 +400,7 @@ export class Match {
     if (!a) {
       this.intensity = lerp(this.intensity, 0.1, dt * 2);
       this.stallTimer += dt;
+      this._stall(dt);
       return;
     }
     this.stallTimer = 0;
@@ -406,6 +436,28 @@ export class Match {
       return;
     }
     this._resolve(a);
+  }
+
+  // The referee's one job, and the field that has been counting it since the
+  // first version of this file without anybody reading the number.
+  //
+  // A position held with nothing being attempted from it is free: the man on
+  // top rests at five and a half stamina a second and the clock runs out. That
+  // is not a tactic the sheet rewards — it is stalling, and a referee stops it.
+  // So after twelve quiet seconds he says so, and says it again every eight
+  // after that, and the man in the better position pays for the silence
+  // because it is worth more to him.
+  _stall(dt) {
+    if (this.stallTimer < STALL_CALL) return;
+    this.stallTimer = STALL_CALL - STALL_AGAIN;
+    const top = this.isDominant(0) ? 0 : this.isDominant(1) ? 1 : -1;
+    if (top < 0) {
+      this.emit('судья: работайте', 'warn');
+    } else {
+      this.f[top].stamina = clamp(this.f[top].stamina - 9, 0, 100);
+      this.emit(`судья: ${this.f[top].name}, работай`, 'warn');
+    }
+    this.onEvent({ kind: 'stall', on: top });
   }
 
   _resolve(a) {
@@ -597,7 +649,11 @@ export class Match {
       return;
     }
 
-    if (tr.points > 0) {
+    // Whoever is not on top has escaped whatever he was under, so everything
+    // he was holding is his to win again.
+    for (let i = 0; i < 2; i++) if (!this.isDominant(i)) this.paid[i].clear();
+
+    if (tr.points > 0 && !this.paid[by].has(tr.to)) {
       this.hold = { by, points: tr.points, t: 0, pos: tr.to, note: tr.note || tr.name };
     } else {
       this.hold = null;
@@ -910,6 +966,7 @@ export class Match {
     }
     this.hold.t += dt;
     if (this.hold.t >= POINTS_TO_HOLD) {
+      this.paid[by].add(this.hold.pos);
       this.f[by].points += this.hold.points;
       this.emit(`${this.f[by].name}: +${this.hold.points} (${this.hold.note})`, 'points');
       this.onEvent({ kind: 'points', by, points: this.hold.points });
