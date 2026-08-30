@@ -175,6 +175,7 @@ const _q = quat(), _q2 = quat();
 // inverse is more arithmetic than a local-space solve, but it is the only
 // version that stays correct when the fighter's root is upside down, which on
 // the bottom of side control it very often is.
+const _g = v3();
 const _kU = quat();
 const _kL = quat();
 
@@ -218,7 +219,28 @@ export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1)
   v3norm(_e, _e);
 
   // Upper-bone direction = goal direction rotated by angU about the bend axis.
+  //
+  // Two solutions, and the sign of the axis decides which. The plane normal was
+  // taken as the goal crossed with the arm's current direction, and once the
+  // first pass has swung the arm towards the target those two are nearly
+  // parallel — so on the second and third pass the cross product is almost
+  // nothing, its direction is noise, and the elbow lands on whichever side the
+  // noise pointed. That is where the backwards elbows came from: authored at
+  // -82 degrees, the back's right elbow came out of the IK at +155.
+  //
+  // Both candidates are computed and the one that leaves the elbow nearer to
+  // where the pose put it wins. It needs no anatomy and no per-joint table, and
+  // it is what the paragraph above always meant: the pose decides how the arm
+  // is bent, IK decides where the hand ends up.
   rotAbout(_f, _d, _e, angU);
+  rotAbout(_g, _d, _e, -angU);
+  const near = (v) => {
+    const ex = _a[0] + v[0] * lenU - _b[0];
+    const ey = _a[1] + v[1] * lenU - _b[1];
+    const ez = _a[2] + v[2] * lenU - _b[2];
+    return ex * ex + ey * ey + ez * ez;
+  };
+  if (near(_g) < near(_f)) v3copy(_f, _g);
 
   // Solved whole, then eased into — rather than each bone eased separately.
   //

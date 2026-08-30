@@ -62,6 +62,26 @@ function penetration(skA, skB) {
   return { sum, worst, where };
 }
 
+// How far each joint may be turned from rest, in degrees. The generous end of
+// what a healthy adult does; the same table joint-check judges the result by.
+//
+// Note what this can and cannot do. The search moves any one joint by at most
+// JOINT_LIMIT degrees from where it was authored — that bound is the whole
+// reason the solver returns the pose it was given rather than one it invented —
+// so it can shave a joint that is a few degrees over and it cannot rescue the
+// guillotine's hip, which is thirty-four degrees past what a hip does. Those
+// have to be re-authored; this keeps the rest from drifting there.
+const ROM_LIMIT = {
+  spine: 50, chest: 50, neck: 75, head: 50,
+  clavL: 45, clavR: 45,
+  armL: 175, armR: 175,
+  foreL: 155, foreR: 155,
+  handL: 90, handR: 90,
+  thighL: 145, thighR: 145,
+  shinL: 155, shinR: 155,
+  footL: 65, footR: 65,
+};
+
 function cost(id) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
@@ -76,6 +96,27 @@ function cost(id) {
   // mount that is not a mount is a worse failure than a mount with a knee in
   // a rib, and the search will take the easy way out if it is allowed to.
   c += intentCost(rig.skel, POSES[id].hold) * 400;
+
+  // And a body a person could be in.
+  //
+  // Nothing here asked whether the joints were possible, and the library has
+  // places where they are not: the guillotine's bottom man has a hip flexed 179
+  // degrees — the thigh folded flat against him and past — the armbar has a
+  // collarbone turned 101, and the turtle has 84 degrees of chest on top of its
+  // spine. All authored, all invisible to a cost made of collisions and intent,
+  // because a body folded through itself can satisfy both.
+  //
+  // Measured as the total angle of each joint's own rotation, which is the one
+  // number about a rotation that has no second reading — three authored angles
+  // do, and tools/joint-check.mjs has the account of how much time that cost.
+  for (const role of ['A', 'B']) {
+    for (const bone in ROM_LIMIT) {
+      const q = rig.skel[role].local[BONE_INDEX[bone]];
+      const turn = 2 * Math.acos(Math.min(1, Math.abs(q[3]))) * (180 / Math.PI);
+      const over = turn - ROM_LIMIT[bone];
+      if (over > 0) c += over * over * 0.02;
+    }
+  }
 
   // Under the mat.
   for (const sk of [A, B]) {

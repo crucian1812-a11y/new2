@@ -7,13 +7,23 @@
 // swung out sideways reads as broken from any distance — more obviously than
 // eight centimetres of overlap, because everybody knows what an arm does.
 //
-// Three numbers per joint, all taken from the world pose after the rig has
-// finished with it, so authored angles, the arc corrections and the IK that
-// welds a hand to a lapel are all judged together rather than only the first:
+// One number per joint, and it took three tries to arrive at the right one.
 //
-//   bend       how far it is folded. 0 is straight.
-//   past       how far past straight it has gone the wrong way.
-//   sideways   how far the hinge axis has left the axis it hinges on.
+// The first two versions asked which *way* the joint was folded, by comparing
+// the bend axis against the upper bone's own X. That reads plausibly and is
+// wrong: the bone's X depends on how the arm is rolled about its own length,
+// the IK does not control that roll, and the roll is invisible on a capsule —
+// so two arms that look identical can report opposite directions. It said the
+// grip IK was folding mount's elbow to 182 degrees and turtle's backwards, and
+// on the unambiguous measure below those same elbows are at 96 and 85.
+//
+// What survives is the angle between the two bone segments. It does not care
+// about roll, it is what the eye sees, and a person's elbow and knee both stop
+// near 150:
+//
+//   bend   how far it is folded, 0 straight, taken from the world pose after
+//          the rig has finished — so authored angles, the arc corrections and
+//          the IK that welds a hand to a lapel are judged together.
 //
 //   node bjj/tools/joint-check.mjs           poses and blends, the summary
 //   node bjj/tools/joint-check.mjs --all     every joint over the limit
@@ -41,8 +51,6 @@ const STEPS = JUDGE_STEPS;
 // bent. The allowances here are deliberately generous, because the job is to
 // catch a limb that is obviously wrong rather than to model a joint.
 const MAX_BEND = 155;
-const MAX_PAST = 8;     // degrees past straight, the wrong way
-const MAX_SIDE = 22;    // degrees the hinge axis may wander off its own axis
 
 const CHAINS = [
   ['elbow L', 'armL', 'foreL', 'handL'],
@@ -161,6 +169,50 @@ for (const [from, to] of BLENDS) {
   }
 }
 
+/* ------------------------------------------- the rest of the joints, by range */
+
+// How far each joint is turned from rest, as one angle.
+//
+// The obvious way to ask this is to read the pose's three authored numbers back
+// out and compare each against a limit, and that was the third mistake in this
+// file: a rotation has more than one triple that describes it, so a knee bent
+// 114 degrees also reads as a shin twisted through half a turn, and a forearm
+// carrying a little roll reads 163 where the arm you can see is at 141.
+// Canonicalising helps and does not fix it.
+//
+// The total angle of the local rotation has no such ambiguity. It says less —
+// it cannot tell a neck turned sideways from one bent forward — but what it
+// says is true, and a joint turned further from rest than the joint turns is
+// wrong whichever way it went. Limits are the generous end of a healthy adult.
+const ROM = {
+  spine: 50, chest: 50, neck: 75, head: 50,
+  clavL: 45, clavR: 45,
+  armL: 175, armR: 175,
+  foreL: 155, foreR: 155,
+  handL: 90, handR: 90,
+  thighL: 145, thighR: 145,
+  shinL: 155, shinR: 155,
+  footL: 65, footR: 65,
+};
+
+const turnOf = (q) => 2 * Math.acos(Math.min(1, Math.abs(q[3]))) * DEG;
+
+const romBad = [];
+for (const id of Object.keys(POSES)) {
+  rig.effort.A = rig.effort.B = 0;
+  rig.slack.A = rig.slack.B = 0;
+  rig.time = 0;
+  rig.applyAt(id, id, 1, 0.016);
+  for (const role of ['A', 'B']) {
+    for (const bone of Object.keys(ROM)) {
+      const turn = turnOf(rig.skel[role].local[BONE_INDEX[bone]]);
+      const over = turn - ROM[bone];
+      if (over > 1) romBad.push({ id, role, bone, turn, lim: ROM[bone], over });
+    }
+  }
+}
+romBad.sort((a, b) => b.over - a.over);
+
 /* ------------------------------------------------------------------ report */
 
 let fail = 0;
@@ -174,29 +226,14 @@ const worstOf = (key, limit) => {
   return { bad, top: bad[0] };
 };
 
-const past = worstOf('past', MAX_PAST);
-const side = worstOf('side', MAX_SIDE);
 const bend = worstOf('bend', MAX_BEND);
-
 const say = (r) => `${r.name} of ${r.role} in ${r.what}`;
 
 check(
-  past.bad.length === 0,
-  'no elbow or knee bends backwards',
-  past.top ? `worst ${past.top.past.toFixed(0)}deg past straight, ${say(past.top)}` +
-    ` (${past.bad.length} of ${rows.length} samples)` : `${rows.length} samples`
-);
-check(
-  side.bad.length === 0,
-  'no elbow or knee hinges sideways',
-  side.top ? `worst ${side.top.side.toFixed(0)}deg off its own axis, ${say(side.top)}` +
-    ` (${side.bad.length} of ${rows.length})` : `all within ${MAX_SIDE}deg`
-);
-check(
   bend.bad.length === 0,
-  'nothing folds further than a joint folds',
+  'nothing folds further than an elbow or a knee folds',
   bend.top ? `worst ${bend.top.bend.toFixed(0)}deg, ${say(bend.top)}` +
-    ` (${bend.bad.length} of ${rows.length})` : `all within ${MAX_BEND}deg`
+    ` (${bend.bad.length} of ${rows.length} samples)` : `all within ${MAX_BEND}deg over ${rows.length} samples`
 );
 
 if (process.argv.includes('--dist')) {
@@ -213,18 +250,35 @@ if (process.argv.includes('--dist')) {
 }
 
 if (ALL) {
-  for (const [label, set] of [['backwards', past.bad], ['sideways', side.bad], ['over-folded', bend.bad]]) {
+  for (const [label, set] of [['over-folded', bend.bad]]) {
     if (!set.length) continue;
     console.log(`\n     ${label}:`);
     const byWhat = new Map();
     for (const r of set) {
       const k = `${r.name} of ${r.role} in ${r.what.split(' @')[0]}`;
-      const v = Math.max(byWhat.get(k) || 0, r.past || r.side || r.bend);
+      const v = Math.max(byWhat.get(k) || 0, r.bend);
       byWhat.set(k, v);
     }
     for (const [k, v] of [...byWhat].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
       console.log(`     ${v.toFixed(0).padStart(3)}deg  ${k}`);
     }
+  }
+}
+
+check(
+  romBad.length === 0,
+  'no joint is turned further than it turns',
+  romBad.length
+    ? `${romBad.length} over, worst ${romBad[0].bone} at ${romBad[0].turn.toFixed(0)}deg ` +
+      `in ${romBad[0].id} (${romBad[0].role}), limit ${romBad[0].lim}`
+    : `${Object.keys(ROM).length} joints across every pose`
+);
+
+if (romBad.length && (ALL || process.argv.includes('--rom'))) {
+  console.log('\n     turned too far, worst first:');
+  for (const r of romBad.slice(0, 30)) {
+    console.log(`     ${r.over.toFixed(0).padStart(3)}deg over  ${r.id.padEnd(18)} ${r.role}.${r.bone}` +
+      ` = ${r.turn.toFixed(0)}deg  (limit ${r.lim})`);
   }
 }
 
