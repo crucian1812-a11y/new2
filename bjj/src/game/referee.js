@@ -29,11 +29,19 @@ import { quat, qEuler, v3, v3set } from '../core/m4.js';
 // be is between the two of them and the lens. A hundred and fifty degrees puts
 // him beyond the fight and off to one side of it, which is where a referee
 // stands and also where he is out of the way.
-const DIST = 2.15;
+const DIST = 2.35;
 const AROUND = (150 * Math.PI) / 180;
 // How fast he walks to keep that distance, in metres a second. He is not
 // running; the pair drifts about a metre a second at most.
 const STEP = 1.3;
+// How close he ever gets to the middle of the fight, walking or standing.
+//
+// The same circle he stands on, so the walk is an arc along it rather than a
+// chord across it, and the two numbers cannot drift apart. At 1.55 — the pair's
+// own width plus a little — he still clipped somebody by fifteen centimetres,
+// because in side control a leg reaches most of the way there on its own; the
+// distance he stands at is what he has to keep while moving too.
+const KEEP_OUT = DIST;
 
 const P = {
   // At ease, weight even, hands loose in front. This is most of his match.
@@ -166,6 +174,25 @@ export class Referee {
       const k = Math.min(1, (STEP * dt) / d);
       this.x += dx * k;
       this.z += dz * k;
+    }
+    // Round them, not through them.
+    //
+    // He is placed off the camera's bearing, so a cut to the other side of the
+    // action sends his target most of the way round the mat — faster than he
+    // walks, so he lags behind it and the straight line he takes to catch up
+    // goes through the fight. Measured across every position and the whole
+    // circle, he was thirty-eight centimetres *inside* somebody.
+    //
+    // A referee keeps his distance whatever he is doing, so the walk is done on
+    // a circle rather than a chord: he may step towards his target, and then he
+    // is pushed back out to arm's length of the pair. It costs nothing when he
+    // is already outside it, which is almost always.
+    const rx = this.x - origin[0], rz = this.z - origin[2];
+    const r = Math.hypot(rx, rz);
+    if (r < KEEP_OUT) {
+      const push = r > 1e-4 ? KEEP_OUT / r : 1;
+      this.x = origin[0] + (r > 1e-4 ? rx * push : KEEP_OUT);
+      this.z = origin[2] + (r > 1e-4 ? rz * push : 0);
     }
     const lastX = this.x - dx * (d > 0.32 ? Math.min(1, (STEP * dt) / d) : 0);
     const lastZ = this.z - dz * (d > 0.32 ? Math.min(1, (STEP * dt) / d) : 0);
