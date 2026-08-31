@@ -232,9 +232,18 @@ export class Referee {
     // What he is doing. A held gesture wins; otherwise he watches from wherever
     // he can see best.
     if (!this.hold) {
+      // He stands up to walk and crouches to watch.
+      //
+      // He was doing both at once: the crouch is what he goes into the moment
+      // the fight hits the floor, and the walk that keeps him at arm's length
+      // ran underneath it, so he crossed the mat in a deep squat — sliding,
+      // because a squat has nowhere to put a step. Nobody moves like that. The
+      // dead zone below is what "arrived" means, and it is the same number, so
+      // he settles into the crouch exactly when he stops.
+      const moving = d > 0.32;
       const next = state === 'over' ? 'stop'
         : state === 'ready' ? 'stand'
-        : ground ? 'crouch' : 'stand';
+        : ground && !moving ? 'crouch' : 'stand';
       if (next !== this.pose) { this.from = this.pose; this.pose = next; this.blend = 0; }
     }
     this.blend = Math.min(1, this.blend + dt * 2.6);
