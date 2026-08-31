@@ -31,6 +31,11 @@ const STAT_LABELS = {
   thorns: 'Шипы',
   goldFind: 'Находка золота',
   coldRes: 'Стойкость к холоду',
+  lifeOnKill: 'Жизнь за убийство',
+  expBonus: 'Бонус опыта',
+  fireDmg: 'Урон огнём',
+  pierce: 'Пробитие',
+  pickupRadius: 'Радиус сбора',
 };
 
 export function statLabel(k) {
@@ -38,7 +43,7 @@ export function statLabel(k) {
 }
 
 export function formatStat(k, v) {
-  const pct = ['dmgPct', 'critChance', 'critDmg', 'attackSpeed', 'moveSpeed', 'goldFind', 'coldRes'];
+  const pct = ['dmgPct', 'critChance', 'critDmg', 'attackSpeed', 'moveSpeed', 'goldFind', 'coldRes', 'expBonus'];
   if (pct.includes(k)) return `+${(v * 100).toFixed(1).replace(/\.0$/, '')} % ${statLabel(k)}`;
   return `+${Math.round(v * 10) / 10} ${statLabel(k)}`;
 }
