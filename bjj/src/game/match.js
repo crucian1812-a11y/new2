@@ -173,6 +173,12 @@ export class Match {
     // exactly the escape the sheet is asking for.
     this.paid = [new Set(), new Set()];
     this.gripAdv = [0, 0]; // won grip exchanges, decays
+    // A hand thrown at the other man's collar, and the half-second it takes to
+    // throw it and come back. The grip fight happens two hundred and fifty
+    // times in a match and until now the only trace of it was an arc in the
+    // corner of the HUD: the hands themselves did nothing, in a sport where
+    // hands fighting for cloth is the most continuously visible thing there is.
+    this.gripFight = [0, 0];
     this.driveOf = [0, 0]; // how hard each of them is leaning in, this frame
     this.onEvent = opts.onEvent || (() => {});
     this.stallTimer = 0;
@@ -368,6 +374,7 @@ export class Match {
     const you = this.f[this.other(i)];
     if (me.stamina < 6) return null;
     me.stamina -= 4;
+    this.gripFight[i] = 1;
     const mine = 0.5 + (me.technique - you.technique) * 0.45 + (me.stamina - you.stamina) / 320;
     if (rand() < clamp(mine, 0.12, 0.88)) {
       this.gripAdv[i] = clamp(this.gripAdv[i] + 0.34, 0, 1);
@@ -387,6 +394,7 @@ export class Match {
 
     for (let i = 0; i < 2; i++) this.cool[i] = Math.max(0, this.cool[i] - dt);
     for (let i = 0; i < 2; i++) this.gripAdv[i] = Math.max(0, this.gripAdv[i] - dt * 0.16);
+    for (let i = 0; i < 2; i++) this.gripFight[i] = Math.max(0, this.gripFight[i] - dt / 0.55);
 
     if (this.blend < this.blendTo) {
       this.blend = Math.min(this.blendTo, this.blend + dt * this.blendSpeed);

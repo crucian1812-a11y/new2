@@ -188,6 +188,10 @@ export class PairRig {
     // purpose: effort is what a man is doing this second and stops when he
     // stops, and gas is what three minutes have done to him and does not.
     this.gas = { A: 0, B: 0 };
+    // A hand thrown at the other man's collar: 1 the moment it goes, 0 when it
+    // is back. Measurement leaves it at zero, so nothing that judges a pose or
+    // a path ever sees it.
+    this.fight = { A: 0, B: 0 };
   }
 
   invalidate(id) { invalidatePose(id); }
@@ -797,6 +801,36 @@ export class PairRig {
       sk.boneHead(_t2, L ? 'foreL' : 'foreR');
       g.pole = [_t2[0] - _t3[0], _t2[1] - _t3[1], _t2[2] - _t3[2]];
     }
+    // The grip fight itself.
+    //
+    // Whichever hand is holding least is the one that goes: a man with a
+    // collar and a sleeve does not let go of either to slap at another grip,
+    // and a man holding nothing throws whatever is free. It reaches across to
+    // the near lapel and comes back inside half a second, over the top of
+    // whatever the pose had that hand doing — so a hand with a real grip is
+    // pulled off it briefly and returns, which is what losing and re-taking a
+    // grip looks like from outside.
+    for (const role of ['A', 'B']) {
+      const f = this.fight[role];
+      if (f <= 0.02) continue;
+      const held = (h) => {
+        const g = list.find((o) => o.role === role && o.hand === h);
+        return g ? g.w : 0;
+      };
+      const hand = held('L') <= held('R') ? 'L' : 'R';
+      const w = Math.sin(Math.PI * (1 - f)) * 0.85;
+      if (w < 0.02) continue;
+      const found = list.find((o) => o.role === role && o.hand === hand);
+      const reach = {
+        role, hand, self: false, w,
+        point: hand === 'L' ? 'lapelR' : 'lapelL',
+        pole: found ? found.pole : null,
+      };
+      if (found && found.w > w) continue;   // his real grip is worth more
+      if (found) list.splice(list.indexOf(found), 1);
+      list.push(reach);
+    }
+
     this.curl = {};
     for (let pass = 0; pass < PASSES; pass++) this._solveGrips(list);
 

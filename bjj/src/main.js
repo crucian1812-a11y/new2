@@ -451,6 +451,7 @@ function frame(now) {
     // held where it is. Without that the only measurable thing is "a tired man
     // looks different", which was already true before any of this.
     rig.gas[role] = window.__gas != null ? window.__gas : clamp(1 - f.stamina / 100, 0, 1);
+    rig.fight[role] = match.gripFight[idx];
   }
 
   const from = match.prevPosition;
