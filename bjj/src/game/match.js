@@ -20,9 +20,16 @@ import { rand, randInt, pick } from './rng.js';
 export const MATCH_TIME = 300;
 
 const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
-// How long the fight may stand still before the referee says something, and how
-// often he says it after that.
-export const STALL_CALL = 12;
+// How long the fight may go without getting anywhere before the referee says
+// something, and how often he says it after that.
+//
+// "Without getting anywhere" and not "without anybody trying". The timer used
+// to reset on every attempt, which meant a man on top could fail the same pass
+// eight times in a row and never be called for it — and that is exactly the
+// shape stalling takes. It resets when the position actually changes now, so
+// what it counts is progress. Twenty-five seconds is generous: a position that
+// is going somewhere changes hands well inside it.
+export const STALL_CALL = 20;
 const STALL_AGAIN = 8;
 // Posture at or above this and you can see which way it is coming; below it
 // you know only that it is coming. See visibleDeny.
@@ -169,6 +176,7 @@ export class Match {
     this.driveOf = [0, 0]; // how hard each of them is leaning in, this frame
     this.onEvent = opts.onEvent || (() => {});
     this.stallTimer = 0;
+    this.stalls = 0;
   }
 
   /* ------------------------------------------------------------ queries - */
@@ -424,7 +432,6 @@ export class Match {
       this._stall();
       return;
     }
-    this.stallTimer = 0;
     if (this.deny) {
       this.deny.t += dt;
       if (this.deny.t > this.deny.window) this.deny = null;
@@ -472,6 +479,55 @@ export class Match {
     if (this.stallTimer < STALL_CALL) return;
     this.stallTimer = STALL_CALL - STALL_AGAIN;
     const top = this.isDominant(0) ? 0 : this.isDominant(1) ? 1 : -1;
+    this.stalls++;
+
+    // The second call is the one with teeth.
+    //
+    // A referee who only ever says "work" is a referee nobody has to listen to,
+    // and the fight had learned that: measured over a hundred and twenty
+    // matches it spent 1.5% of the clock on its feet, which is to say it fell
+    // to the floor in the first four seconds of the first round and never stood
+    // up again. Standing, the clinch, both takedowns, the break and the
+    // technical stand-up — a quarter of the graph — were scenery.
+    //
+    // So he stands them up, which is what he does. It costs the man on top the
+    // position he was sitting on, which is the point: sitting on one is what
+    // the call is for.
+    if (this.stalls >= 2 && POSES[this.position].ground) {
+      // Not in the middle of something. Standing them up while a blend is
+      // still running throws away however much of it was left, and the timer
+      // is still counting, so waiting a fraction of a second costs nothing.
+      if (this.pending || (this.prevPosition !== this.position && this.blend < 1)) {
+        this.stalls = 1;
+        this.stallTimer = STALL_CALL - 0.5;
+        return;
+      }
+      this.stalls = 0;
+      this.hold = null;
+      this.paid = [new Set(), new Set()];
+      this.prevPosition = this.position;
+      this.position = 'STANDING';
+      this.pending = null;
+      this.landing = false;
+      this.blend = 0;
+      this.blendTo = 1;
+      this.blendSpeed = 1.4;
+      // Roles are deliberately not *reset*. Standing has no top, so they decide
+      // nothing there — but they decide which body is which, and resetting them
+      // exchanged the two men in a single frame on the way up.
+      //
+      // They do have to be brought back into step. Standing them up in the
+      // middle of a sweep's landing cancels the landing, and roleShown is
+      // holding the assignment from before it — left there it stays a frame
+      // behind for the rest of the match.
+      this.roleShown = [this.roleOf[0], this.roleOf[1]];
+      this.cool = [0.5, 0.5];
+      this.coolFull = [0.5, 0.5];
+      this.emit('судья: в стойку', 'warn');
+      this.onEvent({ kind: 'standup' });
+      return;
+    }
+
     if (top < 0) {
       this.emit('судья: работайте', 'warn');
     } else {
@@ -651,6 +707,8 @@ export class Match {
   // whose points are whose.
   goTo(tr, by) {
     this.posT = 0;
+    this.stallTimer = 0;
+    this.stalls = 0;
     const me = this.f[by];
     const you = this.f[this.other(by)];
     // Pick up the blend the attempt already ran rather than replaying it. The
