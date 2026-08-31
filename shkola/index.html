@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Школа</title>
+<style>
+/* ─── Общее ─────────────────────────────────────────────────────────────── */
+:root{
+  --fon:#fff6e9; --fon2:#ffeacc;
+  --tekst:#3b2a1a; --tusklo:#8a7358;
+  --akcent:#ff8a3d; --akcent-tem:#e56a1c;
+  --verno:#57b84a; --nu-ka:#f0c020;
+  --karta:#fffdf9;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html,body{height:100%; margin:0}
+body{
+  font:400 20px/1.35 "Trebuchet MS","Segoe UI",system-ui,sans-serif;
+  color:var(--tekst); background:var(--fon);
+  overflow:hidden; user-select:none;
+}
+.ekran{
+  position:fixed; inset:0; display:none;
+  flex-direction:column; align-items:center; justify-content:center;
+  padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
+  gap:16px;
+}
+.ekran.vidno{display:flex}
+
+/* ─── Кнопки ────────────────────────────────────────────────────────────── */
+button{font:inherit; color:inherit; cursor:pointer; border:0; background:none}
+.knopka{
+  background:var(--akcent); color:#fff; border-radius:22px;
+  padding:18px 34px; font-size:28px; font-weight:700;
+  box-shadow:0 6px 0 var(--akcent-tem); transition:transform .08s, box-shadow .08s;
+}
+.knopka:active{transform:translateY(4px); box-shadow:0 2px 0 var(--akcent-tem)}
+.knopka.tihaya{background:var(--fon2); color:var(--tekst); box-shadow:0 6px 0 #e0cba8}
+.knopka.tihaya:active{box-shadow:0 2px 0 #e0cba8}
+.ugolok{
+  position:fixed; top:calc(10px + env(safe-area-inset-top)); right:12px;
+  width:52px; height:52px; border-radius:50%; font-size:26px;
+  background:#ffffffaa; color:var(--tusklo); display:grid; place-items:center;
+}
+
+/* ─── Домик ─────────────────────────────────────────────────────────────── */
+#dom h1{font-size:clamp(34px,9vw,64px); margin:0; text-align:center}
+#dom .privet{color:var(--tusklo); margin:0 0 8px; text-align:center}
+.polka{
+  display:flex; flex-wrap:wrap; gap:14px; justify-content:center;
+  max-width:720px; max-height:52vh; overflow-y:auto; padding:4px;
+}
+.karta{
+  width:150px; background:var(--karta); border-radius:24px; padding:16px 10px;
+  box-shadow:0 4px 0 #e8d5b6; display:flex; flex-direction:column;
+  align-items:center; gap:8px; transition:transform .08s;
+}
+.karta:active{transform:scale(.96)}
+.karta .znak{font-size:52px; line-height:1}
+.karta .imya{font-size:19px; font-weight:700; text-align:center; word-break:break-word}
+.karta .zvezdy{font-size:15px; color:var(--nu-ka); min-height:20px}
+
+/* ─── Урок ──────────────────────────────────────────────────────────────── */
+#urok{justify-content:space-between; padding-top:64px}
+.tochki{position:fixed; top:calc(22px + env(safe-area-inset-top)); left:0; right:76px;
+  display:flex; gap:8px; justify-content:center}
+.tochka{width:12px; height:12px; border-radius:50%; background:#e6d3b4}
+.tochka.projdena{background:var(--akcent)}
+.tochka.tut{background:var(--akcent); transform:scale(1.5)}
+.scena{flex:1; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:12px; text-align:center; min-height:0}
+#risunok{font-size:min(34vh,46vw); line-height:1.05; overflow-wrap:anywhere}
+#nadpis{font-size:clamp(36px,13vw,90px); font-weight:700; letter-spacing:.02em}
+#govorit{font-size:clamp(18px,5vw,28px); color:var(--tusklo); max-width:620px}
+.varianty{display:flex; flex-wrap:wrap; gap:14px; justify-content:center; width:100%}
+.variant{
+  background:var(--karta); border-radius:24px; box-shadow:0 5px 0 #e8d5b6;
+  padding:16px 20px; min-width:120px; display:flex; flex-direction:column;
+  align-items:center; gap:4px; transition:transform .08s;
+}
+.variant .znak{font-size:44px; line-height:1.1}
+.variant .imya{font-size:24px; font-weight:700}
+.variant:active{transform:translateY(3px)}
+.variant.verno{background:var(--verno); color:#fff; box-shadow:0 5px 0 #3f8f34}
+.variant.mimo{background:#f3e2e2; opacity:.55}
+@keyframes kachok{0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)}}
+.variant.kachok{animation:kachok .3s}
+#dalshe{align-self:center}
+
+/* ─── Конец ─────────────────────────────────────────────────────────────── */
+#konec .salut{font-size:clamp(40px,14vw,110px); letter-spacing:.05em}
+#konec h2{font-size:clamp(28px,8vw,52px); margin:0; text-align:center}
+
+/* ─── Родителям ─────────────────────────────────────────────────────────── */
+#roditel{justify-content:flex-start; overflow-y:auto; align-items:stretch;
+  padding-top:calc(24px + env(safe-area-inset-top))}
+#roditel .list{width:min(560px,100%); margin:0 auto; display:flex;
+  flex-direction:column; gap:14px}
+#roditel h2{margin:0; font-size:26px}
+#roditel label{display:flex; flex-direction:column; gap:6px; font-size:16px; color:var(--tusklo)}
+#roditel input[type=text], #roditel input[type=password], #roditel textarea{
+  font:inherit; font-size:18px; color:var(--tekst); background:var(--karta);
+  border:2px solid #e8d5b6; border-radius:14px; padding:12px 14px; width:100%;
+}
+#roditel textarea{min-height:76px; resize:vertical}
+#roditel input[type=file]{font-size:15px}
+.ryad{display:flex; gap:10px; flex-wrap:wrap}
+.ryad .knopka{font-size:20px; padding:12px 22px; border-radius:16px}
+#status{font-size:16px; min-height:24px; white-space:pre-wrap}
+#status.ploho{color:#c0392b}
+.zametki{font-size:14px; color:var(--tusklo); background:var(--fon2);
+  border-radius:14px; padding:12px 14px; white-space:pre-wrap}
+.spisok-urokov{display:flex; flex-direction:column; gap:8px}
+.stroka{display:flex; align-items:center; gap:10px; background:var(--karta);
+  border-radius:14px; padding:10px 12px; box-shadow:0 3px 0 #e8d5b6}
+.stroka .imya{flex:1; font-size:17px}
+.stroka button{font-size:15px; color:var(--tusklo); padding:6px 10px}
+</style>
+</head>
+<body>
+
+<!-- ─── Домик ───────────────────────────────────────────────────────────── -->
+<section id="dom" class="ekran vidno">
+  <h1>Школа</h1>
+  <p class="privet">Выбирай, чем займёмся</p>
+  <div class="polka" id="polka"></div>
+  <button class="ugolok" id="k-roditel" title="Для родителей">⚙️</button>
+</section>
+
+<!-- ─── Урок ────────────────────────────────────────────────────────────── -->
+<section id="urok" class="ekran">
+  <div class="tochki" id="tochki"></div>
+  <div class="scena">
+    <div id="risunok"></div>
+    <div id="nadpis"></div>
+    <div id="govorit"></div>
+    <div class="varianty" id="varianty"></div>
+  </div>
+  <button class="knopka" id="dalshe">Дальше</button>
+  <button class="ugolok" id="k-domoj" title="Домой">🏠</button>
+</section>
+
+<!-- ─── Конец ───────────────────────────────────────────────────────────── -->
+<section id="konec" class="ekran">
+  <div class="salut" id="salut"></div>
+  <h2 id="itog"></h2>
+  <button class="knopka" id="esche">Ещё раз</button>
+  <button class="knopka tihaya" id="konec-domoj">Домой</button>
+</section>
+
+<!-- ─── Родителям ───────────────────────────────────────────────────────── -->
+<section id="roditel" class="ekran">
+  <div class="list">
+    <h2>Для родителей</h2>
+
+    <label>Ключ Anthropic API
+      <input type="password" id="klyuch" placeholder="sk-ant-..." autocomplete="off">
+    </label>
+
+    <label>Тема урока
+      <input type="text" id="tema" placeholder="Буква М · Счёт до 10 · Состав числа 5">
+    </label>
+
+    <label>Материал (необязательно): страница учебника, фото, PDF или текст
+      <input type="file" id="fajl" accept="application/pdf,image/*,text/plain,.md">
+    </label>
+
+    <label>Что учесть (необязательно)
+      <textarea id="pozhelanie" placeholder="Например: он путает Б и Д. Или: любит динозавров."></textarea>
+    </label>
+
+    <div class="ryad">
+      <button class="knopka" id="sobrat">Собрать урок</button>
+      <button class="knopka tihaya" id="roditel-domoj">Назад</button>
+    </div>
+
+    <div id="status"></div>
+    <div class="zametki" id="zametki" hidden></div>
+
+    <h2 style="margin-top:8px">Уроки</h2>
+    <div class="spisok-urokov" id="spisok"></div>
+    <div class="ryad">
+      <button class="knopka tihaya" id="vygruzit">Сохранить всё в файл</button>
+      <label class="knopka tihaya" style="display:inline-block">Загрузить из файла
+        <input type="file" id="vgruzit" accept="application/json" hidden>
+      </label>
+    </div>
+    <div class="zametki" id="pro-golos"></div>
+  </div>
+</section>
+
+<script type="module">
+/* ══════════════════════════════════════════════════════════════════════════
+   Школа — домашний генератор уроков для первоклассника.
+
+   Устройство простое и намеренно плоское: один файл, ноль зависимостей,
+   ноль сборки. Открывается двойным щелчком по index.html.
+
+   Ребёнок ещё не читает, поэтому главный канал — голос. Текст на экране
+   дублирует сказанное для взрослого, который сидит рядом, и не более того.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const $ = (s) => document.querySelector(s);
+
+/* ─── 1. Демонстрационные уроки ───────────────────────────────────────────
+   Лежат прямо в файле, а не в JSON рядом: так приложение работает и с
+   file://, где fetch к соседнему файлу браузер запрещает.                  */
+
+const DEMO = [
+  {
+    id: 'demo-bukva-m',
+    title: 'Буква М',
+    icon: '🐻',
+    scenes: [
+      { kind:'story', say:'Привет! Сегодня мы познакомимся с буквой М. Она добрая и очень мягкая.',
+        caption:'М м', art:'🐻', options:[], praise:'' },
+      { kind:'story', say:'Послушай, как она звучит. М-м-м. Губы сомкнулись и загудели, как будто вкусно.',
+        caption:'М-м-м', art:'😋', options:[], praise:'' },
+      { kind:'story', say:'С буквы М начинается мама. И мишка. И молоко.',
+        caption:'мама', art:'👩🐻🥛', options:[], praise:'' },
+      { kind:'quiz', say:'А теперь найди букву М.', caption:'Где М?', art:'',
+        options:[ {caption:'М', art:'', correct:true},
+                  {caption:'А', art:'', correct:false},
+                  {caption:'О', art:'', correct:false} ],
+        praise:'Точно! Это она.' },
+      { kind:'quiz', say:'Какое слово начинается с буквы М?', caption:'', art:'',
+        options:[ {caption:'мяч', art:'⚽', correct:true},
+                  {caption:'кот', art:'🐈', correct:false} ],
+        praise:'Мяч! М-м-мяч.' },
+      { kind:'story', say:'Ты нашёл букву М. Теперь ищи её везде: на вывесках, в книжках, на пачке молока.',
+        caption:'Молодец!', art:'🎉', options:[], praise:'' }
+    ]
+  },
+  {
+    id: 'demo-schet-5',
+    title: 'Считаем до 5',
+    icon: '🖐️',
+    scenes: [
+      { kind:'story', say:'Давай считать. Подними руку и посмотри: пальцев ровно пять.',
+        caption:'1 2 3 4 5', art:'🖐️', options:[], praise:'' },
+      { kind:'story', say:'Смотри, вот три яблока. Один. Два. Три.',
+        caption:'3', art:'🍎🍎🍎', options:[], praise:'' },
+      { kind:'quiz', say:'Сколько тут котиков? Посчитай вслух.', caption:'🐈🐈', art:'',
+        options:[ {caption:'2', art:'', correct:true},
+                  {caption:'4', art:'', correct:false},
+                  {caption:'5', art:'', correct:false} ],
+        praise:'Два котика. Верно!' },
+      { kind:'quiz', say:'А теперь машинки. Сколько их?', caption:'🚗🚗🚗🚗', art:'',
+        options:[ {caption:'4', art:'', correct:true},
+                  {caption:'3', art:'', correct:false} ],
+        praise:'Четыре! Ты хорошо считаешь.' },
+      { kind:'story', say:'Пять — это целая ладошка. Ты умеешь считать до пяти.',
+        caption:'5', art:'🖐️', options:[], praise:'' }
+    ]
+  }
+];
+
+/* ─── 2. Проверка урока ───────────────────────────────────────────────────
+   Написанный урок — это замысел. Проверка отделяет то, что сломает плеер
+   (ошибки), от того, что просто не по возрасту (замечания). Ошибки урок
+   заворачивают, замечания показываются родителю и решает он.              */
+
+const PREDELY = {
+  scenMin:4, scenMax:9,
+  fraza:95,          // самое длинное предложение в озвучке
+  govorit:220,       // вся озвучка одной сцены
+  nadpis:18,         // крупная надпись
+  risunok:8,         // сколько знаков в картинке
+  slovo:14,          // самое длинное слово
+  variantovMin:2, variantovMax:3,
+  variantNadpis:12
+};
+
+function proveritUrok(u){
+  const oshibki = [], zamechaniya = [];
+  const dlina = (s) => [...String(s ?? '')].length;
+
+  if (!u || typeof u !== 'object') return { oshibki:['урок не объект'], zamechaniya:[] };
+  if (!u.title || !dlina(u.title)) oshibki.push('нет названия');
+  if (dlina(u.title) > 30) zamechaniya.push('название длиннее 30 знаков');
+  if (!Array.isArray(u.scenes) || !u.scenes.length) {
+    return { oshibki:[...oshibki,'нет сцен'], zamechaniya };
+  }
+  if (u.scenes.length < PREDELY.scenMin) zamechaniya.push(`сцен всего ${u.scenes.length} — коротковато`);
+  if (u.scenes.length > PREDELY.scenMax) zamechaniya.push(`сцен ${u.scenes.length} — он устанет`);
+
+  u.scenes.forEach((s, i) => {
+    const gde = `сцена ${i+1}`;
+    if (!s || typeof s !== 'object') { oshibki.push(`${gde}: не объект`); return; }
+    if (s.kind !== 'story' && s.kind !== 'quiz') oshibki.push(`${gde}: неизвестный вид «${s.kind}»`);
+    if (!s.say || !dlina(s.say)) oshibki.push(`${gde}: нечего сказать`);
+
+    if (dlina(s.say) > PREDELY.govorit) zamechaniya.push(`${gde}: озвучка длинная (${dlina(s.say)})`);
+    for (const f of String(s.say ?? '').split(/(?<=[.!?…])\s+/)) {
+      if (dlina(f) > PREDELY.fraza) { zamechaniya.push(`${gde}: длинная фраза «${f.slice(0,40)}…»`); break; }
+    }
+    for (const slovo of String(s.say ?? '').split(/[^А-Яа-яЁёA-Za-z-]+/)) {
+      if (slovo.length > PREDELY.slovo) { zamechaniya.push(`${gde}: трудное слово «${slovo}»`); break; }
+    }
+    if (dlina(s.caption) > PREDELY.nadpis) zamechaniya.push(`${gde}: надпись длиннее ${PREDELY.nadpis} знаков`);
+    if (dlina(s.art) > PREDELY.risunok) zamechaniya.push(`${gde}: картинка из ${dlina(s.art)} знаков — рябит`);
+
+    if (s.kind === 'quiz'){
+      const v = Array.isArray(s.options) ? s.options : [];
+      if (v.length < PREDELY.variantovMin) oshibki.push(`${gde}: вариантов меньше двух`);
+      if (v.length > PREDELY.variantovMax) zamechaniya.push(`${gde}: ${v.length} вариантов — многовато`);
+      const vernyh = v.filter(o => o && o.correct).length;
+      if (vernyh !== 1) oshibki.push(`${gde}: верных ответов ${vernyh}, а нужен ровно один`);
+      const vidno = v.map(o => `${o?.art ?? ''}${o?.caption ?? ''}`.trim());
+      if (new Set(vidno).size !== vidno.length) oshibki.push(`${gde}: два одинаковых варианта`);
+      v.forEach((o, j) => {
+        if (!vidno[j]) oshibki.push(`${gde}: вариант ${j+1} пустой`);
+        if (dlina(o?.caption) > PREDELY.variantNadpis) zamechaniya.push(`${gde}: вариант ${j+1} длинный`);
+      });
+    }
+  });
+
+  return { oshibki, zamechaniya };
+}
+
+/* ─── 3. Голос ────────────────────────────────────────────────────────────
+   Web Speech API. Русский голос есть почти везде, но список голосов
+   приезжает асинхронно, поэтому его приходится ждать.                     */
+
+const rech = {
+  golos:null, gotov:false,
+  najti(){
+    const vse = speechSynthesis.getVoices();
+    this.golos = vse.find(v => /^ru/i.test(v.lang)) || null;
+    this.gotov = vse.length > 0;
+    obnovitZametkuProGolos();
+  },
+  skazhi(text, potom){
+    speechSynthesis.cancel();
+    if (!text) { potom?.(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    if (this.golos) u.voice = this.golos;
+    u.lang = 'ru-RU'; u.rate = 0.95; u.pitch = 1.05;
+    u.onend = () => potom?.();
+    u.onerror = () => potom?.();
+    speechSynthesis.speak(u);
+  },
+  molchi(){ speechSynthesis.cancel(); }
+};
+if ('speechSynthesis' in window){
+  rech.najti();
+  speechSynthesis.onvoiceschanged = () => rech.najti();
+}
+
+function obnovitZametkuProGolos(){
+  const el = $('#pro-golos'); if (!el) return;
+  if (!('speechSynthesis' in window)) { el.textContent = 'Этот браузер не умеет говорить. Возьми Chrome или Safari.'; return; }
+  el.textContent = rech.golos
+    ? `Голос: ${rech.golos.name}. Если звучит плохо — попробуй другой браузер, голоса у них разные.`
+    : 'Русский голос в системе не найден — читать придётся вслух самим. В Chrome он обычно появляется сам, в Windows — ставится в «Языке и регионе».';
+}
+
+/* ─── 4. Хранилище ───────────────────────────────────────────────────────── */
+
+const HRAN = { uroki:'shkola.uroki', klyuch:'shkola.klyuch', zvezdy:'shkola.zvezdy' };
+
+function pochitat(imya, poumolchaniyu){
+  try { const s = localStorage.getItem(imya); return s ? JSON.parse(s) : poumolchaniyu; }
+  catch { return poumolchaniyu; }
+}
+function zapisat(imya, chto){
+  try { localStorage.setItem(imya, JSON.stringify(chto)); } catch {}
+}
+
+let svoi   = pochitat(HRAN.uroki, []);       // собранные дома
+let nagrady = pochitat(HRAN.zvezdy, {});     // сколько звёзд за какой урок
+const vseUroki = () => [...svoi, ...DEMO];
+
+/* ─── 5. Экраны ──────────────────────────────────────────────────────────── */
+
+function pokazat(imya){
+  document.querySelectorAll('.ekran').forEach(e => e.classList.toggle('vidno', e.id === imya));
+}
+
+function podpis(klass, text){
+  const e = document.createElement('span');
+  e.className = klass; e.textContent = text;
+  return e;
+}
+
+function narisovatPolku(){
+  const polka = $('#polka');
+  polka.innerHTML = '';
+  for (const u of vseUroki()){
+    const k = document.createElement('button');
+    k.className = 'karta';
+    k.append(
+      podpis('znak', u.icon || '📘'),
+      podpis('imya', u.title),
+      podpis('zvezdy', '⭐'.repeat(nagrady[u.id] || 0))
+    );
+    k.onclick = () => nachatUrok(u);
+    polka.append(k);
+  }
+}
+
+/* ─── 6. Плеер ───────────────────────────────────────────────────────────── */
+
+let urok = null, nomer = 0, zvezdy = 0;
+
+function nachatUrok(u){
+  urok = u; nomer = 0; zvezdy = 0;
+  pokazat('urok');
+  pokazatScenu();
+}
+
+function pokazatScenu(){
+  const s = urok.scenes[nomer];
+
+  $('#tochki').innerHTML = urok.scenes
+    .map((_, i) => `<i class="tochka ${i < nomer ? 'projdena' : i === nomer ? 'tut' : ''}"></i>`)
+    .join('');
+
+  $('#risunok').textContent = s.art || '';
+  $('#nadpis').textContent  = s.caption || '';
+  $('#govorit').textContent = s.say || '';
+
+  const varianty = $('#varianty');
+  varianty.innerHTML = '';
+  const knopkaDalshe = $('#dalshe');
+
+  if (s.kind === 'quiz'){
+    knopkaDalshe.hidden = true;
+    for (const o of s.options){
+      const b = document.createElement('button');
+      b.className = 'variant';
+      if (o.art) b.append(podpis('znak', o.art));
+      if (o.caption) b.append(podpis('imya', o.caption));
+      b.onclick = () => otvet(b, o, s);
+      varianty.append(b);
+    }
+  } else {
+    knopkaDalshe.hidden = false;
+  }
+
+  rech.skazhi(s.say);
+}
+
+function otvet(knopka, o, s){
+  if (knopka.classList.contains('mimo')) return;
+  if (o.correct){
+    knopka.classList.add('verno');
+    zvezdy++;
+    $('#varianty').querySelectorAll('.variant').forEach(b => { b.onclick = null; });
+    // Уходим со сцены либо когда голос договорил, либо по страховке. Что
+    // сработает первым — неважно, но сработать должно ровно один раз.
+    const otsyuda = nomer;
+    const ujti = () => { if (nomer === otsyuda) dalshe(); };
+    rech.skazhi(s.praise || 'Правильно!', () => setTimeout(ujti, 250));
+    setTimeout(ujti, 2600);
+  } else {
+    knopka.classList.add('kachok');
+    setTimeout(() => knopka.classList.replace('kachok', 'mimo'), 320);
+    rech.skazhi('Почти. Попробуй ещё разок.');
+  }
+}
+
+let uzheUshli = false;
+function dalshe(){
+  // Съедаем только «призрачный» второй тап, который телефоны шлют следом за
+  // первым. Дольше держать нельзя: ребёнок жмёт кнопку чаще взрослого.
+  if (uzheUshli) return;
+  uzheUshli = true; setTimeout(() => uzheUshli = false, 150);
+  rech.molchi();
+  nomer++;
+  if (nomer >= urok.scenes.length) zakonchit();
+  else pokazatScenu();
+}
+
+function zakonchit(){
+  const bylo = nagrady[urok.id] || 0;
+  if (zvezdy > bylo){ nagrady[urok.id] = zvezdy; zapisat(HRAN.zvezdy, nagrady); }
+  $('#salut').textContent = zvezdy ? '⭐'.repeat(Math.min(zvezdy, 5)) : '🎈';
+  $('#itog').textContent  = zvezdy ? `Молодец! Звёзд: ${zvezdy}` : 'Урок пройден!';
+  pokazat('konec');
+  rech.skazhi(zvezdy ? `Молодец! Ты заработал ${zvezdy} ${sklonenie(zvezdy)}.` : 'Урок пройден. Молодец!');
+  narisovatPolku();
+}
+
+function sklonenie(n){
+  const d = n % 10, dd = n % 100;
+  if (d === 1 && dd !== 11) return 'звезду';
+  if (d >= 2 && d <= 4 && (dd < 12 || dd > 14)) return 'звезды';
+  return 'звёзд';
+}
+
+/* ─── 7. Сборка урока моделью ────────────────────────────────────────────── */
+
+const NASTAVLENIE = `Ты собираешь уроки для мальчика шести лет. Он только что пошёл в первый класс и ещё почти не умеет читать: всё, что ты напишешь в поле say, он услышит голосом, а не прочитает.
+
+Как говорить:
+— Короткими фразами. Одна мысль — одно предложение. Максимум девяносто знаков во фразе.
+— На «ты», по-доброму, как старший друг, а не как учитель у доски.
+— Только слова, которые шестилетка уже знает. Никаких «следовательно», «определи», «выполни задание».
+— Без сюсюканья и уменьшительных через слово.
+
+Как устроен урок:
+— Шесть сцен. Первая — поздороваться и назвать тему. Затем две или три сцены объяснения. Затем два или три вопроса. Последняя — короткая похвала.
+— story — сцена-рассказ: он слушает и смотрит. options пустой массив, praise пустая строка.
+— quiz — вопрос: два или три варианта, ровно один верный. praise — что сказать, когда он ответит верно.
+— caption — очень крупная надпись на весь экран. Одно слово, буква или число. До восемнадцати знаков. Может быть пустой.
+— art — картинка из эмодзи, до шести штук. Считать удобно рядом одинаковых: 🍎🍎🍎. Может быть пустой.
+— В вопросах на счёт клади предметы в caption сцены, а в вариантах пиши цифры.
+
+Если тебе дали страницу учебника или фотографию — бери материал оттуда, не выдумывай свой. Если дали только тему — придумай сам.`;
+
+const INSTRUMENT = {
+  name: 'sobrat_urok',
+  description: 'Отдать готовый урок. Вызывай ровно один раз.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    properties: {
+      title: { type:'string', description:'Название урока: одно-три слова, крупно на карточке' },
+      icon:  { type:'string', description:'Один эмодзи для карточки' },
+      scenes: {
+        type: 'array',
+        description: 'Сцены урока по порядку',
+        items: {
+          type: 'object',
+          properties: {
+            kind:    { type:'string', enum:['story','quiz'], description:'story — рассказ, quiz — вопрос' },
+            say:     { type:'string', description:'Что произносит голос' },
+            caption: { type:'string', description:'Крупная надпись, можно пустую' },
+            art:     { type:'string', description:'Эмодзи-картинка, можно пустую' },
+            options: {
+              type:'array',
+              description:'Варианты ответа для quiz; для story — пустой массив',
+              items:{
+                type:'object',
+                properties:{
+                  caption:{ type:'string', description:'Подпись варианта: слово, буква или число' },
+                  art:    { type:'string', description:'Эмодзи варианта, можно пустой' },
+                  correct:{ type:'boolean', description:'Верный ли это ответ' }
+                },
+                required:['caption','art','correct'],
+                additionalProperties:false
+              }
+            },
+            praise:  { type:'string', description:'Похвала за верный ответ; для story — пустая строка' }
+          },
+          required:['kind','say','caption','art','options','praise'],
+          additionalProperties:false
+        }
+      }
+    },
+    required:['title','icon','scenes'],
+    additionalProperties:false
+  }
+};
+
+async function vFajlBase64(f){
+  const dataUrl = await new Promise((ok, ploho) => {
+    const r = new FileReader();
+    r.onload = () => ok(r.result);
+    r.onerror = () => ploho(new Error('файл не читается'));
+    r.readAsDataURL(f);
+  });
+  return String(dataUrl).split(',')[1];
+}
+
+async function sobratUrok({ klyuch, tema, fajl, pozhelanie }){
+  const soderzhimoe = [];
+
+  if (fajl){
+    if (fajl.type === 'application/pdf'){
+      soderzhimoe.push({ type:'document',
+        source:{ type:'base64', media_type:'application/pdf', data: await vFajlBase64(fajl) } });
+    } else if (fajl.type.startsWith('image/')){
+      soderzhimoe.push({ type:'image',
+        source:{ type:'base64', media_type: fajl.type, data: await vFajlBase64(fajl) } });
+    } else {
+      const txt = (await fajl.text()).slice(0, 60000);
+      soderzhimoe.push({ type:'text', text: `Материал из файла:\n\n${txt}` });
+    }
+  }
+
+  const prosba = [
+    tema ? `Тема урока: ${tema}` : 'Тему выбери сам по приложенному материалу.',
+    fajl ? 'Материал приложен выше — опирайся на него.' : '',
+    pozhelanie ? `Что учесть про ребёнка: ${pozhelanie}` : '',
+    'Собери урок и отдай его через инструмент sobrat_urok.'
+  ].filter(Boolean).join('\n');
+
+  soderzhimoe.push({ type:'text', text: prosba });
+
+  const otvet = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      'x-api-key': klyuch,
+      'anthropic-version':'2023-06-01',
+      'anthropic-dangerous-direct-browser-access':'true'
+    },
+    body: JSON.stringify({
+      model:'claude-opus-5',
+      max_tokens:16000,
+      system: NASTAVLENIE,
+      messages:[{ role:'user', content: soderzhimoe }],
+      tools:[ INSTRUMENT ]
+    })
+  });
+
+  if (!otvet.ok){
+    let pochemu = `${otvet.status}`;
+    try { const e = await otvet.json(); pochemu = e?.error?.message || pochemu; } catch {}
+    if (otvet.status === 401) pochemu = 'ключ не подошёл';
+    throw new Error(pochemu);
+  }
+
+  const dannye = await otvet.json();
+  const vyzov = (dannye.content || []).find(b => b.type === 'tool_use');
+  if (!vyzov){
+    const tekst = (dannye.content || []).filter(b => b.type === 'text').map(b => b.text).join(' ');
+    throw new Error(tekst ? `модель ответила текстом вместо урока: ${tekst.slice(0,200)}` : 'модель не вернула урок');
+  }
+
+  const u = vyzov.input;
+  u.id = `svoj-${Date.now()}`;
+  return u;
+}
+
+/* ─── 8. Экран родителя ──────────────────────────────────────────────────── */
+
+function narisovatSpisok(){
+  const el = $('#spisok');
+  el.innerHTML = '';
+  if (!svoi.length){
+    el.innerHTML = '<div class="zametki">Пока только два примера. Собери первый свой.</div>';
+    return;
+  }
+  for (const u of svoi){
+    const s = document.createElement('div');
+    s.className = 'stroka';
+    s.append(podpis('', u.icon || '📘'), podpis('imya', u.title));
+    const udalit = document.createElement('button');
+    udalit.textContent = 'убрать';
+    udalit.onclick = () => {
+      svoi = svoi.filter(x => x.id !== u.id);
+      zapisat(HRAN.uroki, svoi); narisovatSpisok(); narisovatPolku();
+    };
+    s.append(udalit);
+    el.append(s);
+  }
+}
+
+function skazatStatus(text, ploho = false){
+  const el = $('#status');
+  el.textContent = text;
+  el.classList.toggle('ploho', ploho);
+}
+
+$('#sobrat').onclick = async () => {
+  const klyuch = $('#klyuch').value.trim();
+  const tema = $('#tema').value.trim();
+  const fajl = $('#fajl').files[0] || null;
+  const pozhelanie = $('#pozhelanie').value.trim();
+
+  $('#zametki').hidden = true;
+
+  if (!klyuch) return skazatStatus('Сначала ключ. Он берётся на console.anthropic.com и хранится только в этом браузере.', true);
+  if (!tema && !fajl) return skazatStatus('Нужна тема или файл — иначе не из чего собирать.', true);
+
+  zapisat(HRAN.klyuch, klyuch);
+  $('#sobrat').disabled = true;
+  skazatStatus('Собираю… это примерно полминуты.');
+
+  try {
+    const u = await sobratUrok({ klyuch, tema, fajl, pozhelanie });
+    const { oshibki, zamechaniya } = proveritUrok(u);
+
+    if (oshibki.length){
+      skazatStatus('Урок получился кривой, я его не сохранил. Нажми ещё раз.', true);
+      $('#zametki').hidden = false;
+      $('#zametki').textContent = 'Что не так:\n· ' + oshibki.join('\n· ');
+      return;
+    }
+
+    svoi = [u, ...svoi];
+    zapisat(HRAN.uroki, svoi);
+    narisovatSpisok(); narisovatPolku();
+    skazatStatus(`Готово: «${u.title}», ${u.scenes.length} сцен. Урок уже на полке.`);
+
+    if (zamechaniya.length){
+      $('#zametki').hidden = false;
+      $('#zametki').textContent = 'На что посмотреть перед показом:\n· ' + zamechaniya.join('\n· ');
+    }
+  } catch (e){
+    skazatStatus(`Не вышло: ${e.message}`, true);
+  } finally {
+    $('#sobrat').disabled = false;
+  }
+};
+
+$('#vygruzit').onclick = () => {
+  const blob = new Blob([JSON.stringify(svoi, null, 2)], { type:'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'uroki.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$('#vgruzit').onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const spisok = JSON.parse(await f.text());
+    if (!Array.isArray(spisok)) throw new Error('в файле не список уроков');
+    const godnye = spisok.filter(u => !proveritUrok(u).oshibki.length);
+    svoi = [...godnye, ...svoi];
+    zapisat(HRAN.uroki, svoi);
+    narisovatSpisok(); narisovatPolku();
+    skazatStatus(`Загружено уроков: ${godnye.length} из ${spisok.length}.`);
+  } catch (err){
+    skazatStatus(`Файл не подошёл: ${err.message}`, true);
+  }
+  e.target.value = '';
+};
+
+/* ─── 9. Провода ─────────────────────────────────────────────────────────── */
+
+$('#dalshe').onclick = dalshe;
+$('#k-domoj').onclick = () => { rech.molchi(); pokazat('dom'); };
+$('#konec-domoj').onclick = () => { rech.molchi(); pokazat('dom'); };
+$('#esche').onclick = () => nachatUrok(urok);
+$('#k-roditel').onclick = () => { pokazat('roditel'); narisovatSpisok(); obnovitZametkuProGolos(); };
+$('#roditel-domoj').onclick = () => pokazat('dom');
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' '){
+    if ($('#urok').classList.contains('vidno') && !$('#dalshe').hidden){ e.preventDefault(); dalshe(); }
+  }
+});
+
+$('#klyuch').value = pochitat(HRAN.klyuch, '') || '';
+narisovatPolku();
+narisovatSpisok();
+obnovitZametkuProGolos();
+
+/* Наружу — для offline-проверки из tools/verify.mjs */
+window.SHKOLA = { DEMO, proveritUrok, PREDELY };
+</script>
+</body>
+</html>
