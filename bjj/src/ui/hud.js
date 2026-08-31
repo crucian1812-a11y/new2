@@ -311,10 +311,10 @@ export class HUD {
     const left = 1 - d.t / d.window;
     const cx = this.w / 2;
     const cy = this.h / 2 + 10;
-    // Only if he can read it. See visibleDeny: flattened, he knows something is
-    // coming and has to pick a side.
-    const seen = m.visibleDeny(0);
-    const [dx, dy] = seen ? DIR_VEC[seen] : [0, 0];
+    // How much of it he can read. See denyRead: one arrow when he can see the
+    // wind-up and is still upright, two to choose between when he is underneath
+    // or flattened, four when he is both.
+    const read = m.denyRead(0) || [];
     const scale = 1 + (1 - left) * 0.5;
 
     c.save();
@@ -332,13 +332,18 @@ export class HUD {
     c.arc(0, 0, 42, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * left);
     c.strokeStyle = '#ff6a55';
     c.stroke();
-    if (seen) {
+    if (read.length === 1) {
+      const [dx, dy] = DIR_VEC[read[0]];
       arrow(c, 0, 0, dx, dy, '#fff', 16);
     } else {
-      // Four faint arrows and no answer: something is coming, pick a side.
-      for (const dir of ['up', 'down', 'left', 'right']) {
+      // The arrows he is choosing between, and only those. Two is a read; four
+      // is the coin he is left with when he is both underneath and flattened.
+      const bright = read.length <= 2;
+      for (const dir of read) {
         const [ax, ay] = DIR_VEC[dir];
-        arrow(c, ax * 20, ay * 20, ax, ay, 'rgba(255,255,255,0.28)', 10);
+        arrow(c, ax * 18, ay * 18, ax, ay,
+          bright ? 'rgba(255,255,255,0.82)' : 'rgba(255,255,255,0.28)',
+          bright ? 14 : 10);
       }
     }
     c.restore();
@@ -347,7 +352,12 @@ export class HUD {
     c.textAlign = 'center';
     c.font = `700 11px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.85)';
-    c.fillText(seen ? 'ЗАЩИТА — СВАЙП' : 'ЗАЩИТА — УГАДАЙ СТОРОНУ', cx, cy + 62);
+    c.fillText(
+      read.length === 1 ? 'ЗАЩИТА — СВАЙП'
+        : read.length === 2 ? 'ЗАЩИТА — ОДНА ИЗ ДВУХ'
+          : 'ЗАЩИТА — УГАДАЙ СТОРОНУ',
+      cx, cy + 62
+    );
   }
 
   /* ------------------------------------------------------- submission UI */
