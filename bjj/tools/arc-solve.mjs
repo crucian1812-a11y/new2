@@ -172,7 +172,15 @@ function measure(from, to) {
     const t = i / (STEPS - 1);
     const base = low[0] * (1 - t) + low[STEPS - 1] * t;
     const up = low[i] - base - 0.02;
-    if (up > 0) { sum += up * up * 3; lift = Math.max(lift, low[i] - base); }
+    // Weighted well above the collision term, not beside it.
+    //
+    // At three it was a suggestion: the first full re-solve after the poses
+    // moved took thirty-three of seventy-five blends off the mat, worst
+    // nineteen centimetres, because lifting the pair is such a cheap way out of
+    // an overlap that a small charge is worth paying. Depth is measured per
+    // contact pair and there are many of them, so the one number that competes
+    // with all of them has to be large.
+    if (up > 0) { sum += up * up * 60; lift = Math.max(lift, low[i] - base); }
   }
   return { sum, worst, where, lift };
 }
