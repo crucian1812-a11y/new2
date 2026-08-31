@@ -223,6 +223,25 @@ for (const key of keys) {
 }
 for (const key of Object.keys(held)) ARCS[key] = held[key];
 
+// And what each one scores with the arc it came in with.
+//
+// `before` above is the blend with no correction at all, which is the number
+// worth printing — "41cm -> 8cm" says what the waypoint bought. It is not the
+// number to judge a rerun by. A refining run starts from arcs that are already
+// good, and the search is stochastic: it can and does come back with something
+// worse. Nothing compared the two, so a run described as refinement quietly
+// undid work — a full pass took the hold loops from five over the line to ten
+// and put four blends back off the mat.
+//
+// Compared on the whole cost rather than on the deepest overlap, so a solution
+// that trades a centimetre of depth for ten of lift is kept rather than thrown
+// away for looking worse on the one number that gets printed.
+const incoming = {};
+for (const key of keys) {
+  const [from, to] = key.split('>');
+  incoming[key] = measure(from, to).sum;
+}
+
 // Anything not being solved this run keeps the arc it has, and is reported as
 // it stands so the summary is still the whole picture.
 const skipped = [];
@@ -393,9 +412,22 @@ for (const key of keys) {
   }
   if (arc.every((l) => l.empty)) delete ARCS[key];
 
-  const after = measure(from, to);
-  results.push({ key, before: before[key], after: after.worst, arc: ARCS[key] || null, where: after.where });
-  process.stderr.write(`${key} ${(before[key] * 100).toFixed(0)} -> ${(after.worst * 100).toFixed(0)}cm\n`);
+  let after = measure(from, to);
+  let kept = false;
+  // Never hand back something worse than what it was given.
+  if (after.sum > incoming[key] + 1e-9) {
+    if (held[key]) ARCS[key] = JSON.parse(JSON.stringify(held[key]));
+    else delete ARCS[key];
+    after = measure(from, to);
+    kept = true;
+  }
+  results.push({
+    key, before: before[key], after: after.worst, arc: ARCS[key] || null, where: after.where, kept,
+  });
+  process.stderr.write(
+    `${key} ${(before[key] * 100).toFixed(0)} -> ${(after.worst * 100).toFixed(0)}cm` +
+    `${kept ? '  (search came back worse; kept what it had)' : ''}\n`
+  );
 }
 
 results.push(...skipped);
