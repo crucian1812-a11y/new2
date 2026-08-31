@@ -239,7 +239,8 @@ for (const key of Object.keys(held)) ARCS[key] = held[key];
 const incoming = {};
 for (const key of keys) {
   const [from, to] = key.split('>');
-  incoming[key] = measure(from, to).sum;
+  const m = measure(from, to);
+  incoming[key] = { sum: m.sum, worst: m.worst };
 }
 
 // Anything not being solved this run keeps the arc it has, and is reported as
@@ -415,7 +416,15 @@ for (const key of keys) {
   let after = measure(from, to);
   let kept = false;
   // Never hand back something worse than what it was given.
-  if (after.sum > incoming[key] + 1e-9) {
+  //
+  // On the whole cost, and on the deepest overlap as well. Cost alone let a
+  // trade through that spent depth on the other terms — the first chunk of a
+  // rerun came back cheaper overall and pushed one more transition past the
+  // line blend-check ships on, which is not a trade worth making. A centimetre
+  // of slack, because the search lands on a grid and exact ties are noise.
+  const worseCost = after.sum > incoming[key].sum + 1e-9;
+  const worseDepth = after.worst > incoming[key].worst + 0.01;
+  if (worseCost || worseDepth) {
     if (held[key]) ARCS[key] = JSON.parse(JSON.stringify(held[key]));
     else delete ARCS[key];
     after = measure(from, to);
