@@ -27,8 +27,18 @@ const LEVELS = {
 // position is not worth anything on its own, only worth something to whoever
 // is holding it. Rate mount as a single value and the AI happily dives under
 // somebody to "reach" it.
+// Standing was rated below every position on the mat, including the ones you
+// are underneath, so nobody ever chose to disengage and nothing ever brought
+// them back up: measured over a hundred and twenty matches the fight spent 1.5%
+// of the clock on its feet. It fell over in the first four seconds and stayed
+// there.
+//
+// On your feet you are not under anybody and a takedown is worth two, so it
+// belongs above every bottom number and below every good top one. That one
+// change is what makes disengaging a real option from the bottom and keeps it a
+// bad one from the top, which is how it reads in a real match.
 const VALUE = {
-  STANDING: [2.5, 2.5], CLINCH: [3.4, 3.4], TURTLE: [4.5, 1.4],
+  STANDING: [5.0, 5.0], CLINCH: [5.5, 5.5], TURTLE: [4.5, 1.4],
   OPEN_GUARD: [5, 3.4], CLOSED_GUARD: [4.2, 3.8], HALF_GUARD: [6, 2.8],
   SIDE_CONTROL: [7.5, 1.4], KNEE_ON_BELLY: [8, 0.9], MOUNT: [9.5, 0.5],
   BACK: [10.5, 0.3],
@@ -66,6 +76,27 @@ export class AI {
     this.reactDir = null;
     this.subTapTimer = 0;
     this.subWant = 0.74;
+    // How long since he last committed to something.
+    //
+    // `patience` is how long he thinks between decisions, and doubling it did
+    // nothing to the pace because most decisions were already coming out as
+    // "attack": the fight fired a transition every four seconds and held a
+    // position for twelve, where a real one commits a handful of times in five
+    // minutes and spends the rest setting up. This is the gap between
+    // commitments, and it is a separate thing from how often he looks.
+    //
+    // Only the opponent has it. A cooldown the player can feel is a cooldown
+    // that reads as the game not listening, and the point of the AI going
+    // through the same door is that it can be slower without the door changing.
+    // Nobody dives in off the whistle.
+    //
+    // The match opened with a takedown or a guard pull inside a second and a
+    // half, because the first thing this loop ever did was pick the best move
+    // on the board and take it. A real one opens with ten or twenty seconds of
+    // hands: collar, sleeve, posture, and only then somebody commits. Starting
+    // the commitment clock part-wound is the whole of it, and it is where most
+    // of the standing time in a match actually comes from.
+    this.commit = 7 + rand() * 7;
     this.control = { mx: 0, mz: 0, turn: 0, drive: 0 };
     this.wander = rand() * 10;
   }
@@ -157,6 +188,7 @@ export class AI {
 
     /* --- choosing something to do --------------------------------------- */
     this.think -= dt;
+    this.commit -= dt;
     if (this.think > 0 || match.attempt || match.state !== 'live') return;
     this.think = this.level.patience * (0.6 + rand() * 0.8);
 
@@ -214,6 +246,14 @@ export class AI {
       return;
     }
 
+    // Not yet. He has just committed to something and is working, not firing.
+    // The grip fight is what he does in between, and it is what the set-up
+    // actually is.
+    if (this.commit > 0) {
+      if (rand() < 0.85) onTap();
+      return;
+    }
+
     // Sitting still is a real option when everything on offer is a bad idea —
     // and it is not sitting still, it is a grip fight, which is what breaks
     // the other man's posture and buys the moment the move needed. Since the
@@ -223,6 +263,11 @@ export class AI {
       if (rand() < 0.85) onTap();
       return;
     }
+    // The same wait whatever he just did. Letting a submission come round twice
+    // as fast read as sensible — the moment passes — and it turned two matches
+    // in three into a tap: with the entry cheap to retry, back control became a
+    // man hunting the same choke over and over instead of a position.
+    this.commit = 7.0 * (1.3 - this.level.aggression * 0.6) * (0.7 + rand() * 0.6);
     onFlick(best.dir);
   }
 }
