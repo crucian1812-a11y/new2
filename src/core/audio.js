@@ -281,6 +281,34 @@ export class Audio {
         if (!this.throttle('step', 130)) return;
         this.noiseHit({ freq: 260 + Math.random() * 160, q: 1.4, dur: 0.09, gain: 0.06 * v, sweep: 0.5 });
         break;
+      case 'soulReap':
+        if (!this.throttle('soulReap', 100)) return;
+        for (let i = 0; i < 3; i++) {
+          this.tone({ freq: 440 + i * 220, to: 110 + i * 55, dur: 0.3, gain: 0.14 * v, type: 'sawtooth', delay: i * 0.05 });
+        }
+        this.noiseHit({ freq: 600, q: 1.2, dur: 0.4, gain: 0.2 * v, sweep: 0.4 });
+        break;
+      case 'mirror':
+        if (!this.throttle('mirror', 60)) return;
+        this.tone({ freq: 1200, to: 2400, dur: 0.18, gain: 0.22 * v, type: 'sine' });
+        this.noiseHit({ freq: 3000, q: 4, dur: 0.15, gain: 0.18 * v, sweep: 2.0 });
+        break;
+      case 'phoenix':
+        for (let i = 0; i < 4; i++) {
+          this.tone({ freq: NOTE(62 + i * 7), dur: 1.2, gain: 0.14 * v, type: 'sine', delay: i * 0.06, attack: 0.1 });
+        }
+        this.tone({ freq: 220, to: 880, dur: 1.0, gain: 0.2 * v, type: 'sawtooth', delay: 0.1 });
+        break;
+      case 'burn':
+        if (!this.throttle('burn', 80)) return;
+        this.noiseHit({ freq: 800, q: 0.7, dur: 0.25, gain: 0.18 * v, sweep: 0.3 });
+        this.tone({ freq: 180, to: 90, dur: 0.2, gain: 0.1 * v, type: 'sawtooth' });
+        break;
+      case 'meteor':
+        this.tone({ freq: 80, to: 30, dur: 1.2, gain: 0.3 * v, type: 'sawtooth' });
+        this.noiseHit({ freq: 2000, q: 0.5, dur: 0.3, gain: 0.34 * v, sweep: 0.15 });
+        this.noiseHit({ freq: 500, q: 0.8, dur: 1.0, gain: 0.22 * v, sweep: 0.2, delay: 0.05 });
+        break;
     }
   }
 

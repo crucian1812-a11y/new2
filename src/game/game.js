@@ -551,6 +551,37 @@ export class Game {
       m.bleed = Math.max(m.bleed, 3);
       m.bleedDmg = dmg * 0.16;
     }
+    if (this.stats.powers.includes('thunderclap')) {
+      this.fx.ring(m.x, m.y, { r0: 8, r1: 140, life: 0.4, color: PAL.thunder, width: 6 });
+      for (const o of this.monsters) {
+        if (o === m || !o.alive) continue;
+        const d2 = dist2(o.x, o.y, m.x, m.y);
+        if (d2 < 140 * 140) {
+          this.damageMonster(o, dmg * 0.3, { knock: 180, angle: Math.atan2(o.y - m.y, o.x - m.x), noLeech: true, chained: true });
+        }
+      }
+      audio.play('thunder');
+    }
+    if (opts.crit && this.stats.powers.includes('permafrost')) {
+      m.slow = Math.max(m.slow || 0, 0.8);
+      m.slowTime = Math.max(m.slowTime || 0, 2);
+      this.fx.ring(m.x, m.y, { r0: 8, r1: 100, life: 0.4, color: PAL.frost, width: 5 });
+    }
+    if (this.stats.powers.includes('wildfire')) {
+      m.burn = Math.max(m.burn || 0, 3);
+      m.burnDmg = dmg * 0.08;
+      m.burnColor = [255, 120, 40];
+    }
+    if (this.stats.powers.includes('vampiric')) {
+      this.player.hitCount = (this.player.hitCount || 0) + 1;
+      if (this.player.hitCount >= 3) {
+        this.player.hitCount = 0;
+        const heal = Math.round(dmg * 0.15);
+        this.player.hp = Math.min(this.stats.maxLife, this.player.hp + heal);
+        this.fx.text(this.player.x, this.player.y, 80, '+' + heal, { color: [120, 255, 120], size: 14 });
+        this.fx.ring(this.player.x, this.player.y, { r0: 6, r1: 60, life: 0.3, color: [255, 60, 60], width: 4 });
+      }
+    }
 
     if (m.hp <= 0) this.killMonster(m, ang);
     return dmg;
@@ -610,6 +641,39 @@ export class Game {
           this.damageMonster(o, this.stats.weaponMax * this.stats.damageMult * 0.4, { noLeech: true });
         }
       }
+    }
+    if (this.stats.powers.includes('soulReaper')) {
+      const heal = Math.round(this.stats.maxLife * 0.05);
+      this.player.hp = Math.min(this.stats.maxLife, this.player.hp + heal);
+      this.player.buffs.soulReaper = { t: 4, dmgBonus: 0.25 };
+      this.fx.text(this.player.x, this.player.y, 90, '+Жнец', { color: [180, 60, 255], size: 15 });
+      this.fx.ring(this.player.x, this.player.y, { r0: 10, r1: 120, life: 0.5, color: [180, 60, 255], width: 7 });
+      audio.play('soulReap');
+    }
+    if (this.stats.powers.includes('meteor') && Math.random() < 0.2 && !m.boss) {
+      let target = m;
+      let minD = Infinity;
+      for (const o of this.monsters) {
+        if (!o.alive) continue;
+        const d = dist2(o.x, o.y, this.player.x, this.player.y);
+        if (d < minD && d < 400 * 400) { minD = d; target = o; }
+      }
+      this.ground.push({
+        kind: 'telegraph',
+        x: target.x, y: target.y, r: 120, life: 0.6, age: 0,
+        color: [255, 100, 40],
+        onEnd: () => {
+          audio.play('meteor');
+          this.r.addShake(18);
+          this.fx.ring(target.x, target.y, { r0: 20, r1: 200, life: 0.7, color: [255, 100, 40], width: 12 });
+          this.fx.sparks(target.x, target.y, 20, 0, -1, 30, [255, 150, 60], 500);
+          for (const o of this.monsters) {
+            if (dist2(o.x, o.y, target.x, target.y) < 120 * 120) {
+              this.damageMonster(o, this.stats.weaponMax * this.stats.damageMult * 1.8, { knock: 200, angle: Math.atan2(o.y - target.y, o.x - target.x), noLeech: true });
+            }
+          }
+        },
+      });
     }
 
     // Loot
@@ -703,6 +767,13 @@ export class Game {
       }
     }
     if (s.powers.includes('bulwark') && p.hp / s.maxLife < 0.35) dmg *= 0.5;
+    if (s.powers.includes('mirrorShield') && source && Math.random() < 0.35) {
+      const reflected = dmg * 0.5;
+      this.damageMonster(source, reflected, { noLeech: true, noResource: true, sparkColor: PAL.steelLight });
+      this.fx.text(source.x, source.y, 80, '-' + Math.round(reflected), { color: [200, 220, 255], size: 14 });
+      this.fx.ring(p.x, p.y, { r0: 8, r1: 80, life: 0.35, color: PAL.steelLight, width: 5 });
+      audio.play('mirror');
+    }
 
     dmg = Math.max(1, dmg);
     p.hp -= dmg;
@@ -730,14 +801,26 @@ export class Game {
     }
 
     if (p.hp <= 0) {
-      p.hp = 0;
-      p.alive = false;
-      p.anim = 'die';
-      p.animT = 0;
-      this.state = 'dead';
-      audio.play('death');
-      this.r.addShake(20);
-      this.logLine('Ты пал.');
+      if (s.powers.includes('phoenix') && !p.phoenixUsed) {
+        p.hp = Math.round(s.maxLife * 0.5);
+        p.phoenixUsed = true;
+        p.invuln = 2.0;
+        this.fx.ring(p.x, p.y, { r0: 20, r1: 240, life: 0.8, color: [255, 160, 60], width: 10 });
+        this.fx.sparks(p.x, p.y, 30, 0, -1, 40, [255, 200, 80], 400);
+        this.fx.text(p.x, p.y, 110, 'ФЕНИКС!', { color: [255, 180, 60], size: 18 });
+        audio.play('phoenix');
+        this.r.addShake(16);
+        this.logLine('Перо Феникса вернуло тебя к жизни!');
+      } else {
+        p.hp = 0;
+        p.alive = false;
+        p.anim = 'die';
+        p.animT = 0;
+        this.state = 'dead';
+        audio.play('death');
+        this.r.addShake(20);
+        this.logLine('Ты пал.');
+      }
     }
   }
 
@@ -1394,6 +1477,17 @@ export class Game {
         if (m.bleedTick <= 0) {
           m.bleedTick = 0.5;
           this.damageMonster(m, m.bleedDmg || 2, { noLeech: true });
+          this.fx.blood(m.x, m.y, m.size * 0.3, rnd(-1, 1), rnd(-1, 1), 2);
+          if (!m.alive) continue;
+        }
+      }
+      if (m.burn > 0) {
+        m.burn -= dt;
+        m.burnTick = (m.burnTick || 0) - dt;
+        if (m.burnTick <= 0) {
+          m.burnTick = 0.4;
+          this.damageMonster(m, m.burnDmg || 3, { noLeech: true, sparkColor: m.burnColor || [255, 120, 40] });
+          this.fx.embers(m.x, m.y, m.size * 0.4, 3, m.burnColor || [255, 120, 40], 8);
           if (!m.alive) continue;
         }
       }
