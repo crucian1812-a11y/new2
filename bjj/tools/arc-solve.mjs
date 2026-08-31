@@ -423,7 +423,11 @@ for (const key of keys) {
   // line blend-check ships on, which is not a trade worth making. A centimetre
   // of slack, because the search lands on a grid and exact ties are noise.
   const worseCost = after.sum > incoming[key].sum + 1e-9;
-  const worseDepth = after.worst > incoming[key].worst + 0.01;
+  // No slack on the depth. A centimetre of it was allowed for grid noise, and
+  // there is none to allow for — `measure` is deterministic for a given arc —
+  // so all it bought was one transition sliding from 21.8cm to 22.3 and over
+  // the line blend-check ships on, which is the exact thing this stops.
+  const worseDepth = after.worst > incoming[key].worst + 1e-9;
   if (worseCost || worseDepth) {
     if (held[key]) ARCS[key] = JSON.parse(JSON.stringify(held[key]));
     else delete ARCS[key];
