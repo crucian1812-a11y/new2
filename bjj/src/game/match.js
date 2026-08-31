@@ -13,7 +13,7 @@
 // worth.
 
 import { POSES } from './poses.js';
-import { optionsFor, visualTo, TRANSITIONS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT, GRIP_LOSS } from './positions.js';
+import { optionsFor, visualTo, TRANSITIONS, DIRS, SUB_KIND, POINTS_TO_HOLD, SUB_TIMEOUT, GRIP_LOSS } from './positions.js';
 import { clamp, lerp } from '../core/m4.js';
 import { rand, randInt, pick } from './rng.js';
 
@@ -276,8 +276,13 @@ export class Match {
     // entered — and then left it there, because the attempt that owned the
     // picture had already been replaced. The unwind finishes on its own, and
     // _liveUpdate takes the blend over when there is a blend to take over.
+    // The decoy is drawn once, here, so a narrowed read is a stable pair to
+    // choose between rather than two arrows that swap places every frame.
     this.deny = tr.deny
-      ? { dir: tr.deny, t: 0, window: DENY_WINDOW, by: this.other(i) }
+      ? {
+        dir: tr.deny, t: 0, window: DENY_WINDOW, by: this.other(i),
+        decoy: pick(DIRS.filter((d) => d !== tr.deny)),
+      }
       : null;
     this.emit(`${me.name}: ${tr.name}`, 'attempt');
     return tr;
@@ -320,27 +325,41 @@ export class Match {
   // holding frames and the ladder flattened — white beat blue 63% of the time
   // and black 63%, against 45% and 90% before. This costs the AI nothing at
   // all: the AI has never read the prompt, it reads `level.read`.
-  visibleDeny(i) {
+  // What the defender can read: the direction, a pair to choose between, or
+  // nothing but four arrows.
+  //
+  // This used to be all or nothing, and the nothing swallowed the game. Two
+  // gates hid the arrow — being underneath, and having lost your posture — and
+  // each was reasonable on its own. Together, measured with a thumb on the real
+  // page, twenty-five of twenty-eight prompts came up blind, which is a coin
+  // flip between four doors, and the loop had no floor: go blind, get passed,
+  // lose more posture, go blinder. It lost every match it played, 0:11, 2:7,
+  // 2:11, while landing 47% of its own attacks — it could attack and it could
+  // not defend.
+  //
+  // So the gates narrow the read instead of closing it. Underneath and
+  // flattened is still worse than upright and level, which is the point of
+  // both, but the worst case is one guess in two rather than one in four, and
+  // a player who reads well is rewarded for it at every level of pressure.
+  denyRead(i) {
     if (!this.deny || !this.attempt || this.attempt.defender !== i) return null;
-    // Underneath, you do not see it coming.
-    //
-    // Posture alone could not carry this, and the measurement is the reason:
-    // posture only falls when something lands on you, so a player who denies
-    // everything keeps his at a hundred and reads every prompt — 25 of 25, 35
-    // of 35, with the gate in. Charging for the frame does close that loop and
-    // breaks a better one: any cost on denial falls hardest on the belts that
-    // deny most, and both a stamina charge and a posture charge flattened the
-    // ladder from 45/90 to about 50/70.
-    //
-    // Being underneath is not a cost and cannot be gamed. Across ten thousand
-    // prompts the attacker is the man on top in 72 to 84% of them, so the
-    // arrow is there for takedowns and scrambles, where you can see him wind
-    // up, and gone when he is already on you — which is what those positions
-    // are worth points for. It costs the AI nothing, because the AI has never
-    // read the prompt: it rolls its own `read` against its own belt.
-    if (this.isDominant(this.attempt.by)) return null;
-    return this.f[i].posture >= DENY_READ ? this.deny.dir : null;
+    let doors = 0;
+    // Underneath, you do not see him wind up.
+    if (this.isDominant(this.attempt.by)) doors++;
+    // Flattened, you are not reading anything.
+    if (this.f[i].posture < DENY_READ) doors++;
+    if (doors === 0) return [this.deny.dir];
+    if (doors === 1) return [this.deny.dir, this.deny.decoy];
+    return DIRS.slice();
   }
+
+  // The one direction, when it is the one direction. Kept because the sure
+  // case is what most of the HUD and the thumb ask about.
+  visibleDeny(i) {
+    const r = this.denyRead(i);
+    return r && r.length === 1 ? r[0] : null;
+  }
+
 
   // And the same question for the man in the lock: can he see the way out?
   //

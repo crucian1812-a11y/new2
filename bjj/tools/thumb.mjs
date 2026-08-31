@@ -362,7 +362,12 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
       // if it changes during the reaction, the hand is already committed.
       // A thumb reading nothing reads the arrow too: the floor has to be a
       // floor for the defence as well, or it is only a floor for the attack.
-      const seen = cfg.play === 'random' ? null : m.visibleDeny(0);
+      // Same graded read the HUD draws: one arrow, a pair, or four. A hand
+      // given two takes one of them; a hand given four is guessing.
+      const shown = cfg.play === 'random' ? null : m.denyRead(0);
+      const seen = shown && shown.length <= 2
+        ? shown[(Math.random() * shown.length) | 0]
+        : null;
       if (!seen) st.blind++;
       const dir = seen || ['up', 'down', 'left', 'right'][(rnd() * 4) | 0];
       plan = { kind: 'deny', at: gt + late() + turnTo('deny'), do: () => m.input(0, dir) };
