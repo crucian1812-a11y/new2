@@ -73,11 +73,6 @@ const norm = (v) => {
   return [v[0] / l, v[1] / l, v[2] / l];
 };
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a, b) => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
 const DEG = 180 / Math.PI;
 
 // The axis a joint is allowed to hinge about, in the parent bone's own frame.
@@ -86,44 +81,31 @@ const DEG = 180 / Math.PI;
 // turns about X. Which way round is flexion is read off the rest of the body
 // rather than assumed: the sign is fixed below from a pose whose elbows and
 // knees are unambiguously bent.
+// The angle between the two bone segments, and nothing else.
+//
+// The note at the top of this file has said so for a while and the code did
+// not: it still projected the bend onto the upper bone's own X and read the
+// angle off atan2 against it. That is the roll-dependent measure the note
+// describes retiring, and it survived because the two obviously broken numbers
+// beside it — which way it bent, how far sideways — were taken out and this one
+// was not, and nobody measured it again afterwards.
+//
+// What it did wrong is specific. atan2(dot(u×f, ax), dot(u, f)) returns nearly
+// 180 whenever the two bones are more than a right angle apart and the bend is
+// out of the hinge's plane, because the numerator collapses and only the sign
+// of the denominator is left. So an arm bent a comfortable hundred degrees
+// somewhere off-axis reported as folded double. Across every pose and blend it
+// called 413 samples over the line, worst 180 degrees; the same samples on the
+// segment angle are 20, worst 175, and the three deepest of the old list are
+// arms at 111, 113 and 101 degrees, which is a person holding a grip.
+//
+// acos of the dot product has no such failure and no second reading. 0 is a
+// straight arm, 180 is a hand on its own shoulder.
 function measure(sk, upper, mid, lower) {
   const a = head(sk, upper), b = head(sk, mid), c = head(sk, lower);
   const u = norm(sub(b, a));
   const f = norm(sub(c, b));
-  // Signed, about the joint's own hinge, with atan2 rather than acos.
-  //
-  // The first version of this took the unsigned angle and read the direction
-  // off the sign of the cross product, and that is unstable exactly where it
-  // matters: near full fold the cross product is short and its direction is
-  // noise, so a correctly folded elbow could report as bent backwards. atan2
-  // against the hinge axis is stable everywhere and gives the fold and its
-  // direction in one number, in the same convention the poses are authored in.
-  const m = sk.world[BONE_INDEX[upper]];
-  const ax = norm([m[0], m[1], m[2]]);   // the X column: the hinge
-  const turn = cross(u, f);
-  const flex = Math.atan2(dot(turn, ax), dot(u, f)) * DEG;
-  // How much of the bend is not about the hinge at all.
-  //
-  // Only asked of a joint that is actually bent. The bend axis is the cross
-  // product of the two bone directions, and near straight and near fully folded
-  // that vector is almost nothing, so its direction is noise — asking it there
-  // reported eight thousand sideways elbows that were simply straight ones.
-  const bendAmt = Math.abs(flex);
-  const side = bendAmt < 15 || bendAmt > 165
-    ? 0
-    : Math.acos(Math.min(1, Math.abs(dot(norm(turn), ax)))) * DEG;
-  return { flex, bend: Math.abs(flex), side, sign: Math.sign(flex) };
-}
-
-/* --------------------------------------------------- which way is forwards */
-
-// Fix the sign of flexion from a pose that is unambiguous about it: in the
-// stance both elbows are folded and both knees are bent, so whatever sign they
-// come out as is the sign a joint is meant to have.
-rig.applyAt('STANDING', 'STANDING', 1, 0.016);
-const FLEX = {};
-for (const [name, u, m, l] of CHAINS) {
-  FLEX[name] = measure(rig.skel.A, u, m, l).sign || 1;
+  return { bend: Math.acos(Math.min(1, Math.max(-1, dot(u, f)))) * DEG };
 }
 
 /* ------------------------------------------------------------------ sample */
@@ -131,11 +113,7 @@ for (const [name, u, m, l] of CHAINS) {
 const rows = [];
 function sample(what, sk, role) {
   for (const [name, u, m, l] of CHAINS) {
-    const r = measure(sk, u, m, l);
-    // Past straight the wrong way: the joint has bend, and the bend is about
-    // the axis the other way round from the one it hinges on.
-    const past = r.sign && r.sign !== FLEX[name] ? Math.abs(r.flex) : 0;
-    rows.push({ what, role, name, bend: r.bend, past, side: r.side });
+    rows.push({ what, role, name, bend: measure(sk, u, m, l).bend });
   }
 }
 
@@ -243,15 +221,13 @@ check(
 
 if (process.argv.includes('--dist')) {
   const q = (arr, p) => arr.length ? arr[Math.floor((arr.length - 1) * p)] : 0;
-  for (const key of ['bend', 'past', 'side']) {
-    const v = rows.map((r) => r[key]).sort((a, b) => a - b);
-    console.log(`\n     ${key}: median ${q(v, .5).toFixed(0)}  p90 ${q(v, .9).toFixed(0)}  ` +
-      `p99 ${q(v, .99).toFixed(0)}  max ${q(v, 1).toFixed(0)}`);
-  }
+  const v = rows.map((r) => r.bend).sort((a, b) => a - b);
+  console.log(`\n     bend: median ${q(v, .5).toFixed(0)}  p90 ${q(v, .9).toFixed(0)}  ` +
+    `p99 ${q(v, .99).toFixed(0)}  max ${q(v, 1).toFixed(0)}`);
   const byJoint = new Map();
-  for (const r of rows) byJoint.set(r.name, Math.max(byJoint.get(r.name) || 0, r.side));
-  console.log('\n     worst sideways per joint:');
-  for (const [k, v] of byJoint) console.log(`     ${v.toFixed(0).padStart(3)}deg  ${k}`);
+  for (const r of rows) byJoint.set(r.name, Math.max(byJoint.get(r.name) || 0, r.bend));
+  console.log('\n     worst fold per joint:');
+  for (const [k, v2] of byJoint) console.log(`     ${v2.toFixed(0).padStart(3)}deg  ${k}`);
 }
 
 if (ALL) {

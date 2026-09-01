@@ -16,6 +16,11 @@ const withBrowser = process.argv.includes('--browser');
 const steps = [
   ['pose lint', 'pose-check.mjs', []],
   ['transition lint', 'blend-check.mjs', []],
+  // Whether the bodies themselves are possible. It was written, it was used to
+  // find eighty-five joints outside human range, and it was never added here —
+  // so when the measure inside it turned out to be reading a roll nothing
+  // controls, nothing was watching.
+  ['joints', 'joint-check.mjs', []],
   ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
   ['the opponent', 'asset-check.mjs', ['bjj/assets/fighter-b.bin']],
   ['club marks', 'mark-check.mjs', []],

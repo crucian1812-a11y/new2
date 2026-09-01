@@ -70,6 +70,8 @@ const TWIST = +(process.env.ARC_TWIST || 26);
 // How many colliding bones get to move. Six was enough for everything that has
 // come off the list so far.
 const CULPRITS = +(process.env.ARC_BONES || 6);
+// Where a fold starts costing. joint-check fails at 155.
+const FOLD_OK = 148;
 // How many lobes a correction is made of. See the note in rig.js.
 const LOBES = +(process.env.ARC_LOBES || 2);
 
@@ -85,36 +87,39 @@ const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
 // the part on the mat and the knees carry half the positions in this game.
 const LOW = ['handL', 'handR', 'footL', 'footR', 'hips', 'shinL', 'shinR', 'chest', 'head'];
 
-// The joints that only bend one way, and how far this pose has pushed them.
-// Same convention and same axis as tools/joint-check.mjs, which judges the
-// result: flexion is negative about the upper bone's own X.
+// The joints that only bend one way, and how far this blend has folded them.
+//
+// The angle between the two bone segments, which is what joint-check judges
+// the result on and for the reason written there: the version that projected
+// the fold onto the upper bone's own X depended on a roll nothing controls and
+// returned nearly 180 for any arm more than a right angle bent off-axis. This
+// cost carried that version too, so it was charging phantom folds on arms at a
+// hundred degrees and charging nothing for the ones actually doubled over.
+//
+// 0 is a straight limb, 180 is a hand on its own shoulder.
 const CHAINS = [
   ['armL', 'foreL', 'handL'], ['armR', 'foreR', 'handR'],
   ['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR'],
 ];
+// The bones a correction is allowed to hinge, and the only axis it may hinge
+// them about. Every bone on this rig runs down its local -Y, so a hinge is X,
+// and the two joints in a leg and an arm that have no other travel get none
+// here: three free axes on a forearm is how a search buys its way out of a
+// collision by bending an elbow sideways, and the measure that was supposed to
+// catch that was the broken one above.
+const HINGE = new Set(['foreL', 'foreR', 'shinL', 'shinR']);
 const _ja = [0, 0, 0], _jb = [0, 0, 0], _jc = [0, 0, 0];
-function joint(sk, upper, mid, low) {
+function fold(sk, upper, mid, low) {
   sk.boneHead(_ja, upper); sk.boneHead(_jb, mid); sk.boneHead(_jc, low);
   const ux = _jb[0] - _ja[0], uy = _jb[1] - _ja[1], uz = _jb[2] - _ja[2];
   const fx = _jc[0] - _jb[0], fy = _jc[1] - _jb[1], fz = _jc[2] - _jb[2];
   const ul = Math.hypot(ux, uy, uz) || 1, fl = Math.hypot(fx, fy, fz) || 1;
-  const u = [ux / ul, uy / ul, uz / ul], f = [fx / fl, fy / fl, fz / fl];
-  const m = sk.world[BONE_INDEX[upper]];
-  const al = Math.hypot(m[0], m[1], m[2]) || 1;
-  const ax = [m[0] / al, m[1] / al, m[2] / al];
-  const c = [u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0]];
-  const along = c[0] * ax[0] + c[1] * ax[1] + c[2] * ax[2];
-  const flex = Math.atan2(along, u[0] * f[0] + u[1] * f[1] + u[2] * f[2]) * (180 / Math.PI);
-  const cl = Math.hypot(c[0], c[1], c[2]);
-  const a = Math.abs(flex);
-  const side = a < 15 || a > 165 || cl < 1e-6
-    ? 0
-    : Math.acos(Math.min(1, Math.abs((c[0] * ax[0] + c[1] * ax[1] + c[2] * ax[2]) / cl))) * (180 / Math.PI);
-  return { flex, side };
+  const d = (ux * fx + uy * fy + uz * fz) / (ul * fl);
+  return Math.acos(Math.min(1, Math.max(-1, d))) * (180 / Math.PI);
 }
 
 function measure(from, to) {
-  let sum = 0, worst = 0, where = null;
+  let sum = 0, worst = 0, where = null, deepestFold = 0;
   const low = new Array(STEPS);
   for (let i = 0; i < STEPS; i++) {
     const t = i / (STEPS - 1);
@@ -143,19 +148,19 @@ function measure(from, to) {
     low[i] = lo;
     // Nor into an arm that cannot exist.
     //
-    // The correction moves forearms and shins on three axes and nothing held it
-    // to the one axis those joints turn about, so it bought its way out of
-    // collisions by hinging elbows sideways: joint-check found the median at 7
-    // degrees off-axis and the ninetieth percentile at 55, with the grips
-    // switched off so the blame was unambiguous. Charged here, in the same
-    // squared units as everything else, so the solver trades it against depth
-    // rather than being forbidden it.
+    // Sideways is handled by construction now — a forearm and a shin get one
+    // axis in the search and it is the one they hinge about — so what is left
+    // to charge is the fold itself. joint-check ships at 155 degrees; this
+    // charges from 148 so the answer arrives with a little room rather than on
+    // the line, and it is a charge rather than a bound so the solver can still
+    // trade it against a limb inside a body.
     for (const role of ['A', 'B']) {
       for (const [upper, mid, low] of CHAINS) {
-        const j = joint(rig.skel[role], upper, mid, low);
-        if (j.flex > 4) sum += (j.flex - 4) * (j.flex - 4) * 4e-4;
-        if (j.flex < -150) sum += (j.flex + 150) * (j.flex + 150) * 4e-4;
-        if (j.side > 20) sum += (j.side - 20) * (j.side - 20) * 2e-4;
+        const a = fold(rig.skel[role], upper, mid, low);
+        if (a > FOLD_OK) {
+          sum += (a - FOLD_OK) * (a - FOLD_OK) * 4e-4;
+          if (a > deepestFold) deepestFold = a;
+        }
       }
     }
   }
@@ -182,7 +187,7 @@ function measure(from, to) {
     // with all of them has to be large.
     if (up > 0) { sum += up * up * 60; lift = Math.max(lift, low[i] - base); }
   }
-  return { sum, worst, where, lift };
+  return { sum, worst, where, lift, fold: deepestFold };
 }
 
 // The graph's transitions, and the loops a held position runs inside itself.
@@ -240,7 +245,7 @@ const incoming = {};
 for (const key of keys) {
   const [from, to] = key.split('>');
   const m = measure(from, to);
-  incoming[key] = { sum: m.sum, worst: m.worst, lift: m.lift };
+  incoming[key] = { sum: m.sum, worst: m.worst, lift: m.lift, fold: m.fold };
 }
 
 // Anything not being solved this run keeps the arc it has, and is reported as
@@ -344,6 +349,11 @@ for (const key of keys) {
       for (const lobe of arc) {
         const a = lobe.j[role][bone] || (lobe.j[role][bone] = [0, 0, 0]);
         for (let k = 0; k < 3; k++) {
+          // A forearm and a shin hinge, and hinging is one axis. Anything a
+          // warm start carries on the other two is zeroed rather than frozen:
+          // it is the sideways bend this constraint exists to remove, and
+          // leaving it in place would keep it forever.
+          if (HINGE.has(bone) && k !== 0) { a[k] = 0; continue; }
           dofs.push({ get: () => a[k], set: (x) => { a[k] = x; }, limit: BEND, step: 9 });
         }
       }
@@ -437,7 +447,15 @@ for (const key of keys) {
   // for it. blend-check ships on all three, so all three are guarded. The rule
   // is not "improve the total", it is "worsen nothing anybody measures".
   const worseLift = after.lift > incoming[key].lift + 1e-9;
-  if (worseCost || worseDepth || worseLift) {
+  // And the fold, which is the fourth and is the last one anybody ships on.
+  //
+  // Three times the same lesson was learned one number at a time — the cost,
+  // then the deepest overlap, then the lift — so this one is here before it
+  // has cost anything, because joint-check is in the battery now and an elbow
+  // folded past what an elbow does is more visible than eight centimetres of
+  // overlap. The rule has not changed: worsen nothing anybody measures.
+  const worseFold = after.fold > incoming[key].fold + 1e-9;
+  if (worseCost || worseDepth || worseLift || worseFold) {
     if (held[key]) ARCS[key] = JSON.parse(JSON.stringify(held[key]));
     else delete ARCS[key];
     after = measure(from, to);
