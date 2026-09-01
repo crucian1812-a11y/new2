@@ -34,6 +34,9 @@
 //   node bjj/tools/arc-solve.mjs --write                  and write src/game/arcs.js
 //   node bjj/tools/arc-solve.mjs --only A>B --write       just that one
 //   node bjj/tools/arc-solve.mjs --fresh --write          ignore what is there
+//   node bjj/tools/arc-solve.mjs --prune --write          no search: drop the
+//                                                         arcs that make their
+//                                                         own blend worse
 
 import { writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
@@ -46,6 +49,10 @@ import { SOLVE_STEPS } from './grid.mjs';
 
 const WRITE = process.argv.includes('--write');
 const FRESH = process.argv.includes('--fresh');
+// Skip the search and only ask the question the search cannot: is this blend
+// better with no correction than with the one it has? Ten seconds over the
+// whole graph instead of an hour, because nothing is being solved.
+const PRUNE = process.argv.includes('--prune');
 const ONLY = (() => {
   const i = process.argv.indexOf('--only');
   return i >= 0 && process.argv[i + 1] ? new Set(process.argv[i + 1].split(',')) : null;
@@ -315,6 +322,33 @@ const PARENT = {
 const results = [];
 for (const key of keys) {
   const [from, to] = key.split('>');
+
+  // --prune does not solve anything, so it does not touch the arc either. The
+  // first version skipped only the search and still ran the rebuild — which
+  // expands the stored arc back into the dense form the search works in, adds
+  // a [0,0,0] for every bone the collision pass nominates, and relies on the
+  // rounding at the end to cull all of that again. Skipping the rounding as
+  // well wrote the scaffolding to disk: two hundred and fifty lines of zeros.
+  // The arc on disk is the subject of the question; leave it alone.
+  if (PRUNE) {
+    let after = measure(from, to);
+    const keep = ARCS[key];
+    delete ARCS[key];
+    const bare = measure(from, to);
+    if (keep) ARCS[key] = keep;
+    const dropped = keep && bare.sum <= after.sum + 1e-9 && bare.worst <= after.worst + 1e-9 &&
+      bare.lift <= after.lift + 1e-9 && bare.fold <= after.fold + 1e-9;
+    if (dropped) { delete ARCS[key]; after = bare; }
+    results.push({
+      key, before: before[key], after: after.worst, arc: ARCS[key] || null, where: after.where, kept: false,
+    });
+    if (dropped) {
+      process.stderr.write(`${key} ${(before[key] * 100).toFixed(0)} -> ` +
+        `${(after.worst * 100).toFixed(0)}cm  (the straight line was better; dropped the waypoint)\n`);
+    }
+    continue;
+  }
+
   // Warm start: whatever is already stored for this transition, filled back out
   // to the dense form the search works in.
   const prev = held[key] || [];
@@ -474,12 +508,40 @@ for (const key of keys) {
     after = measure(from, to);
     kept = true;
   }
+
+  // And one candidate the search never proposes: no correction at all.
+  //
+  // The search starts from an arc and looks for a better arc, so "nothing" is
+  // not in the space it walks, and the guard only ever compares an arc against
+  // the arc it replaced. KNEE_ON_BELLY>ARMBAR shipped a waypoint that made its
+  // blend six centimetres *deeper* than the straight line it was correcting —
+  // 18 cm bare, 24 cm with the correction, and 22 is where blend-check stops
+  // shipping. It survived every rerun for a year because every rerun compared
+  // it against itself.
+  //
+  // Judged on all four, like everything else here: the empty arc wins only if
+  // it is no worse anywhere.
+  const keep = ARCS[key];
+  delete ARCS[key];
+  const bare = measure(from, to);
+  if (keep) ARCS[key] = keep;
+  const bareWins = bare.sum <= after.sum + 1e-9 && bare.worst <= after.worst + 1e-9 &&
+    bare.lift <= after.lift + 1e-9 && bare.fold <= after.fold + 1e-9;
+  let dropped = false;
+  if (keep && bareWins) {
+    delete ARCS[key];
+    after = bare;
+    dropped = true;
+    kept = false;
+  }
+
   results.push({
     key, before: before[key], after: after.worst, arc: ARCS[key] || null, where: after.where, kept,
   });
   process.stderr.write(
     `${key} ${(before[key] * 100).toFixed(0)} -> ${(after.worst * 100).toFixed(0)}cm` +
-    `${kept ? '  (search came back worse; kept what it had)' : ''}\n`
+    `${kept ? '  (search came back worse; kept what it had)' : ''}` +
+    `${dropped ? '  (the straight line was better; dropped the waypoint)' : ''}\n`
   );
 }
 
