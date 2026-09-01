@@ -217,7 +217,20 @@ for (const [from, to] of [
 const solving = new Set(keys.filter((key) => !ONLY || ONLY.has(key)));
 
 // What is already there, and what the straight line looks like without it.
+//
+// Two copies of what the file came in with, and the difference matters.
+// `shipped` is what is on disk and is never touched: it is what a result has
+// to beat, and what a rejected result falls back to. `held` is the warm start,
+// which --fresh throws away — that is the whole of what --fresh means.
+//
+// They were one object, and --fresh deleted from it, so a fresh run measured
+// its own `incoming` against a blend with no correction at all. The guard then
+// compared every answer to the bare slerp, which anything beats, and a
+// rejection deleted the arc outright rather than restoring the good one. A
+// switch meant to say "do not warm-start the search" quietly also said "forget
+// what we shipped and accept whatever comes back".
 const WAS = new Set(Object.keys(ARCS));
+const shipped = JSON.parse(JSON.stringify(ARCS));
 const held = JSON.parse(JSON.stringify(ARCS));
 if (FRESH) for (const key of solving) delete held[key];
 const before = {};
@@ -226,7 +239,7 @@ for (const key of keys) {
   delete ARCS[key];
   before[key] = measure(from, to).worst;
 }
-for (const key of Object.keys(held)) ARCS[key] = held[key];
+for (const key of Object.keys(shipped)) ARCS[key] = shipped[key];
 
 // And what each one scores with the arc it came in with.
 //
@@ -456,7 +469,7 @@ for (const key of keys) {
   // overlap. The rule has not changed: worsen nothing anybody measures.
   const worseFold = after.fold > incoming[key].fold + 1e-9;
   if (worseCost || worseDepth || worseLift || worseFold) {
-    if (held[key]) ARCS[key] = JSON.parse(JSON.stringify(held[key]));
+    if (shipped[key]) ARCS[key] = JSON.parse(JSON.stringify(shipped[key]));
     else delete ARCS[key];
     after = measure(from, to);
     kept = true;
