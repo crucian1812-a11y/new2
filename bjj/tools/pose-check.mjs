@@ -16,6 +16,7 @@ import { Overlap } from '../src/game/collide.js';
 import { GRIP_POINTS } from '../src/render/body.js';
 import { m4point, v3 } from '../src/core/m4.js';
 import { violations } from '../src/game/intent.js';
+import { TRANSITIONS, visualTo } from '../src/game/positions.js';
 
 const MAT_Y = 0.05;
 const _t = v3();
@@ -129,6 +130,43 @@ for (const id of Object.keys(POSES)) {
   const declared = new Set();
   for (const h of POSES[id].hold || []) {
     if (h.of && h.near) declared.add([h.of, h.near].sort().join('|'));
+  }
+  // A grip says it louder than a hold does. `hold` is a fact about the
+  // position; `grips` is an instruction to the rig — put this hand on that
+  // point — and the rig obeys it with IK, so wherever the point lands is where
+  // the hand goes.
+  //
+  // Side control's bottom man frames with a hand at the neck. GRIP_POINTS puts
+  // that point seven centimetres in front of the neck bone, which is the
+  // throat and is also eight centimetres from the head bone, and the head
+  // capsule is ten wide there: a hand on the throat is eight centimetres
+  // inside the skull the moment it arrives. Three poses in that family sit at
+  // 7.8, 7.9 and 8.0 cm on exactly that pair, and the third failed for the
+  // two millimetres. The pose solver was given a wider budget and a swept
+  // shoulder and moved it by nothing, because there is nothing to move: the
+  // target is inside the capsule and the hand has to be on the target.
+  //
+  // So the pairs a grip forces are declared, the same as a hold's, and found
+  // the same way the collider would — by asking which capsules the point is
+  // actually in, rather than by naming the bone the point hangs off. The point
+  // is a place, and the capsule model does not respect bone names.
+  for (const g of POSES[id].grips || []) {
+    const def = GRIP_POINTS[g.point];
+    // A hand on the man's own other wrist — a seatbelt, a gable grip — says
+    // nothing about the pair of bodies, and the overlap measure only ever
+    // compares one man against the other, so a self grip could only ever
+    // declare a pair nothing will look up.
+    if (!def || g.self) continue;
+    const held = g.role === 'A' ? 'B' : 'A';
+    m4point(_t, rig.skel[held].world[BONE_INDEX[def[0]]], def[1]);
+    // The forearm as well as the hand, and it is the forearm that matters: a
+    // hand capsule is four centimetres and stops at the point, a forearm ends
+    // at the hand and so has its own tip in there too, seven centimetres wide.
+    // The pair that failed was the forearm's.
+    const arm = g.hand === 'L' ? ['handL', 'foreL'] : ['handR', 'foreR'];
+    for (const bone of overlap.contains(rig.skel[held], _t)) {
+      for (const own of arm) declared.add([`${g.role}.${own}`, `${held}.${bone}`].sort().join('|'));
+    }
   }
   const pair = ov.where && ov.where.replace(' in ', '|').split('|').sort().join('|');
   const limit = declared.has(pair) ? 0.12 : 0.08;
@@ -257,8 +295,27 @@ console.log(
 {
   const STEP = 1 / 60;
   const LEN = 0.55;                     // about what the sim gives a big move
-  const shots = [['CLOSED_GUARD', 'MOUNT'], ['SIDE_CONTROL', 'MOUNT'], ['STANDING', 'CLINCH']];
-  let worstPeak = 0;
+  // Every transition the game can actually play, not three written down here.
+  //
+  // The three were CLOSED_GUARD>MOUNT, SIDE_CONTROL>MOUNT and STANDING>CLINCH,
+  // and the first of them stopped existing when the sweeps got mirrors: a
+  // sweep out of closed guard blends to MOUNT_X, and the pair spelled here was
+  // a slerp with no arc on it that nobody has looked at since. It peaked at
+  // 58% and failed this check for a year of nothing being wrong.
+  //
+  // So the list is the graph, through the same visualTo the rig blends
+  // through, and it cannot go stale again. It is also fifty-five transitions
+  // instead of three, which is a stronger claim for the same second of work.
+  const shots = [];
+  const seen = new Set();
+  for (const tr of TRANSITIONS) {
+    const to = visualTo(tr);
+    const key = `${tr.from}>${to}`;
+    if (tr.from === to || seen.has(key)) continue;
+    seen.add(key);
+    shots.push([tr.from, to]);
+  }
+  const rows = [];
   for (const [from, to] of shots) {
     rig.heldId = null;
     rig.lag = false;                    // one thing at a time
@@ -284,16 +341,23 @@ console.log(
     // moving at less than a fifth of his fastest.
     let gather = 0;
     for (const s2 of speeds) { if (s2.v < peak.v * 0.2) gather = s2.t; else break; }
-    worstPeak = Math.max(worstPeak, peak.t);
-    console.log(`  ${from} → ${to}: gathers for ${(gather * 100).toFixed(0)}%, ` +
-      `fastest at ${(peak.t * 100).toFixed(0)}% of the way`);
+    rows.push({ key: `${from} → ${to}`, peak: peak.t, gather });
+  }
+  rows.sort((a, b) => b.peak - a.peak);
+  for (const r of rows.slice(0, 3)) {
+    console.log(`  ${r.key}: gathers for ${(r.gather * 100).toFixed(0)}%, ` +
+      `fastest at ${(r.peak * 100).toFixed(0)}% of the way`);
   }
   // A settle at the end was tried here and taken out: see the note in rig.js.
   // It cost three centimetres of the other man at the moment the two of them
   // are closest, and the impact already has a camera impulse behind it.
+  const worstPeak = rows.reduce((m, r) => Math.max(m, r.peak), 0);
+  const late = rows.filter((r) => r.peak >= 0.45);
   const ok = worstPeak < 0.45;
   if (!ok) problems++;
-  console.log(`${ok ? ' ' : '!'} a throw gathers and then goes, rather than easing both ways`);
+  console.log(`${ok ? ' ' : '!'} a throw gathers and then goes, rather than easing both ways` +
+    `  (${rows.length} transitions, latest peak ${(worstPeak * 100).toFixed(0)}%` +
+    `${late.length ? ', over the line: ' + late.map((r) => r.key).join(', ') : ''})`);
 }
 
 /* ------------------------------------------------------ does anything lag? */

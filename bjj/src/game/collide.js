@@ -222,6 +222,36 @@ export class Overlap {
     return ra + rb - d;
   }
 
+  // Which of one body's capsules a point in space is inside.
+  //
+  // A grip is the most explicit statement the library makes that two parts are
+  // touching — this hand holds that point on that man — and a grip point can
+  // be inside a capsule by construction. The throat sits eight centimetres
+  // from the head bone and the head capsule is ten wide, so a hand on the
+  // throat is inside the skull however the pose is authored, and no amount of
+  // relaxing takes it out: the pose solver spent its whole budget on it and
+  // moved the number by nothing. pose-check judges declared contact loosely
+  // and only knew about `hold`; this is how it asks the same question of a
+  // grip.
+  contains(sk, p) {
+    this._gather(sk, this.caps[0]);
+    const out = [];
+    for (const c of this.caps[0]) {
+      const dx = c.q[0] - c.p[0], dy = c.q[1] - c.p[1], dz = c.q[2] - c.p[2];
+      const len2 = dx * dx + dy * dy + dz * dz;
+      const u = len2 > 1e-9
+        ? clamp(((p[0] - c.p[0]) * dx + (p[1] - c.p[1]) * dy + (p[2] - c.p[2]) * dz) / len2, 0, 1)
+        : 0;
+      const nx = p[0] - (c.p[0] + dx * u);
+      const ny = p[1] - (c.p[1] + dy * u);
+      const nz = p[2] - (c.p[2] + dz * u);
+      const d = Math.hypot(nx, ny, nz);
+      const r = radiusToward(c, u, d > 1e-6 ? nx / d : 0, d > 1e-6 ? ny / d : 1, d > 1e-6 ? nz / d : 0);
+      if (d < r) out.push(c.a);
+    }
+    return out;
+  }
+
   // The deepest overlap between the two, and which pair of parts caused it.
   measure(skA, skB) {
     this._gather(skA, this.caps[0]);
