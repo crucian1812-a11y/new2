@@ -46,7 +46,7 @@ export const VIAS = {
   'SIDE_CONTROL>MOUNT': 'TURTLE@late',
   'SIDE_CONTROL>SIDE_CONTROL_X': 'STANDING@early',
   'SIDE_CONTROL>TURTLE': 'RNC@mid+B',
-  'TURTLE>CLOSED_GUARD': 'TRIANGLE@early+B',
+  'TURTLE>CLOSED_GUARD': 'STANDING@early+A',
   'TURTLE>SIDE_CONTROL': 'RNC@mid+B',
 };
 
@@ -297,10 +297,6 @@ export const ARCS = {
   'TURTLE>BACK': [
     { p: [0.054, 0.075, -0.147], r: { A: [3.5, 13.5, -6.5], B: [0, 3, 4.5] }, j: { A: { armR: [-5.6, -0.4, 3.9], clavR: [-3.9, 5.1, 3.4], armL: [1.1, -1.1, -0.6], foreL: [-1.1, 0, 0], head: [-1.1, 0, 0], neck: [-2.2, 0, 0.6] }, B: { spine: [5.7, -3.9, 9], hips: [-5.1, 1.2, 4.6], chest: [3.3, -4, 0], foreL: [-1.7, 0, 0], armL: [-2.2, 0, -1.1], clavL: [-2.2, -4.5, -6.7], shinL: [-1.1, 0, 0], thighL: [5.6, 0, 7.3], neck: [0.6, 0, 1.1] } } },
     { p: [0.013, 0.018, -0.156], r: { A: [-12.5, 3.5, -4], B: [1.5, -1, 4.5] }, j: { A: { armR: [0, 1.2, 0], head: [-5.6, 0, 1.7], neck: [-3.3, 0, 2.3], armL: [3.4, 0, 5.7], clavR: [-1.1, 1.2, 0], foreR: [-1.1, 0, 0] }, B: { spine: [2.8, -3.4, 2.2], hips: [0.6, -1.1, 0.6], chest: [2.2, -3.9, -0.6], armL: [0, 0.5, -1.1], clavL: [0, -1.6, -2.8], thighL: [0, 1.1, -0.6], head: [1.1, 0, 0.6], neck: [1.7, 0, 1.1] } } },
-  ],
-  'TURTLE>CLOSED_GUARD': [
-    { p: [0.094, 0.050, -0.050], r: { A: [0, -8, 0], B: [-8, 2, -8] }, j: { A: { foreR: [1.1, 0, 1.1], armR: [0, 1.7, 9], clavR: [6.2, 0, -9] }, B: { spine: [6.8, 4.5, -18], hips: [0, 0, -9], chest: [9, 0, 0], thighR: [4.5, 0, -3.9] } } },
-    { p: [0.025, 0.050, -0.050], r: { A: [0, -8, 0], B: [0, 0, -10] }, j: { A: { foreR: [-1.1, 0, 1.7], armR: [0, 0.6, 9], clavR: [-4.5, 0, 9] }, B: { spine: [-2.2, 3.4, -9], hips: [0, 0, 9], chest: [0, -2.2, 0], thighR: [2.3, 0, -1.7] } } },
   ],
   'TURTLE>OPEN_GUARD': [
     { p: [0.088, -0.047, 0.025], r: { A: [-4, 17.5, 7.5], B: [1, 1.5, -4.5] }, j: { A: { armR: [-9, 1.1, 0], foreL: [-1.6, 0, 0], armL: [1.7, 1.1, 1.2], foreR: [1.2, 0, 0], handL: [-0.6, 0, 1.7] }, B: { chest: [-7.3, 2.3, 9.6], spine: [-16.3, 8.5, 4], hips: [2.9, 2.2, -2.3], shinR: [-2.2, 0, 0], thighL: [-5, -1.7, -7.8], thighR: [0.6, 0, -5.6], clavR: [0, 0, 2.3], clavL: [-7.9, 8.5, 10.7], shinL: [-4.5, 0, 0] } } },
