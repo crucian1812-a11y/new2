@@ -240,7 +240,7 @@ const incoming = {};
 for (const key of keys) {
   const [from, to] = key.split('>');
   const m = measure(from, to);
-  incoming[key] = { sum: m.sum, worst: m.worst };
+  incoming[key] = { sum: m.sum, worst: m.worst, lift: m.lift };
 }
 
 // Anything not being solved this run keeps the arc it has, and is reported as
@@ -428,7 +428,16 @@ for (const key of keys) {
   // so all it bought was one transition sliding from 21.8cm to 22.3 and over
   // the line blend-check ships on, which is the exact thing this stops.
   const worseDepth = after.worst > incoming[key].worst + 1e-9;
-  if (worseCost || worseDepth) {
+  // And the lift, for the third time and the same reason.
+  //
+  // Guarding the cost let a trade through that spent depth. Guarding the cost
+  // and the depth let one through that spent lift: the run came back a
+  // centimetre better on the deepest overlap and put two blends back off the
+  // mat, because lift is inside the cost and a big enough win on depth pays
+  // for it. blend-check ships on all three, so all three are guarded. The rule
+  // is not "improve the total", it is "worsen nothing anybody measures".
+  const worseLift = after.lift > incoming[key].lift + 1e-9;
+  if (worseCost || worseDepth || worseLift) {
     if (held[key]) ARCS[key] = JSON.parse(JSON.stringify(held[key]));
     else delete ARCS[key];
     after = measure(from, to);
