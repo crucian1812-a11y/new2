@@ -72,6 +72,14 @@ export class Audio {
     this.wanted = null;       // and what was last asked for, which may still be downloading
     this.musicVol = 0.34;
     this.loaded = false;
+    // The listener, until a frame tells it otherwise: three metres back, which
+    // is where the ground shot sits, looking at the middle of the mat.
+    this.ear = new Float32Array([0, 1.2, 3]);
+    this.right = new Float32Array([1, 0, 0]);
+    // One breath cycle per fighter: when the next one is due on the audio
+    // clock, and whether the last one was an inhale.
+    this.breathAt = [0, 0];
+    this.breathIn = [true, true];
   }
 
   // Browsers will not start an audio context until a gesture, so this is called
@@ -209,11 +217,61 @@ export class Audio {
     if (amount >= 0.5) this._play(amount >= 0.75 ? 'cheerBig' : 'cheerSmall', 0.45 * amount);
   }
 
+  // ------------------------------------------------------------- the place
+
+  // Where the ear is. The camera orbits the pair and pushes in on intensity,
+  // so a grip taken on the far side of the tangle is genuinely further away and
+  // genuinely to one side, and until now every sound in the game came out of
+  // the middle at the same volume.
+  //
+  // Called once a frame with the camera's own eye and aim. Nothing else about
+  // the camera reaches this file: a listener is a point and a direction, and
+  // the shots, the drift and the shake are already baked into those two.
+  listen(eye, at) {
+    this.ear[0] = eye[0]; this.ear[1] = eye[1]; this.ear[2] = eye[2];
+    // Forward crossed with world up, normalised in the plane — a camera looking
+    // down at the mat should still pan left and right.
+    //
+    // cross(f, up) with f = (fx, 0, fz) and up = (0, 1, 0) is (-fz, 0, fx), and
+    // the first version of this line had both signs the other way round. It
+    // panned perfectly and backwards: a slam two metres to the left came out
+    // nine to one in the right ear. Worth saying because it is invisible from
+    // inside — every sound had a place, every place had a pan, the mix moved
+    // when the camera moved, and all of it was mirrored.
+    const fx = at[0] - eye[0], fz = at[2] - eye[2];
+    const fl = Math.hypot(fx, fz) || 1;
+    this.right[0] = -fz / fl;
+    this.right[2] = fx / fl;
+  }
+
+  // The node an event at (x, y, z) should connect to, and the gain it has
+  // earned by being there. Returns null for a sound with no place — the bell,
+  // the clock, everything the player hears rather than the mat.
+  //
+  // The rolloff is gentle on purpose. The camera sits between 2.3 and 4.1
+  // metres from the pair and never leaves; a physical inverse square over that
+  // range is a two-decibel difference nobody can hear, and anything steeper
+  // starts making a grip on the far side of the tangle vanish. What carries the
+  // information here is the pan, and the distance term only has to keep a
+  // referee at the edge of the mat behind the two men in front of him.
+  _place(x, y, z) {
+    if (!this.ctx) return null;
+    const dx = x - this.ear[0], dy = y - this.ear[1], dz = z - this.ear[2];
+    const d = Math.hypot(dx, dy, dz) || 0.001;
+    const pan = Math.max(-1, Math.min(1, (dx * this.right[0] + dz * this.right[2]) / d * 1.6));
+    const p = this.ctx.createStereoPanner();
+    p.pan.value = pan;
+    const g = this.ctx.createGain();
+    g.gain.value = 2.4 / (2.4 + d);
+    p.connect(g).connect(this.master);
+    return p;
+  }
+
   // ------------------------------------------------------------- one-shots
 
   // Play a sample if it is here. Returns false when it is not, which is what
   // lets every method below read as "the recording, or the old synthesis".
-  _play(name, gain = 1, detune = 0) {
+  _play(name, gain = 1, detune = 0, at = null) {
     const buf = this.sfx[name];
     if (!buf || !this.ctx || this.muted) return false;
     const src = this.ctx.createBufferSource();
@@ -223,7 +281,7 @@ export class Audio {
     if (detune) src.playbackRate.value = 1 + (Math.random() * 2 - 1) * detune;
     const g = this.ctx.createGain();
     g.gain.value = gain;
-    src.connect(g).connect(this.master);
+    src.connect(g).connect((at && this._place(at[0], at[1], at[2])) || this.master);
     src.start(this._at());
     return true;
   }
@@ -234,46 +292,49 @@ export class Audio {
   }
 
   // A body landing.
-  thud(force = 1) {
+  thud(force = 1, at = null) {
     if (!this.ctx || this.muted) return;
     const heavy = force > 0.75;
     const name = this._pick(...(heavy ? ['slamHeavy', 'impact1'] : ['slamLight', 'impact2']));
-    if (name && this._play(name, 0.9 * force, 0.03)) return;
+    if (name && this._play(name, 0.9 * force, 0.03, at)) return;
     // Low sine drop plus a noise slap; the ratio between the two is the
     // difference between a mat and a boxing ring.
     const t = this._at();
+    const dest = at && this._place(at[0], at[1], at[2]);
     const o = this.ctx.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(120 * (0.8 + force * 0.4), t);
     o.frequency.exponentialRampToValueAtTime(38, t + 0.16);
-    this._env(o, t, 0.006, 0.24, 0.5 * force);
+    this._env(o, t, 0.006, 0.24, 0.5 * force, dest);
     o.start(t);
     o.stop(t + 0.3);
-    this.noise(t, 1400, 0.09, 0.16 * force);
+    this.noise(t, 1400, 0.09, 0.16 * force, 'lowpass', dest);
   }
 
   // Cloth. A gi is loud, and the sound of a grip being taken is most of what
   // tells you the two of them are actually touching.
-  cloth(force = 1) {
+  cloth(force = 1, at = null) {
     if (!this.ctx || this.muted) return;
     const name = this._pick('cloth1', 'cloth2', 'cloth3');
-    if (name && this._play(name, 0.95 * force, 0.03)) return;
+    if (name && this._play(name, 0.95 * force, 0.03, at)) return;
     // Measured, not guessed: at 2.6 kHz and a peak of 0.1 the synthesised gi
     // slap came out at -57 dBFS against a room at -32, which is not quiet, it
     // is inaudible. A gi has body as well as hiss.
-    this.noise(this._at(), 1800, 0.16, 0.34 * force, 'highpass');
+    this.noise(this._at(), 1800, 0.16, 0.34 * force, 'highpass',
+      at && this._place(at[0], at[1], at[2]));
   }
 
   // A foot moving on tatami. The pack has this and the synth never did.
-  step(force = 0.6) {
+  step(force = 0.6, at = null) {
     const name = this._pick('step1', 'step2');
-    if (name) this._play(name, 0.9 * force, 0.04);
+    if (name) this._play(name, 0.9 * force, 0.04, at);
   }
 
-  whistle() {
+  whistle(at = null) {
     if (!this.ctx || this.muted) return;
-    if (this._play('whistle', 0.45)) return;
+    if (this._play('whistle', 0.45, 0, at)) return;
     const t = this._at();
+    const dest = at && this._place(at[0], at[1], at[2]);
     const o = this.ctx.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(2100, t);
@@ -285,7 +346,7 @@ export class Audio {
     lfo.connect(lg).connect(o.frequency);
     lfo.start(t);
     lfo.stop(t + 0.4);
-    this._env(o, t, 0.02, 0.34, 0.32);
+    this._env(o, t, 0.02, 0.34, 0.32, dest);
     o.start(t);
     o.stop(t + 0.4);
   }
@@ -302,12 +363,68 @@ export class Audio {
   // reported everything short. On a page that renders nothing they came out at
   // +1 dBFS, which is not loud, it is clipping.
   bell() { if (!this._play('bell', 0.55)) this.beep(1180, 0.5, 'sine', 0.34); }
-  tap(force = 1) { if (!this._play('tap', 0.8 * force)) this.beep(300, 0.08, 'square', 0.2); }
-  lock() { if (!this._play('lock', 0.85)) this.cloth(1); }
+  tap(force = 1, at = null) { if (!this._play('tap', 0.8 * force, 0, at)) this.beep(300, 0.08, 'square', 0.2); }
+  lock(at = null) { if (!this._play('lock', 0.85, 0, at)) this.cloth(1, at); }
   whoosh() { this._play('whoosh', 0.5); }
   click() { if (!this._play('click', 0.9)) this.beep(760, 0.05, 'square', 0.1); }
   confirm() { if (!this._play('confirm', 0.9)) this.beep(980, 0.1, 'triangle', 0.14); }
   timer() { if (!this._play('beepTimer', 0.8)) this.beep(880, 0.08, 'square', 0.12); }
+
+  // Breathing.
+  //
+  // The one continuous sound two people grappling actually make, and there was
+  // none of it — the pack has no breath in it and the synthesiser never had
+  // one, so between a slam and the next grip the mat was silent and the music
+  // carried the whole of it.
+  //
+  // Synthesised rather than sampled on purpose. A breath is filtered noise with
+  // an envelope, which is the one thing oscillators do better than a recording:
+  // a recorded breath repeated every two seconds becomes a metronome inside ten
+  // of them, and this one is never the same twice — the rate, the pitch of the
+  // filter and the length all move with how hard he is working.
+  //
+  // It also says something no other sound in the game says. The fighter's tank
+  // is on the rig as `gas`, and nothing on screen shows it: the HUD has effort
+  // and posture and not this. A man who is breathing through his mouth on the
+  // far side of a tangle is telling the player to push, and that is a HUD bar
+  // that does not have to be drawn.
+  //
+  // Called every frame with where he is and how he is doing; this decides when
+  // the next one is due. `work` is what he is doing this second and `gas` is
+  // what three minutes have done to him — the first sets how deep, the second
+  // how often and how ragged.
+  // Returns the peak it scheduled, or 0 if this frame was not its turn — see
+  // the note in sound-check about why that number, and not the output, is what
+  // the depth of a breath is judged on.
+  breathe(i, work, gas, at = null) {
+    if (!this.ctx || this.muted) return 0;
+    const now = this.ctx.currentTime;
+    if (now < this.breathAt[i]) return 0;
+    const inhale = this.breathIn[i];
+    this.breathIn[i] = !inhale;
+    // Eighteen breaths a minute at rest, fifty flat out. The half-cycle is what
+    // is scheduled, because an inhale and an exhale are two different sounds.
+    const rate = 18 + work * 14 + gas * 18;
+    const half = 30 / rate;
+    // Never quite regular: a body that breathes on a grid is a machine.
+    this.breathAt[i] = now + half * (0.82 + Math.random() * 0.36);
+    if (this.breathAt[i] < now + 0.2) this.breathAt[i] = now + 0.2;
+
+    const t = this._at();
+    const dest = at ? this._place(at[0], at[1], at[2]) : null;
+    // An inhale is higher, shorter and thinner — it is air through a gap. An
+    // exhale is lower and longer, and it is the one that carries when a man is
+    // tired, which is why the gas term is on its length and not on the inhale's.
+    const dur = inhale ? 0.24 + gas * 0.10 : 0.34 + gas * 0.26;
+    const freq = inhale ? 900 + gas * 250 : 430 + gas * 140;
+    // Quiet. This runs continuously under everything else, and the whole of it
+    // is meant to sit below the room rather than beside it: measured against
+    // the crowd bed at -29 dBFS, a peak of 0.06 puts a hard-working breath a
+    // few decibels under it and a resting one well beneath.
+    const peak = (0.012 + work * 0.026 + gas * 0.030) * (inhale ? 0.8 : 1);
+    this.noise(t, freq, dur, peak, 'bandpass', dest, inhale ? 0.09 : 0.05);
+    return peak;
+  }
 
   beep(freq, dur = 0.12, type = 'square', peak = 0.18) {
     if (!this.ctx || this.muted) return;
@@ -320,7 +437,11 @@ export class Audio {
     o.stop(t + dur + 0.05);
   }
 
-  noise(t, freq, dur, peak, type = 'lowpass') {
+  // `attack` is how long it takes to get there. Four milliseconds is a slap and
+  // is what everything here wanted until a breath needed one: air through a
+  // throat swells over a tenth of a second, and at four milliseconds it is a
+  // hiss of static instead.
+  noise(t, freq, dur, peak, type = 'lowpass', dest = null, attack = 0.004) {
     const ctx = this.ctx;
     const len = Math.ceil(ctx.sampleRate * dur);
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -332,7 +453,7 @@ export class Audio {
     f.type = type;
     f.frequency.value = freq;
     s.connect(f);
-    this._env(f, t, 0.004, dur, peak);
+    this._env(f, t, attack, dur, peak, dest);
     s.start(t);
   }
 
@@ -347,12 +468,12 @@ export class Audio {
   // not. Twenty milliseconds is under the threshold where a hit feels late.
   _at() { return this.ctx.currentTime + 0.02; }
 
-  _env(node, t, a, d, peak) {
+  _env(node, t, a, d, peak, dest = null) {
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + a);
     g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
-    node.connect(g).connect(this.master);
+    node.connect(g).connect(dest || this.master);
     return g;
   }
 
