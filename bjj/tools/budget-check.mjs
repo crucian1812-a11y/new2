@@ -333,11 +333,18 @@ check(
 // Named, measured, and known to be off — the same second tier blend-check and
 // sim-check use, because neither of these is fixable from here.
 //
-// The heads are the source's doing and not the thinner's: half of the second
-// fighter's head vertices are locked by material seams and open edges — the
-// hairline, the eyelids, the lips — and a locked vertex never collapses at any
-// weight. Pushing the weight down anyway only damaged the unlocked half: the
-// surface moved 8 mm instead of 3 and the head shrank by a ninth.
+// The heads have now been attacked from three sides and the answer is that
+// they cost what the sources cost. Weighting them down: at 0.06 it freed a
+// ninth of the head and moved the surface 8 mm instead of 3, because only the
+// unlocked half can move at all. Unlocking the other half: 8804 of the
+// opponent's head vertices sit on an open edge — every border of every hair
+// card — and letting a border slide along itself freed 581 of them, not 8804.
+// That is the lesson worth keeping: **a lock says what is forbidden, not what
+// would move.** The rest are permitted and expensive, because Garland-Heckbert
+// prices curvature and a head is nothing but curvature.
+//
+// What is left is not a thinner setting. It is a head with fewer polygons in
+// the FBX, which is art rather than tooling.
 //
 // Fighter A's feet are seventy triangles in the FBX, before anything here has
 // run. There is no thinning to undo.
@@ -346,7 +353,7 @@ check(
 // as a finding would be quoting itself.
 for (const r of rows.filter((x) => x.ratio > 2.5 && x.g !== 'hands' && x.g !== 'feet')) {
   console.log(`     ${r.who}/${r.g} is ${(r.mesh * 100).toFixed(0)}% of the mesh for ` +
-    `${(r.screen * 100).toFixed(0)}% of the screen, and half of it cannot be collapsed`);
+    `${(r.screen * 100).toFixed(0)}% of the screen, and it is the source's shape`);
 }
 console.log("     fighter A's feet are 70 triangles in the FBX, before any thinning runs");
 
