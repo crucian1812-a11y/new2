@@ -20,7 +20,10 @@
 // measures where his feet land, and both of the first two numbers were wrong —
 // four centimetres through the mat standing, thirteen above it crouching.
 
-import { Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT, BONE_INDEX } from '../render/skeleton.js';
+import {
+  Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT, BONE_INDEX,
+  HAND_REST, TIP_REST,
+} from '../render/skeleton.js';
 import { quat, qEuler, v3, v3set } from '../core/m4.js';
 
 // Where he stands: this far from the middle of the fight, and this far round
@@ -43,11 +46,21 @@ const STEP = 1.3;
 // distance he stands at is what he has to keep while moving too.
 const KEEP_OUT = DIST;
 
+// He holds nothing for the whole match and still has hands. Spread into every
+// pose below rather than typed into each: the fighters get the same angles from
+// the rig, and a referee whose fingers disagree with theirs is a third man with
+// somebody else's hands. See HAND_REST in skeleton.js.
+const HANDS = {
+  fingL: [-HAND_REST, 0, 0], handLTip: [-TIP_REST, 0, 0],
+  fingR: [-HAND_REST, 0, 0], handRTip: [-TIP_REST, 0, 0],
+};
+
 const P = {
   // At ease, weight even, hands loose in front. This is most of his match.
   stand: {
     root: { p: [0, 0.925, 0], r: [0, 0, 0] },
     j: {
+      ...HANDS,
       hips: [-3, 0, 0], spine: [4, 0, 0], chest: [3, 0, 0], neck: [-6, 0, 0], head: [4, 0, 0],
       clavL: [0, 0, 6], armL: [-16, 8, -10], foreL: [-46, 0, 0], handL: [-8, 0, 0],
       clavR: [0, 0, -6], armR: [-16, -8, 10], foreR: [-46, 0, 0], handR: [-8, 0, 0],
@@ -61,6 +74,7 @@ const P = {
   crouch: {
     root: { p: [0, 0.545, 0], r: [0, 0, 0] },
     j: {
+      ...HANDS,
       hips: [-24, 0, 0], spine: [22, 0, 0], chest: [12, 0, 0], neck: [-16, 0, 0], head: [10, 0, 0],
       clavL: [0, 0, 8], armL: [-38, 14, -14], foreL: [-72, 0, 0], handL: [-10, 0, 0],
       clavR: [0, 0, -8], armR: [-38, -14, 14], foreR: [-72, 0, 0], handR: [-10, 0, 0],
@@ -72,6 +86,7 @@ const P = {
   call: {
     root: { p: [0, 0.925, 0], r: [0, 0, 0] },
     j: {
+      ...HANDS,
       hips: [-3, 0, 0], spine: [4, 0, -4], chest: [3, 0, -6], neck: [-6, 0, 0], head: [2, 0, 0],
       clavL: [0, 0, 6], armL: [-14, 8, -10], foreL: [-40, 0, 0], handL: [-8, 0, 0],
       clavR: [-8, 0, -22], armR: [-96, -12, 26], foreR: [-16, 0, 0], handR: [-6, 0, 0],
@@ -83,6 +98,7 @@ const P = {
   stop: {
     root: { p: [0, 0.925, 0], r: [0, 0, 0] },
     j: {
+      ...HANDS,
       hips: [-3, 0, 0], spine: [2, 0, 0], chest: [4, 0, 0], neck: [-10, 0, 0], head: [8, 0, 0],
       clavL: [-10, 0, 16], armL: [-128, 22, -18], foreL: [-34, 0, 0], handL: [-6, 0, 0],
       clavR: [-10, 0, -16], armR: [-128, -22, 18], foreR: [-34, 0, 0], handR: [-6, 0, 0],

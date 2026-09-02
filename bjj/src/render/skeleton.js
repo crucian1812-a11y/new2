@@ -80,6 +80,23 @@ export const BONE_COUNT = BONES.length;
 // them has a direction and a length.
 export const TIPS = new Set(['headTop', 'handLTip', 'handRTip', 'toeL', 'toeR']);
 
+// How far a hand is closed, in degrees at the knuckles and again past them.
+//
+// A hand holding nothing is not flat, and the bind pose is: a Mixamo T-pose has
+// the fingers straight and slightly spread, which is a board. That never showed
+// while the hand was a palm and a tip — the fingers were one paddle with no gaps
+// in it — and the moment they became separate geometry the referee started
+// standing at the edge of the mat with two open claws, which is how this was
+// found: in a screenshot, not in a number. Measured after the fact, every hand
+// in the game that was not on a grip sat at 8.7 degrees of bend, and a hand at
+// 8.7 degrees is a plank.
+//
+// Rest is a hand hanging by a side or held ready; grip is that hand closed on
+// cloth. Both are here rather than in the rig because the referee has his own
+// skeleton and his own four poses and needs the same answer.
+export const HAND_REST = 26, HAND_GRIP = 46;
+export const TIP_REST = 14, TIP_GRIP = 34;
+
 const HIP_HEIGHT = 0.94;
 
 export class Skeleton {

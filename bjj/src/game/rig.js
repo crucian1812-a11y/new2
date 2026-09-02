@@ -59,6 +59,7 @@ function planFor(key) {
 import { GRIP_POINTS } from '../render/body.js';
 import {
   Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone,
+  HAND_REST, HAND_GRIP, TIP_REST, TIP_GRIP,
 } from '../render/skeleton.js';
 import { quat, qEuler, qMul, qSlerp, v3, v3set, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
 
@@ -853,10 +854,12 @@ export class PairRig {
       const sk = this.skel[role];
       let any = false;
       for (const L of [true, false]) {
+        // Always, not only when something is being held: a hand with no grip
+        // on it still belongs to a person, and the rest angle is what stops it
+        // being a plank. See HAND_REST in skeleton.js.
         const w = this.curl[role + (L ? 'L' : 'R')] || 0;
-        if (w < 0.05) continue;
-        addEuler(sk, L ? 'fingL' : 'fingR', -w * 46, 0, 0);
-        addEuler(sk, L ? 'handLTip' : 'handRTip', -w * 34, 0, 0);
+        addEuler(sk, L ? 'fingL' : 'fingR', -(HAND_REST + w * (HAND_GRIP - HAND_REST)), 0, 0);
+        addEuler(sk, L ? 'handLTip' : 'handRTip', -(TIP_REST + w * (TIP_GRIP - TIP_REST)), 0, 0);
         any = true;
       }
       if (any) sk.pose();

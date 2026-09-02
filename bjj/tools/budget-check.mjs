@@ -286,15 +286,53 @@ rows.sort((x, y) => y.ratio - x.ratio);
     }
     rows2.push({ who, share: verts.length ? moved / verts.length : 0, worst });
   }
-  // A third of the hand and three centimetres. Below that it is a paddle with a
-  // bent fingertip, which is what six per cent and six millimetres looked like.
-  const closes = rows2.every((r) => r.share > 0.33 && r.worst > 0.03);
+  // A third of the hand, and two and a half centimetres at the fingertips.
+  //
+  // The distance is smaller than it was and means something different. It used
+  // to be measured from a flat hand, because a hand holding nothing was flat —
+  // 8.7 degrees at the knuckles, a plank — so "closing" covered the whole
+  // travel from board to fist and the fingertips moved 7.4 cm. A hand at rest
+  // is a hand now, so this is the last stretch from relaxed to gripping, which
+  // is the stretch a player actually sees change when a grip lands.
+  const closes = rows2.every((r) => r.share > 0.33 && r.worst > 0.025);
   check(
     closes,
     'and it closes',
     rows2.map((r) => `${r.who} ${(r.share * 100).toFixed(0)}% of the hand moves, ` +
       `furthest ${(r.worst * 100).toFixed(1)}cm`).join('; ')
   );
+
+  // And it is not flat when it is holding nothing.
+  //
+  // This is the one the screenshot caught and no number did: the moment the
+  // fingers became separate geometry, every hand not on a grip stood open and
+  // splayed, and the referee spent the match at the edge of the mat with two
+  // claws. Measured at the knuckle — the angle between the palm and the finger
+  // row — on the referee, who never holds anything at all and is therefore the
+  // one who shows it.
+  {
+    const { Referee } = await import('../src/game/referee.js');
+    const ref = new Referee();
+    for (let i = 0; i < 60; i++) ref.update(1 / 60, 'live', true, [0, 0, 0], 0.7);
+    const at = (b) => {
+      const m = ref.skel.world[BONE_INDEX[b]];
+      return [m[12], m[13], m[14]];
+    };
+    const bend = (side) => {
+      const a = at('hand' + side), b = at('fing' + side), c = at('hand' + side + 'Tip');
+      const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+      const v = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
+      const ul = Math.hypot(...u), vl = Math.hypot(...v);
+      return Math.acos(Math.min(1, Math.max(-1,
+        (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (ul * vl)))) * 180 / Math.PI;
+    };
+    const l = bend('L'), r = bend('R');
+    check(
+      l > 12 && r > 12,
+      'a hand holding nothing is still a hand',
+      `the referee carries ${l.toFixed(0)} and ${r.toFixed(0)} degrees at the knuckles`
+    );
+  }
 }
 
 // A hand has to be a hand.
