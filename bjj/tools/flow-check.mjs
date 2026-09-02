@@ -144,6 +144,7 @@ function play(level) {
   const dt = 1 / 60;
   const s = {
     frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, swaps: 0, worstBreak: 0, stall: 0, positions: 0,
+    offered: 0, hollow: 0, broke: 0,
   };
 
   // The picture the player is looking at, taken the same way main.js takes it.
@@ -179,6 +180,36 @@ function play(level) {
 
     if (m.state === 'live') {
       s.live++;
+      // Does a press do what the ring says it will?
+      //
+      // This is the question a player asks with their thumb and no tool here
+      // was asking it. Two answers used to be no. Under a threat every flick
+      // is turned into a denial — which is right, defence has to beat offence
+      // under pressure — and the ring went on offering the four attacking
+      // moves anyway: the same gesture meaning something else, decided by a
+      // state the player had not chosen and the ring did not mention. That was
+      // 12% of every frame the ring had a label on it. And a flick thrown
+      // during your own throw, or during the third of a second after it, was
+      // dropped in silence: a scripted thumb lost nineteen of its fifty-seven
+      // attacking flicks that way.
+      const threat = !!(m.attempt && m.attempt.defender === 0);
+      const read = threat ? (m.denyRead(0) || []) : null;
+      // What the HUD draws as pressable — the same expression, so this cannot
+      // drift from the picture without the drift showing up here.
+      // What the ring draws as *pressable*, not everything it names. A label
+      // dimmed for the cooldown or for an empty tank is the ring saying "not
+      // yet", which is true; the question here is whether the bright ones lie.
+      const ready = threat ? read : Object.keys(m.options(0));
+      for (const d of ready) {
+        s.offered++;
+        if (threat) continue;                       // the ring says defence and it is
+        if (m.attempt || m.cool[0] > 0) { s.hollow++; continue; }
+        const tr = m.preview(0)[d];
+        if (!tr || m.f[0].stamina < tr.cost * 0.35) s.hollow++;
+      }
+      // And how much of the match he cannot afford anything at all, which is a
+      // different complaint and belongs in the report rather than in a rule.
+      if (!m.attempt && m.cool[0] <= 0 && Object.keys(m.options(0)).length === 0) s.broke++;
       // What the ring is *showing*, not what it will accept. During the
       // cooldown after a move the labels are there and dimmed, with the wait
       // drawn round them; that is a ring telling the player something, and
@@ -196,12 +227,12 @@ function play(level) {
 
 console.log(`${N} matches, seed ${SEED}\n`);
 
-const agg = { frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, swaps: 0, worstBreak: 0, stall: 0, positions: 0 };
+const agg = { frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, swaps: 0, worstBreak: 0, stall: 0, positions: 0, offered: 0, hollow: 0, broke: 0 };
 const t0 = Date.now();
 for (const level of ['white', 'blue', 'purple', 'black']) {
   for (let i = 0; i < Math.ceil(N / 4); i++) {
     const s = play(level);
-    for (const k of ['frames', 'live', 'blank', 'blankCool', 'breaks', 'swaps', 'positions']) agg[k] += s[k];
+    for (const k of ['frames', 'live', 'blank', 'blankCool', 'breaks', 'swaps', 'positions', 'offered', 'hollow', 'broke']) agg[k] += s[k];
     agg.worstBreak = Math.max(agg.worstBreak, s.worstBreak);
     agg.stall = Math.max(agg.stall, s.stall);
   }
@@ -260,6 +291,18 @@ check(
   agg.stall <= STALL_CALL + 0.1,
   'the fight does not stand still',
   `longest stall ${agg.stall.toFixed(1)}s, referee calls it at ${STALL_CALL}`
+);
+
+// Zero, not "few". A label that does not do what it says is worse than no
+// label: the player learns the wrong thing and then unlearns it.
+const hollowPct = (agg.hollow / Math.max(1, agg.offered)) * 100;
+check(
+  hollowPct < 0.5,
+  'a press does what the ring says it will',
+  `${hollowPct.toFixed(2)}% of what the ring offers as pressable would be thrown ` +
+  `away, over ${(agg.offered / 1000).toFixed(0)}k label-frames; ` +
+  `${((agg.broke / Math.max(1, agg.live)) * 100).toFixed(0)}% of the match he can ` +
+  'afford nothing at all'
 );
 
 const cov = ringCoverage();
