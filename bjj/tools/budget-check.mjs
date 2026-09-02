@@ -63,7 +63,7 @@ const GROUPS = {
   head: ['head', 'headTop', 'neck'],
   torso: ['hips', 'spine', 'chest', 'clavL', 'clavR'],
   arms: ['armL', 'foreL', 'armR', 'foreR'],
-  hands: ['handL', 'handLTip', 'handR', 'handRTip'],
+  hands: ['handL', 'fingL', 'handLTip', 'handR', 'fingR', 'handRTip'],
   legs: ['thighL', 'shinL', 'thighR', 'shinR'],
   feet: ['footL', 'toeL', 'footR', 'toeR'],
 };
@@ -230,6 +230,71 @@ rows.sort((x, y) => y.ratio - x.ratio);
       `   ${r.ratio.toFixed(2).padStart(8)}x`);
   }
   console.log('');
+}
+
+// A hand has to close.
+//
+// The floor below says a hand needs enough triangles to be a hand; this says
+// those triangles have to be able to move. They could not: the hand was two
+// bones, the palm and a tip, and closing it rotated the tip alone — six per
+// cent of the hand's vertices travelling six millimetres, while the other
+// ninety-four rode the palm rigidly. Both sources ship a full finger skeleton
+// and the bake folded all fifteen bones of it onto the palm.
+//
+// Measured by posing the pair, letting the grips run, and then wiping the curl
+// the grip solve asked for and posing again: the difference is the hand
+// closing and nothing else. Held against the palm's own frame, so an arm that
+// moved because the IK reached differently does not count as a finger.
+{
+  const HAND = ['handL', 'fingL', 'handLTip', 'handR', 'fingR', 'handRTip']
+    .map((b) => BONE_INDEX[b]).filter((i) => i !== undefined);
+  const realSolve = rig._solveGrips.bind(rig);
+  const skinTo = (mesh, skel, v, out) => skin(mesh, skel, v, out);
+  const rows2 = [];
+  for (const [who, fighter] of [['you', you], ['opp', opp]]) {
+    const { m } = fighter;
+    const verts = [];
+    for (let v = 0; v < m.pos.length / 3; v++) if (HAND.includes(m.bone[v * 2])) verts.push(v);
+    const grab = (curl) => {
+      rig._solveGrips = curl ? realSolve
+        : (list) => { realSolve(list); for (const k in rig.curl) rig.curl[k] = 0; };
+      rig.effort.A = rig.effort.B = 0;
+      rig.slack.A = rig.slack.B = 0;
+      rig.time = 0;
+      rig.invalidate('MOUNT');
+      rig.applyAt('MOUNT', 'MOUNT', 1, 0.016);
+      const palm = rig.skel.A.world[BONE_INDEX.handL];
+      const out = new Float64Array(verts.length * 3);
+      const p = new Float64Array(3);
+      for (let k = 0; k < verts.length; k++) {
+        skinTo(m, rig.skel.A, verts[k], p);
+        out[k * 3] = p[0] - palm[12];
+        out[k * 3 + 1] = p[1] - palm[13];
+        out[k * 3 + 2] = p[2] - palm[14];
+      }
+      return out;
+    };
+    const openHand = grab(0);
+    const shut = grab(1);
+    rig._solveGrips = realSolve;
+    let moved = 0, worst = 0;
+    for (let k = 0; k < verts.length; k++) {
+      const d = Math.hypot(shut[k * 3] - openHand[k * 3],
+        shut[k * 3 + 1] - openHand[k * 3 + 1], shut[k * 3 + 2] - openHand[k * 3 + 2]);
+      if (d > 0.002) moved++;
+      if (d > worst) worst = d;
+    }
+    rows2.push({ who, share: verts.length ? moved / verts.length : 0, worst });
+  }
+  // A third of the hand and three centimetres. Below that it is a paddle with a
+  // bent fingertip, which is what six per cent and six millimetres looked like.
+  const closes = rows2.every((r) => r.share > 0.33 && r.worst > 0.03);
+  check(
+    closes,
+    'and it closes',
+    rows2.map((r) => `${r.who} ${(r.share * 100).toFixed(0)}% of the hand moves, ` +
+      `furthest ${(r.worst * 100).toFixed(1)}cm`).join('; ')
+  );
 }
 
 // A hand has to be a hand.

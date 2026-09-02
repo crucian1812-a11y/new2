@@ -842,18 +842,21 @@ export class PairRig {
     // anything. They bend by how much of the grip is on, so a grip fading out
     // opens the hand as it goes.
     //
-    // Only the finger bone, and not far. The collider wraps a hand in a
-    // capsule and cannot tell fingers round cloth from a fist through a chest,
-    // so a closing hand reads to it as depth: at thirty-four degrees on both
-    // bones it put eight poses over the line. This is the angle that says
-    // "holding" and costs nothing.
+    // At the knuckles and again at the second joint, which is how a finger
+    // closes. It used to be one rotation of the fingertip bone by sixteen
+    // degrees, and the number was small for a reason that has gone away: the
+    // hand was a single capsule from the palm to the fingertip, so bending it
+    // swept a wide arc through whatever the hand was near, and at thirty-four
+    // degrees it put eight poses over the line. The hand has a knuckle row now
+    // and two capsules that follow it, so the bend is where the joint is.
     for (const role of ['A', 'B']) {
       const sk = this.skel[role];
       let any = false;
       for (const L of [true, false]) {
         const w = this.curl[role + (L ? 'L' : 'R')] || 0;
         if (w < 0.05) continue;
-        addEuler(sk, L ? 'handLTip' : 'handRTip', -w * 16, 0, 0);
+        addEuler(sk, L ? 'fingL' : 'fingR', -w * 46, 0, 0);
+        addEuler(sk, L ? 'handLTip' : 'handRTip', -w * 34, 0, 0);
         any = true;
       }
       if (any) sk.pose();

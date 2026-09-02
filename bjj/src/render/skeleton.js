@@ -20,6 +20,26 @@ import {
 
 // name, parent, rest offset from parent's head.
 // Y up, +Z is the direction the fighter faces, +X is their left.
+// A knuckle row between the palm and the fingertips, and it is the whole of
+// what turns a hand into a hand.
+//
+// A gi grip is four fingers hooked into cloth. Until this the hand was two
+// bones — the palm and a tip — and closing it rotated the tip by sixteen
+// degrees, which moved six per cent of the hand's vertices by six millimetres.
+// The rest of the fingers rode the palm rigidly, so a fist and an open hand
+// were the same shape with one segment of one finger bent. Both source
+// characters carry a full finger skeleton (Thumb, Index, Middle, Ring, Pinky,
+// three joints each) and the bake folded every one of them onto the palm.
+//
+// One bone per hand, not fifteen. The four fingers move together — in a grip
+// they do — and the thumb does not move at all, which is not a shortcut: a gi
+// grip is famously thumbless, you hook the cloth with the fingers and the thumb
+// stays out of it. So the thumb keeps riding the palm, correctly.
+//
+// Inserted rather than appended: `pose()` walks this list once and needs every
+// parent to come before its child, so the indices below shift and the numbers
+// in this table are the only place that matters — everything else looks bones
+// up by name. The baked meshes store bone indices and had to be rebaked.
 export const BONES = [
   ['hips', -1, [0, 0, 0]],
   ['spine', 0, [0, 0.105, 0]],
@@ -32,23 +52,25 @@ export const BONES = [
   ['armL', 6, [0.135, 0.0, 0]],
   ['foreL', 7, [0, -0.275, 0]],
   ['handL', 8, [0, -0.245, 0]],
-  ['handLTip', 9, [0, -0.095, 0]],
+  ['fingL', 9, [0, -0.052, 0.008]],
+  ['handLTip', 10, [0, -0.048, 0]],
 
   ['clavR', 2, [-0.045, 0.15, 0.005]],
-  ['armR', 11, [-0.135, 0.0, 0]],
-  ['foreR', 12, [0, -0.275, 0]],
-  ['handR', 13, [0, -0.245, 0]],
-  ['handRTip', 14, [0, -0.095, 0]],
+  ['armR', 12, [-0.135, 0.0, 0]],
+  ['foreR', 13, [0, -0.275, 0]],
+  ['handR', 14, [0, -0.245, 0]],
+  ['fingR', 15, [0, -0.052, 0.008]],
+  ['handRTip', 16, [0, -0.048, 0]],
 
   ['thighL', 0, [0.085, -0.045, 0]],
-  ['shinL', 16, [0, -0.425, 0]],
-  ['footL', 17, [0, -0.41, 0]],
-  ['toeL', 18, [0, -0.055, 0.15]],
+  ['shinL', 18, [0, -0.425, 0]],
+  ['footL', 19, [0, -0.41, 0]],
+  ['toeL', 20, [0, -0.055, 0.15]],
 
   ['thighR', 0, [-0.085, -0.045, 0]],
-  ['shinR', 20, [0, -0.425, 0]],
-  ['footR', 21, [0, -0.41, 0]],
-  ['toeR', 22, [0, -0.055, 0.15]],
+  ['shinR', 22, [0, -0.425, 0]],
+  ['footR', 23, [0, -0.41, 0]],
+  ['toeR', 24, [0, -0.055, 0.15]],
 ];
 
 export const BONE_INDEX = Object.fromEntries(BONES.map((b, i) => [b[0], i]));

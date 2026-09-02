@@ -51,16 +51,36 @@ const MAP = {
   hips: 'Hips', spine: 'Spine', chest: 'Spine2', neck: 'Neck',
   head: 'Head', headTop: 'HeadTop_End',
   clavL: 'LeftShoulder', armL: 'LeftArm', foreL: 'LeftForeArm',
-  handL: 'LeftHand', handLTip: 'LeftHandMiddle3',
+  handL: 'LeftHand', fingL: 'LeftHandMiddle1', handLTip: 'LeftHandMiddle3',
   clavR: 'RightShoulder', armR: 'RightArm', foreR: 'RightForeArm',
-  handR: 'RightHand', handRTip: 'RightHandMiddle3',
+  handR: 'RightHand', fingR: 'RightHandMiddle1', handRTip: 'RightHandMiddle3',
   thighL: 'LeftUpLeg', shinL: 'LeftLeg', footL: 'LeftFoot', toeL: 'LeftToeBase',
   thighR: 'RightUpLeg', shinR: 'RightLeg', footR: 'RightFoot', toeR: 'RightToeBase',
 };
 
 // Which of ours a mixamorig bone's weight belongs to, when it is not one we map
 // directly. Prefix match, longest first.
+// Longest first, and the finger rows have to come before the bare hand or the
+// prefix match swallows them: every `LeftHandIndex2` starts with `LeftHand`,
+// which is how all fifteen finger bones used to end up on the palm.
+//
+// The last joint of each finger goes on the tip so that the fingers bend at two
+// places rather than one; everything above it goes on the knuckle row. The
+// thumb stays on the palm — see the note in skeleton.js.
 const FOLD = [
+  ['LeftHandIndex3', 'handLTip'], ['LeftHandIndex4', 'handLTip'],
+  ['LeftHandMiddle3', 'handLTip'], ['LeftHandMiddle4', 'handLTip'],
+  ['LeftHandRing3', 'handLTip'], ['LeftHandRing4', 'handLTip'],
+  ['LeftHandPinky3', 'handLTip'], ['LeftHandPinky4', 'handLTip'],
+  ['RightHandIndex3', 'handRTip'], ['RightHandIndex4', 'handRTip'],
+  ['RightHandMiddle3', 'handRTip'], ['RightHandMiddle4', 'handRTip'],
+  ['RightHandRing3', 'handRTip'], ['RightHandRing4', 'handRTip'],
+  ['RightHandPinky3', 'handRTip'], ['RightHandPinky4', 'handRTip'],
+  ['LeftHandIndex', 'fingL'], ['LeftHandMiddle', 'fingL'],
+  ['LeftHandRing', 'fingL'], ['LeftHandPinky', 'fingL'],
+  ['RightHandIndex', 'fingR'], ['RightHandMiddle', 'fingR'],
+  ['RightHandRing', 'fingR'], ['RightHandPinky', 'fingR'],
+  ['LeftHandThumb', 'handL'], ['RightHandThumb', 'handR'],
   ['LeftHand', 'handL'], ['RightHand', 'handR'],
   ['LeftToe', 'toeL'], ['RightToe', 'toeR'],
   ['LeftEye', 'head'], ['RightEye', 'head'],
@@ -860,7 +880,7 @@ const KEEP = {
   hips: 1.0, spine: 1.0, chest: 1.0, clavL: 1.0, clavR: 1.0,
   armL: 1.0, foreL: 1.0, armR: 1.0, foreR: 1.0,
   thighL: 1.0, shinL: 1.0, thighR: 1.0, shinR: 1.0,
-  handL: 6, handLTip: 6, handR: 6, handRTip: 6,
+  handL: 6, fingL: 6, handLTip: 6, handR: 6, fingR: 6, handRTip: 6,
   footL: 3, toeL: 3, footR: 3, toeR: 3,
 };
 function keepWeights(mesh) {
