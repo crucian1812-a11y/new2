@@ -207,20 +207,19 @@ newMatch();
 
 function onMatchEvent(e) {
   if (e.kind === 'position') {
-    audio.thud(e.tr.big ? 1 : 0.55);
-    audio.cloth(0.8);
+    // The sound of it waits for the landing; see watchImpact. The camera does
+    // not — an impulse and a cut are the director's, and a director cuts on the
+    // call rather than on the impact.
+    landing = { peak: 0, role: 'A', t: 0 };
     camera.impulse(e.tr.big ? 0.8 : 0.35);
-    if (e.tr.big) {
-      camera.cut(e.tr.dir === 'left' ? -1 : 1);
-      audio.swell(0.55);
-    }
+    if (e.tr.big) camera.cut(e.tr.dir === 'left' ? -1 : 1);
   } else if (e.kind === 'points') {
     referee.gesture('call', 1.1);
     audio.confirm();
     audio.swell(0.4, 1.2);
   } else if (e.kind === 'submission') {
     camera.cut(Math.random() < 0.5 ? -1 : 1);
-    audio.lock();
+    audio.lock(between());
     audio.swell(0.8, 2.4);
   } else if (e.kind === 'recall') {
     // He stops them and waves them back to the middle. The whistle is his
@@ -231,9 +230,9 @@ function onMatchEvent(e) {
     // He stands them up out of it: the same call he uses to start, held long
     // enough to read from the mat.
     referee.gesture('call', 1.4);
-    audio.whistle();
+    audio.whistle(refAt());
   } else if (e.kind === 'escape') {
-    audio.cloth(0.9);
+    audio.cloth(0.9, between());
     audio.swell(0.5, 1.4);
   } else if (e.kind === 'end') {
     // Where the ladder moves. A win takes you up one and a loss takes nothing
@@ -253,7 +252,7 @@ function onMatchEvent(e) {
     audio.swell(1, 3);
     // The room goes up for a tap and settles for a decision, which is what
     // actually happens in the hall.
-    if (e.by === 'submission') audio.tap();
+    if (e.by === 'submission') audio.tap(1, between());
     audio.sting(e.winner === 0);
   }
 }
@@ -327,6 +326,89 @@ function clockSound() {
 // step every forty centimetres is two men circling. On the ground nobody
 // steps, and the pack's two tatami samples are detuned against each other so a
 // long exchange does not turn into a metronome.
+// Where a sound is, for the ear.
+//
+// Three places cover everything the mat makes: the middle of the tangle, one
+// man's hips, and the referee. They are read off the rig rather than off the
+// match, because the match knows a position and the rig knows a metre.
+const _spot = [0, 0, 0];
+function between() {
+  const a = rig.skel.A.world[BONE_INDEX.chest], b = rig.skel.B.world[BONE_INDEX.chest];
+  _spot[0] = (a[12] + b[12]) / 2;
+  _spot[1] = (a[13] + b[13]) / 2;
+  _spot[2] = (a[14] + b[14]) / 2;
+  return _spot;
+}
+// The third man, who stands at the edge and blows the whistle. He carries his
+// own place because he is not part of the pair and is the one sound in the game
+// that comes from somewhere else on the mat.
+const _ref = [0, 0, 0];
+function refAt() {
+  _ref[0] = referee.x;
+  _ref[1] = 1.5;
+  _ref[2] = referee.z;
+  return _ref;
+}
+
+const _man = [0, 0, 0];
+function manAt(role, bone = 'hips') {
+  const m = rig.skel[role].world[BONE_INDEX[bone]];
+  _man[0] = m[12]; _man[1] = m[13]; _man[2] = m[14];
+  return _man;
+}
+
+// How hard somebody actually landed.
+//
+// The thud used to fire the instant a transition was announced, with a force of
+// 1 or 0.55 off the `big` flag — two numbers for a move that has not happened
+// yet. The rig knows better a third of a second later: it is carrying both
+// bodies through the blend and their hips have a speed. Measured across the
+// graph the peak runs from 0.6 to 10.7 m/s, so the flag was throwing away more
+// than an order of magnitude.
+//
+// So the announcement arms a landing and the frame fires it, at the moment the
+// blend is nearly home and the hips are at their fastest — which is also when
+// a body actually hits a mat, rather than when somebody decided to throw it.
+let landing = null;
+const lastHip = { A: null, B: null };
+function watchImpact() {
+  const speed = (role) => {
+    const m = rig.skel[role].world[BONE_INDEX.hips];
+    const p = lastHip[role];
+    const v = p ? Math.hypot(m[12] - p[0], m[13] - p[1], m[14] - p[2]) * 60 : 0;
+    lastHip[role] = [m[12], m[13], m[14]];
+    return v;
+  };
+  const va = speed('A'), vb = speed('B');
+  if (!landing) return;
+  const fast = Math.max(va, vb);
+  if (fast > landing.peak) { landing.peak = fast; landing.role = va >= vb ? 'A' : 'B'; }
+  // Home, or out of patience. A transition that never gets there — an attempt
+  // that unwound — still lands its sound, quietly, because something did move.
+  landing.t += 1 / 60;
+  if (match.blend < 0.86 && landing.t < 1.2) return;
+  // 4 m/s is a hard throw and 1 is a man sitting down. Squared, because
+  // loudness follows energy and a slam should be more than twice a sit.
+  const f = Math.min(1, Math.max(0.18, (landing.peak / 4.2) ** 2));
+  audio.thud(f, manAt(landing.role));
+  audio.cloth(0.5 + f * 0.4, between());
+  if (f > 0.7) audio.swell(0.35 + f * 0.25);
+  landing = null;
+}
+
+// Two men, breathing. What the rig is already carrying, handed to the ear.
+//
+// `effort` is what he is doing this second, `gas` is what the match has done to
+// him. Both live on the rig and both drive the body; neither reached the sound.
+function breathing() {
+  if (match.state !== 'live' && match.state !== 'sub') return;
+  for (const role of ['A', 'B']) {
+    const i = match.roleShown.indexOf(role);
+    if (i < 0) continue;
+    audio.breathe(i, rig.effort[role] || 0, 1 - (match.f[i].stamina / 100), manAt(role, 'chest'));
+  }
+}
+
 let walked = 0;
 const STRIDE = 0.4;
 function footsteps(dt) {
@@ -336,7 +418,7 @@ function footsteps(dt) {
   lastOrigin[2] = match.origin[2];
   if (walked >= STRIDE) {
     walked -= STRIDE;
-    audio.step(0.5 + Math.random() * 0.3);
+    audio.step(0.5 + Math.random() * 0.3, between());
   }
 }
 const lastOrigin = [0, 0];
@@ -517,6 +599,13 @@ function drawFrame(now, real) {
   // Held still too, and for the same reason: a camera that is still settling
   // moves every pixel, which swamps whatever the measurement was about.
   camera.update(window.__still != null ? 0 : dt, focus, mode, match.intensity);
+  // The ear follows the camera, and it has to be told after the camera has
+  // moved and before anything sounds: a shot that cuts to the other side of the
+  // mat swaps left and right, and a sound placed against last frame's listener
+  // comes out of the wrong speaker for exactly one frame of the new shot.
+  audio.listen(camera.eye, camera.at);
+  watchImpact();
+  breathing();
 
   // Who is in which role, and therefore which skeleton each man is wearing this
   // second. Everything about a fighter — his kimono, his belt, his skin and now

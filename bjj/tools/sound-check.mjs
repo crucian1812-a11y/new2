@@ -60,12 +60,25 @@ const { result, fallback } = await page.evaluate(async () => {
     // polls. It reported eleven of twelve events as silence while the game was
     // plainly making all of them. A tap on the output that accumulates a peak
     // cannot miss anything.
-    const probe = a.ctx.createScriptProcessor(4096, 1, 1);
-    let peak = 0;
+    //
+    // Two channels, not one. Everything in this file used to read channel 0 and
+    // call it the output, which was true while every sound in the game came out
+    // of the middle. A sound with a place in it does not: the whole claim of a
+    // pan is that the two channels differ, and a probe that can only see the
+    // left one cannot tell a grip on the far side of the mat from a quiet one.
+    const probe = a.ctx.createScriptProcessor(4096, 2, 2);
+    let peak = 0, peakL = 0, peakR = 0;
     probe.onaudioprocess = (e) => {
-      const d = e.inputBuffer.getChannelData(0);
-      for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); if (v > peak) peak = v; }
-      e.outputBuffer.getChannelData(0).fill(0);
+      const l = e.inputBuffer.getChannelData(0);
+      const r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
+      for (let i = 0; i < l.length; i++) {
+        const a0 = Math.abs(l[i]), b0 = Math.abs(r[i]);
+        if (a0 > peakL) peakL = a0;
+        if (b0 > peakR) peakR = b0;
+        const v = Math.max(a0, b0);
+        if (v > peak) peak = v;
+      }
+      for (let c = 0; c < e.outputBuffer.numberOfChannels; c++) e.outputBuffer.getChannelData(c).fill(0);
     };
     a.master.connect(probe);
     probe.connect(a.ctx.destination);
@@ -76,7 +89,7 @@ const { result, fallback } = await page.evaluate(async () => {
       const before = a.crowdGain.gain.value;
       if (quiet) a.crowdGain.gain.value = 0;
       await new Promise((r) => setTimeout(r, 120));
-      peak = 0;
+      peak = 0; peakL = 0; peakR = 0;
       // Fired several times inside the window, not once. The probe cannot miss
       // a sound it renders, but a headless browser renders in bursts and can
       // hand back a block that happens to fall between two of them; four
@@ -98,6 +111,38 @@ const { result, fallback } = await page.evaluate(async () => {
     const level = async (fn, ms = 700, quiet = true, passes = 4) => {
       let best = 0;
       for (let k = 0; k < passes; k++) best = Math.max(best, await once(fn, ms, quiet));
+      return best;
+    };
+
+    // The same, keeping the two channels apart. A pan is a claim about the
+    // difference between them, and nothing else in this file could see it.
+    // Flat rather than nested: the level() above takes the loudest of four
+    // passes of four firings, and that is right for "is this audible at all"
+    // and wrong here. A pan is a ratio, and a maximum taken over passes takes
+    // the two channels' maxima from different passes — which reported a hard-
+    // panned slam as dead centre while a probe firing the same sound in one
+    // stretch measured it nine to one.
+    const sides = async (fn) => {
+      // The best-separated of three passes, and separation is the quantity under
+      // test — the same logic level() uses for loudness, for the same reason.
+      // A headless browser renders the graph in bursts, and a burst that lands
+      // across two firings mixes the two channels' peaks together and reports a
+      // hard-panned slam as nearly centred. One pass read 80% and the next 5%
+      // with nothing changed.
+      let best = { l: 0, r: 0 }, sep = -1;
+      for (let k = 0; k < 3; k++) {
+        const before = a.crowdGain.gain.value;
+        a.crowdGain.gain.value = 0;
+        // Long enough for the whoosh above — nearly a second, fired four times —
+        // to be out of the room before anything here is measured.
+        await new Promise((r) => setTimeout(r, 600));
+        peakL = 0; peakR = 0;
+        for (let j = 0; j < 5; j++) { fn(); await new Promise((r) => setTimeout(r, 160)); }
+        await new Promise((r) => setTimeout(r, 250));
+        a.crowdGain.gain.value = before;
+        const d = Math.abs(peakL - peakR) / Math.max(1e-9, peakL + peakR);
+        if (d > sep) { sep = d; best = { l: peakL, r: peakR }; }
+      }
       return best;
     };
 
@@ -128,6 +173,51 @@ const { result, fallback } = await page.evaluate(async () => {
     // The swell is the room getting louder, so it is measured with the room on.
     events.swell = await level(() => a.swell(0.9, 1.4), 900, false);
 
+    // Does a sound know where it is?
+    //
+    // The listener is put where the ground shot puts it — three metres back,
+    // looking at the middle — and the same thud is fired from two metres to
+    // either side of the middle. If the pan works, each one is louder on its
+    // own side; if it does not, the two readings are the same number twice.
+    a.listen([0, 1.2, 3], [0, 0.5, 0]);
+    const left = await sides(() => a.thud(1, [-2, 0.3, 0]));
+    const right = await sides(() => a.thud(1, [2, 0.3, 0]));
+
+    // And how far. The same sound at the middle of the mat and at eight metres
+    // out, which is the far corner of the square: the rolloff is gentle by
+    // design, so this asks for a difference rather than for a number.
+    const near = await sides(() => a.thud(1, [0, 0.3, 0]));
+    const far = await sides(() => a.thud(1, [0, 0.3, -8]));
+
+    // Breathing. Fresh against spent, on the same fighter, with the room
+    // quieted — and then the same call while nothing is being asked of it, to
+    // check that a breath is a breath and not a tone that never stops.
+    // One breath at a time, and the exhale, which is the louder half.
+    //
+    // The first version drove it at a frame's interval with the schedule forced
+    // open, which fires ninety overlapping breaths in a second: both a fresh
+    // man and a spent one saturate, and the answer came back 0.8x — a man
+    // working flat out quieter than one at rest. Firing them one at a time,
+    // far enough apart to decay, is the same question asked so that the answer
+    // means something.
+    const breathLoud = async (work, gas) => {
+      const before = a.crowdGain.gain.value;
+      a.crowdGain.gain.value = 0;
+      await new Promise((r) => setTimeout(r, 200));
+      peak = 0;
+      let want = 0;
+      for (let k = 0; k < 6; k++) {
+        a.breathAt[0] = 0;
+        a.breathIn[0] = false;              // the exhale
+        want = Math.max(want, a.breathe(0, work, gas, [0, 1.0, 0]));
+        await new Promise((r) => setTimeout(r, 700));
+      }
+      a.crowdGain.gain.value = before;
+      return { heard: peak, want };
+    };
+    const breathFresh = await breathLoud(0.1, 0);
+    const breathSpent = await breathLoud(0.9, 1);
+
     let music = 0;
     if (waitForPack) {
       await a.track('match');
@@ -139,7 +229,10 @@ const { result, fallback } = await page.evaluate(async () => {
     const muted = await level(() => a.bell(), 300, true, 2);
     a.setMuted(false);
 
-    const out = { loaded: a.loaded, samples: Object.keys(a.sfx).length, events, room, music, muted };
+    const out = {
+      loaded: a.loaded, samples: Object.keys(a.sfx).length, events, room, music, muted,
+      left, right, near, far, breathFresh, breathSpent,
+    };
     // Close it, or the second half of this test runs beside a context that is
     // still mixing a crowd — and two live contexts in one headless tab is how
     // the readings started disagreeing with themselves by twenty decibels.
@@ -239,6 +332,57 @@ if (result.music <= HEARD) { console.log('! no music reached the output'); probl
 
 console.log(`  muted                     ${db(result.muted).padStart(6)} dBFS`);
 if (result.muted > HEARD) { console.log('! mute does not mute'); problems++; }
+
+// Does a sound know which side of the mat it is on?
+//
+// Loudest on its own side, and by enough to hear. Two metres either side of the
+// middle with the ear three metres back is about fifty degrees of separation,
+// which a stereo panner puts several decibels apart; a tenth of the level is a
+// margin that a change of sign would fail and a slightly weaker pan would not.
+const bias = (x) => (x.l + x.r > 0 ? (x.l - x.r) / (x.l + x.r) : 0);
+const bl = bias(result.left), br = bias(result.right);
+const panned = bl > 0.1 && br < -0.1;
+if (!panned) problems++;
+console.log(`${panned ? ' ' : '!'} a sound knows which side it is on   ` +
+  `two metres left ${(bl * 100).toFixed(0)}% to the left ear, ` +
+  `two metres right ${(-br * 100).toFixed(0)}% to the right`);
+
+// And how far away. Eight metres out is the far corner of the square.
+const nearL = Math.max(result.near.l, result.near.r);
+const farL = Math.max(result.far.l, result.far.r);
+const fades = farL > HEARD && farL < nearL * 0.85;
+if (!fades) problems++;
+console.log(`${fades ? ' ' : '!'} and how far away it is              ` +
+  `${db(nearL)} dBFS in the middle, ${db(farL)} at eight metres`);
+
+// Breathing: there at all, and louder when he is spent than when he is fresh.
+// The gap is what carries the information — a breath that does not change is a
+// hiss, and the one thing it is for is telling the player the other man is
+// done without a bar on the HUD.
+// Breathing, in two halves, because one probe cannot answer both.
+//
+// That it is there at all is a question about the output, and the tap answers
+// it. How much deeper it gets is not: a breath is quiet by design — it runs
+// under everything for the whole match — and at fifty decibels down it is close
+// enough to this probe's own floor that the same pair of readings came back
+// 5.3x on one run and 0.7x on the next. That is the burst-rendering problem
+// this file already documents for the synthesised fallback, and the answer here
+// is the same one: ask the game what it scheduled. The depth of a breath is a
+// number the game computes, and it either computes a bigger one for a man with
+// nothing left or it does not.
+const breathes = result.breathSpent.heard > HEARD;
+if (!breathes) problems++;
+console.log(`${breathes ? ' ' : '!'} two men breathe                     ` +
+  `${db(result.breathSpent.heard)} dBFS at the output`);
+const harder = result.breathSpent.want > result.breathFresh.want * 1.5;
+if (!harder) problems++;
+console.log(`${harder ? ' ' : '!'} and harder when the tank is empty   ` +
+  `${(result.breathSpent.want / Math.max(result.breathFresh.want, 1e-9)).toFixed(1)}x deeper as scheduled`);
+// Under the room, not beside it. This runs continuously for the whole match.
+const under = result.breathSpent.heard < result.room * 1.2;
+if (!under) problems++;
+console.log(`${under ? ' ' : '!'} and sits under the room             ` +
+  `${db(result.breathSpent.heard)} against a room at ${db(result.room)}`);
 
 console.log(`\n  with the pack unreachable — ${fallback.samples} samples, synthesis only:`);
 for (const [name, built] of Object.entries(fallback.events)) {
