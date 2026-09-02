@@ -52,7 +52,20 @@ function quadricAt(Q, o, x, y, z) {
        + Q[o + 9];
 }
 
-export function decimate(mesh, targetTris) {
+// `keep` is one multiplier per vertex on the cost of removing it: above one
+// means "spend somewhere else first", below one means "spend here". Omit it and
+// nothing changes.
+//
+// Garland–Heckbert on its own prices a collapse by the curvature it destroys,
+// which is the right rule for a model viewer and the wrong one for a game with
+// a camera at three metres. A scalp is smooth, dense and curved, so every
+// collapse on it is expensive and it survives whole: two thirds of the second
+// fighter's vertices are his head. A foot is flat and faceted, so collapses
+// there are cheap and it is flattened into a wedge — fifty-one vertices and
+// seventy triangles for two of them. budget-check measures the two shares that
+// say so: what each part takes of the screen across real matches, and what it
+// takes of the mesh.
+export function decimate(mesh, targetTris, keep = null) {
   const pos = Float32Array.from(mesh.pos);
   const idx = Array.from(mesh.idx);
   const n = pos.length / 3;
@@ -131,7 +144,8 @@ export function decimate(mesh, targetTris) {
   }
 
   // Candidate collapses: v disappears into w.
-  const cost = (v, w) => quadricAt(Q, v * 10, pos[w * 3], pos[w * 3 + 1], pos[w * 3 + 2]);
+  const cost = (v, w) =>
+    quadricAt(Q, v * 10, pos[w * 3], pos[w * 3 + 1], pos[w * 3 + 2]) * (keep ? keep[v] : 1);
   const heap = [];
   const push = (c, v, w) => {
     heap.push({ c, v, w });

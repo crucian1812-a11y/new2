@@ -23,6 +23,11 @@ const steps = [
   ['joints', 'joint-check.mjs', []],
   ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
   ['the opponent', 'asset-check.mjs', ['bjj/assets/fighter-b.bin']],
+  // Where the triangles went, against where the camera looks. Forty seconds,
+  // because it skins two meshes through the real camera over real matches; the
+  // cheaper question — does the surface survive thinning — asset-check already
+  // asks, and it was the only one being asked.
+  ['the budget', 'budget-check.mjs', []],
   ['club marks', 'mark-check.mjs', []],
   ['match simulation', 'sim-check.mjs', ['400']],
   ['the way out', 'escape-check.mjs', ['240']],

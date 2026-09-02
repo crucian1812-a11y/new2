@@ -839,11 +839,50 @@ function encode(P, N, UV, bone, wt, mat, ao, idx) {
 // attributes; the occlusion is a property of the surface, so it is baked on
 // the triangles that will actually be lit rather than on the ones that were
 // thrown away.
+// What each part of the body is worth keeping, as a multiplier on the cost of
+// simplifying it away. See the note on `decimate`.
+//
+// The head's number is the one the measurement hands over without argument:
+// budget-check puts it at 47% of the first fighter's vertices and 66% of the
+// second's, against 15% and 23% of the screen, and it is the smoothest surface
+// on the body — the place where another thousand triangles buy the least. Down
+// it goes, and the eight thousand vertices that frees are the whole of this
+// change.
+//
+// The hands and the feet are not from the screen share, and saying so matters.
+// By area alone a hand deserves about one per cent of the mesh, which is a
+// mitten: five fingers and a thumb are fine structure that needs a floor of
+// vertices to exist at all, whatever fraction of the picture it occupies. That
+// is the one place the area rule is the wrong rule, so they are protected
+// instead of allocated.
+const KEEP = {
+  head: 0.5, headTop: 0.5, neck: 0.5,
+  hips: 1.0, spine: 1.0, chest: 1.0, clavL: 1.0, clavR: 1.0,
+  armL: 1.0, foreL: 1.0, armR: 1.0, foreR: 1.0,
+  thighL: 1.0, shinL: 1.0, thighR: 1.0, shinR: 1.0,
+  handL: 6, handLTip: 6, handR: 6, handRTip: 6,
+  footL: 3, toeL: 3, footR: 3, toeR: 3,
+};
+function keepWeights(mesh) {
+  const n = mesh.pos.length / 3;
+  const w = new Float32Array(n).fill(1);
+  const byIndex = [];
+  for (const name in KEEP) if (BONE_INDEX[name] !== undefined) byIndex[BONE_INDEX[name]] = KEEP[name];
+  for (let v = 0; v < n; v++) {
+    // The heavier of the two bones the vertex rides, so a vertex half on a hand
+    // is protected like a hand rather than averaged into the forearm.
+    const a = byIndex[mesh.bone[v * 2]] ?? 1;
+    const b = mesh.wt[v * 2 + 1] > 0 ? byIndex[mesh.bone[v * 2 + 1]] ?? 1 : a;
+    w[v] = Math.max(a, b);
+  }
+  return w;
+}
+
 let FINAL = { pos, nrm: N, uv: UV, bone: BONE, wt: WT, mat: MAT, ao: null, idx: Array.from(idx) };
 if (TRIS > 0 && idx.length / 3 > TRIS) {
   const t0 = Date.now();
   const before = { pos, idx: Array.from(idx) };
-  const thin = decimate(FINAL, TRIS);
+  const thin = decimate(FINAL, TRIS, keepWeights(FINAL));
   const dev = deviation(before, thin);
   console.log(`decimated ${idx.length / 3} -> ${thin.idx.length / 3} tris, ` +
     `${pos.length / 3} -> ${thin.count} verts in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
