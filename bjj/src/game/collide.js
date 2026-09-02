@@ -44,10 +44,16 @@ const CAPSULES = [
 
   ['armL', 'foreL', 0.085, 0.076, 1.0, 1.0],
   ['foreL', 'handL', 0.078, 0.070, 1.0, 0.9],
-  ['handL', 'handLTip', 0.040, 0.026, 0.55, 0.5],
+  // Two, since the hand got a knuckle row. One capsule from the palm to the
+  // fingertip is a straight line, and a straight line through a closed hand
+  // cuts the corner the fingers just made: the fist reads as a flat paddle
+  // pointing where the fingers no longer point.
+  ['handL', 'fingL', 0.042, 0.038, 0.6, 0.55],
+  ['fingL', 'handLTip', 0.038, 0.024, 0.55, 0.5],
   ['armR', 'foreR', 0.085, 0.076, 1.0, 1.0],
   ['foreR', 'handR', 0.078, 0.070, 1.0, 0.9],
-  ['handR', 'handRTip', 0.040, 0.026, 0.55, 0.5],
+  ['handR', 'fingR', 0.042, 0.038, 0.6, 0.55],
+  ['fingR', 'handRTip', 0.038, 0.024, 0.55, 0.5],
 
   ['thighL', 'shinL', 0.122, 0.100, 1.0, 1.0],
   ['shinL', 'footL', 0.095, 0.075, 1.0, 1.0],
