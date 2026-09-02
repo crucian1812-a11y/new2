@@ -30,7 +30,7 @@
 
 import { PairRig } from '../src/game/rig.js';
 import { POSES, HOLD_LOOPS } from '../src/game/poses.js';
-import { TRANSITIONS, visualTo } from '../src/game/positions.js';
+import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { JUDGE_STEPS } from './grid.mjs';
 
@@ -129,7 +129,7 @@ for (const id of Object.keys(POSES)) {
 
 const seen = new Set();
 const BLENDS = [
-  ...TRANSITIONS.map((tr) => [tr.from, visualTo(tr)]),
+  ...TRANSITIONS.flatMap((tr) => visualEnds(tr).map((to) => [tr.from, to])),
   ...Object.entries(HOLD_LOOPS).flatMap(([pos, loop]) => loop.map((v) => [pos, v])),
 ];
 for (const [from, to] of BLENDS) {

@@ -1,3 +1,5 @@
+import { POSES, mirrorId } from './poses.js';
+
 // The position graph.
 //
 // Every node is a paired pose; every edge is a thing one of the two people can
@@ -88,11 +90,11 @@ export const TRANSITIONS = [
   }),
   T('CLOSED_GUARD', 'bottom', 'left', 'MOUNT', {
     name: 'Переворот', en: 'Hip bump sweep', points: 2, cost: 26, base: 0.38,
-    time: 0.95, deny: 'right', swap: true, mirror: true, becomes: 'top',
+    time: 0.95, deny: 'right', becomes: 'top',
   }),
   T('CLOSED_GUARD', 'bottom', 'right', 'BACK', {
     name: 'Выход на спину', en: 'Take the back', points: 4, cost: 30, base: 0.24,
-    time: 1.0, deny: 'left', swap: true, mirror: true, becomes: 'top', big: true,
+    time: 1.0, deny: 'left', becomes: 'top', big: true,
   }),
 
   /* ---------------------------------------------------------- open guard */
@@ -113,7 +115,7 @@ export const TRANSITIONS = [
   }),
   T('OPEN_GUARD', 'bottom', 'left', 'MOUNT', {
     name: 'Свип', en: 'Sweep', points: 2, cost: 26, base: 0.36, time: 0.95,
-    deny: 'right', swap: true, mirror: true, becomes: 'top',
+    deny: 'right', becomes: 'top',
   }),
   T('OPEN_GUARD', 'bottom', 'right', 'STANDING', {
     name: 'Подъём', en: 'Technical stand-up', points: 0, cost: 20, base: 0.55,
@@ -139,11 +141,11 @@ export const TRANSITIONS = [
   }),
   T('HALF_GUARD', 'bottom', 'left', 'SIDE_CONTROL', {
     name: 'Свип из-под низа', en: 'Underhook sweep', points: 2, cost: 28,
-    base: 0.32, time: 1.0, deny: 'right', swap: true, mirror: true, becomes: 'top',
+    base: 0.32, time: 1.0, deny: 'right', becomes: 'top',
   }),
   T('HALF_GUARD', 'bottom', 'right', 'BACK', {
     name: 'Выход на спину', en: 'Back take', points: 4, cost: 30, base: 0.22,
-    time: 1.0, deny: 'left', swap: true, mirror: true, becomes: 'top', big: true,
+    time: 1.0, deny: 'left', becomes: 'top', big: true,
   }),
 
   /* -------------------------------------------------------- side control */
@@ -171,7 +173,7 @@ export const TRANSITIONS = [
   // other way round — which is what a bridge and roll is.
   T('SIDE_CONTROL', 'bottom', 'left', 'SIDE_CONTROL', {
     name: 'Мост и переворот', en: 'Bridge and roll', points: 2, cost: 30,
-    base: 0.26, time: 1.0, deny: 'right', swap: true, becomes: 'top', mirror: true,
+    base: 0.26, time: 1.0, deny: 'right', becomes: 'top',
   }),
   T('SIDE_CONTROL', 'bottom', 'right', 'TURTLE', {
     name: 'В черепаху', en: 'Turtle up', points: 0, cost: 16, base: 0.6,
@@ -220,7 +222,7 @@ export const TRANSITIONS = [
   }),
   T('MOUNT', 'bottom', 'left', 'CLOSED_GUARD', {
     name: 'Мост (упа)', en: 'Upa escape', points: 2, cost: 32, base: 0.26,
-    time: 1.05, deny: 'right', swap: true, mirror: true, becomes: 'top',
+    time: 1.05, deny: 'right', becomes: 'top',
   }),
   T('MOUNT', 'bottom', 'down', 'HALF_GUARD', {
     name: 'Выкрут бедром', en: 'Elbow escape', points: 0, cost: 24, base: 0.4,
@@ -296,9 +298,58 @@ for (const t of TRANSITIONS) {
 }
 
 // Where the picture goes during a transition, which is not always where the
-// fight goes: a sweep travels to the mirror of its destination and the roles
-// change hands on arrival. See MIRRORS in poses.js.
-export const visualTo = (tr) => (tr.mirror ? tr.to + '_X' : tr.to);
+// fight goes: when the attacker ends up wearing the other man's role, the
+// blend runs to the mirror of its destination and the roles change hands on
+// arrival, so the exchange costs nothing at the join. See MIRRORS in poses.js.
+//
+// This was a flag on the edge, hand-set on the seven sweeps, and it could not
+// be anything else: out of a held position `role` says which of the two is
+// moving, so the answer is the same every time. Out of the stance it is not.
+// Either man can shoot a double leg, whoever shoots ends up on top, and the
+// graph cannot know in advance which — so the flag was simply absent there and
+// the two of them changed places in one frame, about once a match.
+//
+// So it is computed, from the two facts that decide it: what role the attacker
+// holds now, and what role the destination will give him. Checked against the
+// flags it replaces before they were removed — fifty-one edges, fifty-one
+// agreements, and the six it disagreed about are the six it exists for.
+const flip = (r) => (r === 'A' ? 'B' : 'A');
+
+// What role the destination hands the attacker. Null where the destination has
+// no top and bottom at all, which is the stance and the clinch: nothing is
+// exchanged there because nobody holds anything.
+const wants = (tr) => {
+  const destTop = POSES[tr.to].top;
+  if (!destTop) return null;
+  return tr.becomes === 'bottom' ? flip(destTop) : destTop;
+};
+
+// What role the attacker holds before he starts, where the graph knows it.
+const had = (tr) => {
+  const fromTop = POSES[tr.from].top;
+  if (!fromTop || tr.role === 'any') return null;
+  return tr.role === 'top' ? fromTop : flip(fromTop);
+};
+
+export function visualTo(tr, attackerRole) {
+  const w = wants(tr);
+  if (w === null) return tr.to;
+  const h = attackerRole !== undefined ? attackerRole : had(tr);
+  if (h === null || h === w) return tr.to;
+  const m = mirrorId(tr.to);
+  return POSES[m] ? m : tr.to;
+}
+
+// Every pose this transition's blend can end on. One for an edge whose
+// attacker is named by the graph, two for one out of the stance — and the
+// tools have to solve, judge and route both, because the player will see both.
+export function visualEnds(tr) {
+  const w = wants(tr);
+  if (w === null) return [tr.to];
+  const h = had(tr);
+  if (h !== null) return [visualTo(tr, h)];
+  return [...new Set([visualTo(tr, w), visualTo(tr, flip(w))])];
+}
 
 export function optionsFor(position, role) {
   const p = BY_POSITION[position];

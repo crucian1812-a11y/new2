@@ -16,7 +16,7 @@
 
 import { PairRig } from '../src/game/rig.js';
 import { POSES, HOLD_LOOPS } from '../src/game/poses.js';
-import { TRANSITIONS, visualTo } from '../src/game/positions.js';
+import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { JUDGE_STEPS } from './grid.mjs';
@@ -90,7 +90,8 @@ const LOW = ['handL', 'handR', 'footL', 'footR', 'hips', 'shinL', 'shinR', 'ches
 const BLENDS = [
   // `visualTo`, not `to`: a sweep blends to the mirror of its destination, and
   // that is the path the eye is on, so that is the path to judge.
-  ...TRANSITIONS.map((tr) => ({ from: tr.from, to: visualTo(tr), name: tr.name, kind: 'transition' })),
+  ...TRANSITIONS.flatMap((tr) => visualEnds(tr).map(
+    (to) => ({ from: tr.from, to, name: tr.name, kind: 'transition' }))),
   ...Object.entries(HOLD_LOOPS).flatMap(([pos, loop]) =>
     loop.map((v) => ({ from: pos, to: v, name: POSES[v].name, kind: 'hold' }))),
 ];

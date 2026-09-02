@@ -101,16 +101,17 @@ function endsOf(s) {
 // A cut with a name on it: the same blend, the same point along it, and the two
 // men have changed places.
 //
-// This is the sweeps' old defect, still living where they left it. A transition
-// whose attacker ends up wearing the other role has to blend to the *mirror* of
-// its destination, or the exchange happens in one frame — sweeps got mirrors
-// and takedowns out of standing did not, because standing was 1.5% of the match
-// and nobody saw them. It is 11% now and they are the whole of what is left.
+// This was the sweeps' old defect and then the takedowns'. A transition whose
+// attacker ends up wearing the other role has to blend to the *mirror* of its
+// destination, or the exchange happens in one frame. The sweeps got mirrors
+// from a flag set by hand on seven edges; the takedowns could not have one,
+// because out of the stance either man can shoot and the graph cannot know in
+// advance which. So they cut, about once a match, and it went unnoticed while
+// standing was 1.5% of the clock.
 //
-// The general rule, which would retire the `mirror` flag entirely: mirror
-// whenever the attacker changes role. Every destination reachable that way
-// needs one, and each needs its own solved arc, so it is a round of work rather
-// than a line.
+// The flag is gone and the rule is computed: mirror whenever the attacker
+// changes role. It agrees with all fifty-one edges the flag decided and covers
+// the six it could not.
 function roleSwap(a, b) {
   return a.from === b.from && a.to === b.to && a.roles !== b.roles;
 }
@@ -225,11 +226,13 @@ check(
 );
 // Named, measured, and known to be off — the same two tiers sim-check and
 // blend-check use. It fails when it gets worse, not while it is on the list.
+// Zero, now that there is no case the rule cannot reach. It was two, because
+// six edges out of the stance had no mirror to carry them and the number had to
+// be a work list rather than a line.
 check(
-  swapsPer < 2.0,
+  swapsPer < 0.05,
   'the two men change places only where a mirror carries them',
-  `${swapsPer.toFixed(1)} bare swaps per match, all of them takedowns out of ` +
-  `standing, which have no mirror yet`
+  `${swapsPer.toFixed(2)} bare swaps per match`
 );
 
 // The threshold here was 15% of every frame where nothing could be pressed,

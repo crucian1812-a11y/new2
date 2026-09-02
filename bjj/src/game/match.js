@@ -486,7 +486,7 @@ export class Match {
       // either arriving or snapping back.
       this.blend = Math.min(0.82, (a.t - a.vis) / dur);
       this.prevPosition = this.position;
-      this.pending = visualTo(a.tr);
+      this.pending = visualTo(a.tr, this.roleOf[a.by]);
       this.blendTo = 1;
       return;
     }
@@ -741,11 +741,16 @@ export class Match {
     // Pick up the blend the attempt already ran rather than replaying it. The
     // pair is 82% of the way to exactly this pose; starting again from zero is
     // the single most visible break in the game.
-    const carrying = this.pending === visualTo(tr) && this.prevPosition !== this.pending;
-    // A sweep that is still travelling to the mirror keeps travelling. Cutting
-    // the far end of the blend over to the unmirrored pose here is a swap of
-    // both bodies in one frame, which is the thing the mirror exists to stop.
-    const landing = carrying && visualTo(tr) !== tr.to;
+    // Which pose the picture is actually heading for. It depends on the role
+    // the attacker is holding *now*, before anything below reassigns it — out
+    // of the stance either man can shoot and only one of the two answers is a
+    // change of places.
+    const dest = visualTo(tr, this.roleOf[by]);
+    const carrying = this.pending === dest && this.prevPosition !== this.pending;
+    // A blend that is still travelling to the mirror keeps travelling. Cutting
+    // the far end over to the unmirrored pose here is a swap of both bodies in
+    // one frame, which is the thing the mirror exists to stop.
+    const landing = carrying && dest !== tr.to;
     if (!carrying) {
       this.prevPosition = this.position;
       this.blend = 0;
@@ -757,9 +762,11 @@ export class Match {
     this.position = tr.to;
     this.blendSpeed = 1 / Math.max(0.22, tr.time * 0.55);
 
-    if (tr.swap) {
-      this.roleOf = [this.roleOf[1], this.roleOf[0]];
-    }
+    // `swap` used to be here, on seven edges, and it never did anything: every
+    // one of them lands somewhere with a top, and the two lines below assign
+    // both roles outright a moment later. Removed with the `mirror` flag it sat
+    // beside — the exchange is real, but it is these two lines that make it.
+    //
     // The destination pose decides who is role A; make sure the person who did
     // the work is the one holding it.
     const destTop = POSES[tr.to].top;

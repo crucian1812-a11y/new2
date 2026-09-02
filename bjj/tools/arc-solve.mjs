@@ -41,7 +41,7 @@
 import { writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
 import { ARCS, VIAS } from '../src/game/arcs.js';
-import { TRANSITIONS, visualTo } from '../src/game/positions.js';
+import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { HOLD_LOOPS } from '../src/game/poses.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
@@ -205,7 +205,7 @@ const seen = new Set();
 for (const [from, to] of [
   // The mirror of a destination, where there is one: that is the blend the eye
   // is on, so that is the blend that needs a correction.
-  ...TRANSITIONS.map((tr) => [tr.from, visualTo(tr)]),
+  ...TRANSITIONS.flatMap((tr) => visualEnds(tr).map((to) => [tr.from, to])),
   ...Object.entries(HOLD_LOOPS).flatMap(([pos, loop]) => loop.map((v) => [pos, v])),
 ]) {
   const key = `${from}>${to}`;

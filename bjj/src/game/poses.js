@@ -1407,7 +1407,19 @@ for (const p of Object.values(POSES)) {
 //
 // Nothing is authored twice: A and B are exchanged, and so is every reference
 // to a role inside `hold` and `grips`.
-const MIRRORS = ['SIDE_CONTROL', 'MOUNT', 'BACK', 'CLOSED_GUARD'];
+// Everything a fight can arrive in with the two men exchanged. That is every
+// position with a top and a bottom that some transition can reach from either
+// side — which, once the takedowns were included, is all of them except the
+// two that have no top at all: nobody is on top in the stance or the clinch,
+// so there is nothing to exchange.
+const MIRRORS = [
+  'SIDE_CONTROL', 'MOUNT', 'BACK', 'CLOSED_GUARD',
+  // The three the takedowns need. A double leg out of the stance puts the man
+  // who shot on top — and until now it did that by relabelling both of them in
+  // one frame, because standing is the one place the graph cannot know in
+  // advance which of the two will shoot.
+  'OPEN_GUARD', 'HALF_GUARD', 'TURTLE',
+];
 const flipRole = (r) => (r === 'A' ? 'B' : r === 'B' ? 'A' : r);
 const flipRef = (ref) =>
   (typeof ref === 'string' && /^[AB]\./.test(ref) ? flipRole(ref[0]) + ref.slice(1) : ref);

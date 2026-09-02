@@ -16,7 +16,7 @@ import { Overlap } from '../src/game/collide.js';
 import { GRIP_POINTS } from '../src/render/body.js';
 import { m4point, v3 } from '../src/core/m4.js';
 import { violations } from '../src/game/intent.js';
-import { TRANSITIONS, visualTo } from '../src/game/positions.js';
+import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 
 const MAT_Y = 0.05;
 const _t = v3();
@@ -309,11 +309,12 @@ console.log(
   const shots = [];
   const seen = new Set();
   for (const tr of TRANSITIONS) {
-    const to = visualTo(tr);
-    const key = `${tr.from}>${to}`;
-    if (tr.from === to || seen.has(key)) continue;
-    seen.add(key);
-    shots.push([tr.from, to]);
+    for (const to of visualEnds(tr)) {
+      const key = `${tr.from}>${to}`;
+      if (tr.from === to || seen.has(key)) continue;
+      seen.add(key);
+      shots.push([tr.from, to]);
+    }
   }
   const rows = [];
   for (const [from, to] of shots) {

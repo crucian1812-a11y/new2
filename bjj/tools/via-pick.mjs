@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
 import { POSITION_IDS, WAYPOINT_IDS } from '../src/game/poses.js';
 import { ARCS, VIAS } from '../src/game/arcs.js';
-import { TRANSITIONS, visualTo } from '../src/game/positions.js';
+import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { JUDGE_STEPS } from './grid.mjs';
@@ -84,13 +84,17 @@ function walk(from, to) {
 const keys = [];
 const seen = new Set();
 for (const tr of TRANSITIONS) {
-  // `visualTo`, not `to`: a sweep's blend runs to the mirror of its
-  // destination, and a bridge and roll is exactly the kind of path a swelling
-  // shove cannot solve — the two of them have to go round each other.
-  const key = `${tr.from}>${visualTo(tr)}`;
-  if (tr.from === visualTo(tr) || seen.has(key)) continue;
-  seen.add(key);
-  keys.push(key);
+  // `visualEnds`, not `to`: a blend whose attacker changes role runs to the
+  // mirror of its destination, and a bridge and roll is exactly the kind of
+  // path a swelling shove cannot solve — the two of them have to go round each
+  // other. Out of the stance a transition has two of those ends, because
+  // either man can be the one who shot.
+  for (const to of visualEnds(tr)) {
+    const key = `${tr.from}>${to}`;
+    if (tr.from === to || seen.has(key)) continue;
+    seen.add(key);
+    keys.push(key);
+  }
 }
 
 // Positions, plus the waypoints authored for exactly this. A held position's
