@@ -1187,9 +1187,12 @@ function encode(P, N, UV, bone, wt, mat, ao, idx) {
   const buf = Buffer.alloc(bytes + 8);
   let o = 0;
   buf.write('BJJF', o); o += 4;
-  // Version 2: one byte of baked ambient occlusion per vertex, on the end.
-  buf.writeUInt16LE(2, o); o += 2;          // version
-  buf.writeUInt16LE(0, o); o += 2;          // flags
+  // Version 2 added a byte of baked ambient occlusion per vertex, on the end.
+  // Version 3 fills the two spare bytes after it with the bone count: this file
+  // is a list of bone indices and it has to say what it indexes into. See the
+  // note in asset.js about the hand that came out as a spike.
+  buf.writeUInt16LE(3, o); o += 2;          // version
+  buf.writeUInt16LE(BONE_COUNT, o); o += 2; // the skeleton it was baked for
   buf.writeUInt32LE(n, o); o += 4;
   buf.writeUInt32LE(idx.length, o); o += 4;
   for (const v of [minX, minY, minZ, maxX, maxY, maxZ, uvMax, 0]) {

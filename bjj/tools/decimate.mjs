@@ -126,6 +126,22 @@ export function decimate(mesh, targetTris, keep = null) {
       if (locked[v]) break;
     }
   }
+  // A vertex on an open edge may move, but only along the edge it is on.
+  //
+  // Nailing them down outright was the first rule and it is far too strong for
+  // this character. An open edge is an edge with one triangle: a hem, a cuff,
+  // the rim of an eyelid — and every border of every hair card. Measured on the
+  // opponent, 8740 of his 11441 hair vertices are on one, which is thirty per
+  // cent of his whole mesh locked before the thinner has looked at it, on a head
+  // that look-check has never once caught large enough to measure.
+  //
+  // What the rule is protecting is the *curve* of the border, and a collapse
+  // from one boundary vertex onto another it shares an open edge with keeps that
+  // curve: the border stays where it was, with one fewer vertex describing it.
+  // What it must not do is drag the border inwards onto the surface, or pull a
+  // surface vertex out onto the border, and both of those are collapses between
+  // a boundary vertex and an interior one.
+  const edgeMate = new Map();
   {
     const seen = new Map();
     for (let t = 0; t < nTri; t++) {
@@ -139,9 +155,64 @@ export function decimate(mesh, targetTris, keep = null) {
     for (const [k, count] of seen) {
       if (count !== 1) continue;
       const [a, b] = k.split(',').map(Number);
-      locked[a] = 1; locked[b] = 1;
+      if (!edgeMate.has(a)) edgeMate.set(a, new Set());
+      if (!edgeMate.has(b)) edgeMate.set(b, new Set());
+      edgeMate.get(a).add(b);
+      edgeMate.get(b).add(a);
     }
   }
+  // A corner of a border — three or more open edges meeting — is a feature and
+  // stays. Two is a point along a curve and may slide; one is a dangling edge
+  // and there is nothing sensible to slide it to.
+  // And sliding along it has to cost what it deforms.
+  //
+  // A boundary vertex's quadric is the sum of its own few triangles' planes, and
+  // on a flat hair card every one of them is the same plane — so moving along
+  // the border is free by that measure, and the first run of the rule above
+  // took the surface from 3 mm out to 42. What is missing is the plane the
+  // border itself lies in: for every open edge, a plane through it and
+  // perpendicular to the triangle that owns it. Garland and Heckbert put it
+  // there for exactly this, weighted well above the surface terms, and it is
+  // what lets a border shorten along a straight run and stops it cutting a
+  // corner.
+  {
+    const a = [0, 0, 0], b = [0, 0, 0], c = [0, 0, 0];
+    for (const [v, mates] of edgeMate) {
+      for (const w of mates) {
+        if (w < v) continue;                          // each edge once
+        // A third point off the edge, in the direction of the edge's own
+        // triangle normal: the plane through the edge and perpendicular to the
+        // surface. Any triangle sharing both ends will do — an open edge has
+        // exactly one.
+        let t = -1;
+        for (const k of tris[v]) {
+          if (!alive[k]) continue;
+          const i0 = idx[k * 3], i1 = idx[k * 3 + 1], i2 = idx[k * 3 + 2];
+          if (i0 === w || i1 === w || i2 === w) { t = k; break; }
+        }
+        if (t < 0) continue;
+        const l = nrmOf(t, tmp);
+        if (l < EPS) continue;
+        a[0] = pos[v * 3]; a[1] = pos[v * 3 + 1]; a[2] = pos[v * 3 + 2];
+        b[0] = pos[w * 3]; b[1] = pos[w * 3 + 1]; b[2] = pos[w * 3 + 2];
+        c[0] = a[0] + tmp[0] / l; c[1] = a[1] + tmp[1] / l; c[2] = a[2] + tmp[2] / l;
+        if (!planeQ(a, b, c, q)) continue;
+        // Weighted by the edge's own length squared, so a long border matters
+        // more than a stray sliver, and then by a constant that puts it well
+        // above the surface terms it competes with.
+        const el = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+        const wgt = el * el * 260;
+        for (const o of [v * 10, w * 10]) for (let k = 0; k < 10; k++) Q[o + k] += q[k] * wgt;
+      }
+    }
+  }
+
+  const allowed = (v, w) => {
+    if (locked[v]) return false;
+    const ev = edgeMate.get(v);
+    if (!ev) return !edgeMate.has(w);          // interior onto interior only
+    return ev.size === 2 && ev.has(w);
+  };
 
   // Candidate collapses: v disappears into w.
   const cost = (v, w) =>
@@ -185,7 +256,7 @@ export function decimate(mesh, targetTris, keep = null) {
   const gone = new Uint8Array(n);
   for (let v = 0; v < n; v++) {
     if (locked[v]) continue;
-    for (const w of neighbours(v)) push(cost(v, w), v, w);
+    for (const w of neighbours(v)) if (allowed(v, w)) push(cost(v, w), v, w);
   }
 
   // Would this collapse turn anything inside out?
@@ -211,7 +282,7 @@ export function decimate(mesh, targetTris, keep = null) {
   let worst = 0;
   while (live > targetTris && heap.length) {
     const { c, v, w } = pop();
-    if (gone[v] || gone[w] || locked[v]) continue;
+    if (gone[v] || gone[w] || !allowed(v, w)) continue;
     // Lazy: the cost was computed before some neighbour moved.
     const now = cost(v, w);
     if (now > c * 1.0001 + 1e-12) { push(now, v, w); continue; }
@@ -233,9 +304,23 @@ export function decimate(mesh, targetTris, keep = null) {
         triNrm[t * 3] = tmp[0] / l; triNrm[t * 3 + 1] = tmp[1] / l; triNrm[t * 3 + 2] = tmp[2] / l;
       }
     }
+    // The border the collapsed vertex was on is now one link shorter: whatever
+    // it was joined to across the open edge is joined to w instead, or the
+    // border would fall apart into two loose ends.
+    if (edgeMate.has(v)) {
+      for (const m2 of edgeMate.get(v)) {
+        if (m2 === w) continue;
+        edgeMate.get(m2).delete(v);
+        edgeMate.get(m2).add(w);
+        if (!edgeMate.has(w)) edgeMate.set(w, new Set());
+        edgeMate.get(w).add(m2);
+      }
+      if (edgeMate.has(w)) edgeMate.get(w).delete(v);
+      edgeMate.delete(v);
+    }
     for (const x of neighbours(w)) {
-      if (!locked[w]) push(cost(w, x), w, x);
-      if (!locked[x]) push(cost(x, w), x, w);
+      if (allowed(w, x)) push(cost(w, x), w, x);
+      if (allowed(x, w)) push(cost(x, w), x, w);
     }
   }
 

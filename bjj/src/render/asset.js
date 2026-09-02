@@ -10,10 +10,27 @@
 // is whatever is left. That is about a third of the size of the float version
 // and the difference is invisible on a 1.7 m body at arm's length.
 
+import { BONE_COUNT } from './skeleton.js';
+
 const MAGIC = 0x464a4a42; // 'BJJF' little-endian
 
+// The bone count goes in the URL, and it is not decoration.
+//
+// A baked fighter is a list of bone *indices*, and `force-cache` below tells
+// the browser to use whatever copy it has without ever asking the network. Put
+// those two together and a returning player gets today's skeleton with the mesh
+// they downloaded last month: every vertex on a bone past the change points at
+// a different bone, and a hand comes out as a spike two metres long. That
+// shipped. It is what a knuckle row inserted into the middle of the bone list
+// does to anyone who had already played.
+//
+// So the cache key changes exactly when the thing it would break changes.
+// A rebake with the same skeleton is safe to serve from cache and still is;
+// a skeleton with one more bone in it is a different URL.
+export const assetURL = (href) => `${href}?bones=${BONE_COUNT}`;
+
 export async function loadFighter(url) {
-  const res = await fetch(url, { cache: 'force-cache' });
+  const res = await fetch(assetURL(url), { cache: 'force-cache' });
   if (!res.ok) throw new Error(`${url}: ${res.status}`);
   return decodeFighter(await res.arrayBuffer());
 }
@@ -22,7 +39,20 @@ export function decodeFighter(buffer) {
   const dv = new DataView(buffer);
   if (dv.getUint32(0, true) !== MAGIC) throw new Error('not a baked fighter');
   const version = dv.getUint16(4, true);
-  if (version !== 1 && version !== 2) throw new Error(`fighter asset version ${version} not supported`);
+  if (version < 1 || version > 3) throw new Error(`fighter asset version ${version} not supported`);
+  // And which skeleton it was baked against.
+  //
+  // The two spare bytes after the version were always zero; from version 3 they
+  // hold the bone count, because a file of bone indices that does not say what
+  // it indexes into is a file that fails silently. Before that the answer is 24
+  // — the skeleton every version 1 and 2 file was written for — so an old mesh
+  // against a newer skeleton says so instead of drawing a claw.
+  const bones = version >= 3 ? dv.getUint16(6, true) : 24;
+  if (bones !== BONE_COUNT) {
+    throw new Error(
+      `fighter asset was baked for ${bones} bones and this build has ${BONE_COUNT}` +
+      ' — rebake it, or the skin will be attached to the wrong bones');
+  }
   const n = dv.getUint32(8, true);
   const idxCount = dv.getUint32(12, true);
   const minX = dv.getFloat32(16, true), minY = dv.getFloat32(20, true), minZ = dv.getFloat32(24, true);
