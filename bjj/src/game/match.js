@@ -43,6 +43,8 @@ const STALL_AGAIN = 8;
 // gate in. At 70 it is hidden about half the time, and the loop closes: miss
 // one, get flattened, see less, miss more.
 const DENY_READ = 70;
+// How long a press waits for the game to be ready for it. See input().
+const BUFFER_HOLD = 0.5;
 
 // The competition square is eight metres, so its edge is four from the middle.
 // A second and a bit outside it is a referee noticing rather than a referee
@@ -113,6 +115,8 @@ export class Match {
     this.pending = null;
     // A transition waiting for the picture to finish unwinding before it runs.
     this.queued = null;
+    // A press the game could not use yet. See input().
+    this.buffer = null;
     // Role A of the paired pose is always the better position; who is playing
     // it changes every time somebody sweeps.
     this.roleOf = ['A', 'B'];
@@ -207,7 +211,19 @@ export class Match {
 
   options(i) {
     if (this.state !== 'live' || this.attempt || this.cool[i] > 0) return {};
-    return optionsFor(this.position, this.tagOf(i));
+    // And what he can pay for.
+    //
+    // This used to hand back everything the graph offers and let the press find
+    // out: the ring drew four bright labels, one of them cost more than he had
+    // left, and flicking it produced a line of text and nothing else. Measured
+    // across forty matches it was 15% of every label the ring put up — and the
+    // moves it hits are the expensive ones, which are the ones worth points.
+    // The ring already knows how to draw "there, but not yet"; it was never
+    // told that this was one of those.
+    const all = optionsFor(this.position, this.tagOf(i));
+    const out = {};
+    for (const dir in all) if (this.f[i].stamina >= all[dir].cost * 0.35) out[dir] = all[dir];
+    return out;
   }
 
   // What this role has from here, whether or not it can be pressed yet.
@@ -240,10 +256,28 @@ export class Match {
       return this._tryDeny(i, dir);
     }
     if (this.state === 'sub') return this._subInput(i, dir);
-    if (this.state !== 'live' || this.attempt || this.cool[i] > 0) return null;
+    if (this.state !== 'live') return null;
 
+    // A press the game cannot use *yet* is remembered, not thrown away.
+    //
+    // Two things block a flick for a moment and both used to swallow it in
+    // silence: your own attempt still in flight, and the cooldown after the
+    // last one. Measured with a scripted thumb playing real matches, nineteen
+    // of its fifty-seven attacking flicks went nowhere for the first reason —
+    // a third of everything the hand did. The ring dims while it happens,
+    // which says "not yet", and the game then answered "no" anyway.
+    //
+    // Half a second, which is the fighting-game convention and is short for a
+    // reason: a flick thrown at the start of a one-second throw was meant for
+    // a fight that no longer exists, and replaying it there would be a second
+    // kind of lie. Late presses land; early ones expire.
+    const blocked = this.attempt || this.cool[i] > 0;
     const tr = optionsFor(this.position, this.tagOf(i))[dir];
     if (!tr) return null;
+    if (blocked) {
+      this.buffer = { i, dir, t: 0 };
+      return 'queued';
+    }
     const me = this.f[i];
     if (me.stamina < tr.cost * 0.35) {
       this.emit(`${me.name}: нет сил`, 'warn');
@@ -438,6 +472,17 @@ export class Match {
       this.landing = false;
       this._flushQueued();
     }
+    // The buffered press, once whatever was in its way has gone.
+    if (this.buffer) {
+      this.buffer.t += dt;
+      const b = this.buffer;
+      if (b.t > BUFFER_HOLD) this.buffer = null;
+      else if (this.state === 'live' && !this.attempt && this.cool[b.i] <= 0) {
+        this.buffer = null;
+        this.input(b.i, b.dir);
+      }
+    }
+
     this._stamina(dt, control);
 
     if (this.state === 'sub') this._subUpdate(dt);
