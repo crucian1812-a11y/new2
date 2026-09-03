@@ -253,7 +253,15 @@ export class Match {
     // at you and you flick, that flick is a denial attempt, full stop —
     // otherwise the defence is impossible to perform under pressure.
     if (this.attempt && this.attempt.defender === i) {
-      return this._tryDeny(i, dir);
+      const r = this._tryDeny(i, dir);
+      if (r) return r;
+      // Nothing there to deny. Half of what comes at you has no answer at all —
+      // measured at 52% of the frames somebody is attacking you, because only
+      // some transitions carry a `deny` — and the flick used to die there in
+      // silence: a scripted thumb threw twenty-eight of them a run at moves
+      // that cannot be stopped. It is not a defence, so it falls through to
+      // the buffer below and becomes what the player plainly meant by it: the
+      // thing to do the moment this is over.
     }
     if (this.state === 'sub') return this._subInput(i, dir);
     if (this.state !== 'live') return null;
@@ -377,6 +385,15 @@ export class Match {
   // a player who reads well is rewarded for it at every level of pressure.
   denyRead(i) {
     if (!this.deny || !this.attempt || this.attempt.defender !== i) return null;
+    // And only while there is still time to answer.
+    //
+    // Measured at nought frames today: an attempt resolves exactly when its
+    // window closes, so the tail this guards against does not currently exist.
+    // It is here because those are two independent numbers — DENY_WINDOW and
+    // whatever `time` a transition carries — and the moment they disagree the
+    // ring would be showing a defence that _tryDeny has already stopped
+    // accepting. Cheap, and it is the ring's honesty that depends on it.
+    if (this.deny.t > this.deny.window) return null;
     let doors = 0;
     // Underneath, you do not see him wind up.
     if (this.isDominant(this.attempt.by)) doors++;
