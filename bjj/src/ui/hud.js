@@ -222,7 +222,37 @@ export class HUD {
       c.lineWidth = on ? 2 : 1;
       c.stroke();
 
+      // How likely it is, as an arc round the button.
+      //
+      // Without this the ring showed a name and nothing else, and the obvious
+      // way to play — press whatever is likeliest to work — scores exactly
+      // zero: measured over 200 matches, 0.0 points and no wins at all. The
+      // high percentages in this game are the retreats. Sitting to guard is
+      // 95%, dropping back to side control is 90%, standing up out of turtle
+      // is 85%, and every one of them is worth nothing. Points live between
+      // 30 and 60. A player cannot find that out from four words.
+      if (on && !threat && tr) {
+        c.beginPath();
+        c.arc(x, y, rr + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * tr.base);
+        c.strokeStyle = 'rgba(255,255,255,0.34)';
+        c.lineWidth = 2;
+        c.stroke();
+      }
+
       arrow(c, x, y, dx, dy, on ? '#fff' : 'rgba(255,255,255,0.2)', R * 0.15);
+
+      // And what it pays. The whole economy is "arrive somewhere worth points
+      // and hold it three seconds", and the ring was the one place a player
+      // looks and the one place that never mentioned it.
+      if (on && !threat && tr && tr.points > 0) {
+        c.font = `800 11px ${FONT}`;
+        c.fillStyle = '#ffd166';
+        c.textAlign = 'center';
+        // On the far side of the button from the name, or the two land on each
+        // other: for the left and right buttons dy is 0, so both wanted the
+        // same four pixels above the circle.
+        c.fillText(`+${tr.points}`, x, dy > 0 ? y - rr - 5 : y + rr + 14);
+      }
 
       // A press the game has heard and not used yet, so a flick during a throw
       // or a cooldown reads as remembered rather than as ignored.
@@ -517,6 +547,9 @@ export class HUD {
     c.font = `500 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.42)';
     c.fillText('левый палец — база · правый — свайп для перехода, тап для захвата', left, base + 16);
+    // The one sentence a player needs and nowhere said it. See the ring: the
+    // likeliest moves are the retreats, and points are only paid for holding.
+    c.fillText('очки идут за +N на кольце — и только если удержать три секунды', left, base + 32);
     if (opts.level) {
       const p = opts.progress;
       const rec = p && (p.wins || p.losses) ? `  ·  ${p.wins}—${p.losses}` : '';
