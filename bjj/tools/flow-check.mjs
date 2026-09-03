@@ -202,7 +202,15 @@ function play(level) {
       const ready = threat ? read : Object.keys(m.options(0));
       for (const d of ready) {
         s.offered++;
-        if (threat) continue;                       // the ring says defence and it is
+        // A defence arrow is only honest while there is still time to answer.
+        // This line used to say `if (threat) continue` — the whole threat case
+        // waved through on the assumption that the ring saying "defence" made
+        // it so, which is exactly the assumption a check exists to doubt. The
+        // window closes half a second before the attempt does.
+        if (threat) {
+          if (m.deny && m.deny.t > m.deny.window) s.hollow++;
+          continue;
+        }
         if (m.attempt || m.cool[0] > 0) { s.hollow++; continue; }
         const tr = m.preview(0)[d];
         if (!tr || m.f[0].stamina < tr.cost * 0.35) s.hollow++;
