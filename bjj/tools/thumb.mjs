@@ -188,7 +188,7 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
   const st = {
     matches: [], hit: 0, miss: 0, denies: 0, denied: 0, blind: 0, escapes: 0,
     locks: 0, out: 0, tapped: 0, ranOut: 0, lockSecs: 0, flicksOut: 0, blindOut: 0, turns: 0, matFrames: 0, offSquare: 0, matWorst: 0,
-    tries: 0, landed: 0, subTries: 0, subLanded: 0, grips: 0, flicksIgnored: 0,
+    tries: 0, landed: 0, subTries: 0, subLanded: 0, grips: 0, flicksIgnored: 0, flicksHeld: 0,
     ignoredSub: 0, ignoredBusy: 0, ignoredCool: 0, ignoredTired: 0, ignoredNothing: 0, fps: 0,
   };
   let m = null, patched = null, cur = null, inLock = false, lastThrown = null;
@@ -212,6 +212,11 @@ const out = await page.evaluate((cfg) => new Promise((done) => {
         if (r === 'deny') { st.denies++; st.denied++; }
         else if (r === 'deny-miss') st.denies++;
         else if (r === 'escape') st.escapes++;
+        // Heard, held for half a second, replayed when the way is clear. Not a
+        // move yet and emphatically not a flick thrown away — this line was
+        // missing and the tool went on counting twenty of them a run as
+        // ignored, which is the number the buffer was written to remove.
+        else if (r === 'queued') st.flicksHeld++;
         else if (r && typeof r === 'object') { st.tries++; if (r.sub) st.subTries++; }
         else if (!r) {
           st.flicksIgnored++;
@@ -485,6 +490,7 @@ if (CFG.escape) {
 }
 console.log(`    moves     ${out.tries} started, ${out.landed} landed` +
   `, ${out.subTries} of them submissions`);
+console.log(`    held      ${out.flicksHeld} flicks the game heard and replayed when it could`);
 console.log(`    ignored   ${out.flicksIgnored} flicks the game had no use for` +
   `  (${out.ignoredSub} mid-submission, ${out.ignoredBusy} during somebody's attempt` +
   `, ${out.ignoredCool} on cooldown, ${out.ignoredTired} no strength left` +
