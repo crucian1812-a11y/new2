@@ -18,7 +18,7 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { GLYPHS, glyph } from '../src/render/glyphs.js';
-import { markAtlas, cellRect, CELLS, PAL, MAT_MARKS, ARENA_MARKS, MARK_TEXT, fitPatches } from '../src/render/marks.js';
+import { markAtlas, cellRect, CELLS, SCORE_GLYPHS, scoreCellRects, scoreAdvances, PAL, MAT_MARKS, ARENA_MARKS, MARK_TEXT, fitPatches } from '../src/render/marks.js';
 import { ARENA_AREA, ARENA_HALF } from '../src/render/arena.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { atlasToPNG, encodePNG } from './png.mjs';
@@ -210,6 +210,123 @@ for (const name of Object.keys(CELLS)) {
 
 check(rimSoftTotal / Math.max(1, rimTotal) > 0.3, 'curved edges across the atlas are smooth',
   `${((rimSoftTotal / Math.max(1, rimTotal)) * 100).toFixed(0)}% of all outlines are partial`);
+
+/* ---------------------------------------------------------- the scoreboard */
+
+// The jumbotron's type (Г2). The shader maps a digit's value to its index in
+// SCORE_GLYPHS, so the strip has to be the digits in order; then each cell is
+// read back off the atlas the way the shader reads it and asked whether it is
+// the glyph it claims to be — against an independent rasterisation, so a cell
+// that drew the wrong digit is caught here rather than on the board.
+{
+  check(SCORE_GLYPHS === '0123456789:', 'the scoreboard strip is the digits in order',
+    `"${SCORE_GLYPHS}"`);
+
+  // The board lays the line out in fixed cells — the widest digit's advance —
+  // so a tick changes one cell and never re-centres its neighbours. If a digit
+  // ever got wider than the cell, it would bleed into the next one.
+  {
+    const adv = scoreAdvances();               // the colon is the last entry
+    const widest = Math.max(...adv.slice(0, 10));
+    check(ARENA_MARKS.score.cell >= widest, 'the scoreboard cell fits every digit',
+      `cell ${ARENA_MARKS.score.cell} ≥ widest ${widest}`);
+    check(ARENA_MARKS.score.colon >= adv[10], 'the colon keeps its own narrower cell',
+      `colon ${ARENA_MARKS.score.colon} ≥ ${adv[10]}`);
+  }
+
+  // Read one score cell back, top-down, exactly as the shader will see it.
+  const readCell = (rect) => {
+    const [ru, rv, rw, rh] = rect;
+    const w = Math.round(rw * A), h = Math.round(rh * A);
+    const x0 = Math.round(ru * A), y0 = Math.round(rv * A);
+    const px = new Uint8Array(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const s = ((y0 + y) * A + x0 + x) * 4;
+        const d = ((h - 1 - y) * w + x) * 4;
+        for (let k = 0; k < 4; k++) px[d + k] = atlas.data[s + k];
+      }
+    }
+    return { w, h, px };
+  };
+  // Binarise to a mask and crop to the ink's own bounding box, then scale to a
+  // fixed grid — the cell and the reference are drawn at different stroke
+  // weights and sizes, and the shape is the part that has to agree.
+  const shape = (mask, w, h, N = 24) => {
+    let x0 = w, x1 = 0, y0 = h, y1 = 0, any = false;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (!mask[y * w + x]) continue;
+      any = true;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    if (!any) return null;
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    const out = new Float32Array(N * N);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const sx0 = x0 + (i * bw) / N, sx1 = x0 + ((i + 1) * bw) / N;
+      const sy0 = y0 + (j * bh) / N, sy1 = y0 + ((j + 1) * bh) / N;
+      let sum = 0, cnt = 0;
+      for (let y = Math.floor(sy0); y < Math.ceil(sy1); y++) {
+        for (let x = Math.floor(sx0); x < Math.ceil(sx1); x++) {
+          if (y < 0 || y >= h || x < 0 || x >= w) continue;
+          sum += mask[y * w + x]; cnt++;
+        }
+      }
+      out[j * N + i] = cnt ? sum / cnt : 0;
+    }
+    return out;
+  };
+  const sim = (a, b) => {
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d += Math.abs(a[i] - b[i]);
+    return 1 - d / a.length;
+  };
+
+  const cells = scoreCellRects();
+  const refs = [];
+  for (const ch of SCORE_GLYPHS) {
+    const N = 40;
+    const m = glyphMask(ch, N);
+    refs.push(shape(m, N, N));
+  }
+  let inkBad = 0, borderBad = 0, twin = 0, misread = [];
+  const cellShapes = [];
+  for (let i = 0; i < cells.length; i++) {
+    const { w, h, px } = readCell(cells[i]);
+    const mask = new Uint8Array(w * h);
+    let ink = 0;
+    for (let j = 0; j < w * h; j++) { if (px[j * 4 + 3] > 127) { mask[j] = 1; ink++; } }
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) borderBad += px[(y * w + x) * 4 + 3] > 4 ? 1 : 0;
+    }
+    const cover = ink / (w * h);
+    if (cover <= 0.03 || cover >= 0.9) inkBad++;
+    const sh = shape(mask, w, h);
+    cellShapes.push({ ch: SCORE_GLYPHS[i], sh });
+    if (!sh) { misread.push(SCORE_GLYPHS[i]); continue; }
+    // Which reference does this cell look most like?
+    let best = -1, bestS = -1;
+    for (let r = 0; r < refs.length; r++) {
+      if (!refs[r]) continue;
+      const s = sim(sh, refs[r]);
+      if (s > bestS) { bestS = s; best = r; }
+    }
+    if (best !== i) misread.push(`${SCORE_GLYPHS[i]}→${SCORE_GLYPHS[best]}@${bestS.toFixed(2)}`);
+  }
+  check(inkBad === 0, 'every scoreboard glyph has ink', `${cells.length - inkBad}/${cells.length} cells`);
+  check(borderBad === 0, 'the scoreboard cells have a clear border', `${borderBad} edge texels`);
+  for (let i = 0; i < cells.length; i++) {
+    for (let j = i + 1; j < cells.length; j++) {
+      const a = cellShapes[i].sh, b = cellShapes[j].sh;
+      if (!a || !b || a.length !== b.length) continue;
+      if (sim(a, b) > 0.985) twin++;
+    }
+  }
+  check(twin === 0, 'no two scoreboard glyphs draw the same shape', `${cells.length} cells`);
+  check(misread.length === 0, 'each scoreboard cell reads as its own digit',
+    misread.length ? misread.join(' ') : '0-9 and :');
+}
 
 /* ------------------------------------------------------------------ the mat */
 
@@ -441,7 +558,9 @@ for (const path of fighters) {
     // 0.62-unit cap, so the cap is 31% of however tall it is printed; the
     // crest's ring lettering is the same fraction the mat's is.
     ['hoardings, wordmark', (0.62 / 2.0) * ARENA_MARKS.board.height, ARENA_MARKS.board.dist],
-    ['jumbotron, crest ring', (0.115 / 2.08) * ARENA_MARKS.jumbo.size, ARENA_MARKS.jumbo.dist],
+    // The jumbotron carries the score now (Г2), so what has to be readable on
+    // it is a digit, not the crest. A digit's cap height is the type size.
+    ['jumbotron, score digits', ARENA_MARKS.score.cap, ARENA_MARKS.score.dist],
   ];
   for (const [what, cap, dist] of rows) {
     const p = px(cap, dist);

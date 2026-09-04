@@ -74,6 +74,15 @@ const STALL_AGAIN = 8;
 const DENY_READ = 70;
 // How long a press waits for the game to be ready for it. See input().
 const BUFFER_HOLD = 0.5;
+// Chaining. A press in the last third of your own transition is a chain, not
+// a queue: it is aimed at the position the transition is heading for, so it
+// rides the landing and fires the moment the position is there, with no
+// cooldown gap. Parked on the attempt itself, it only survives if the attempt
+// lands — a chain aimed at where a failed move was going is a lie anywhere
+// else. The buffer's own half-second hold stays the law for everything else.
+// Exported because the AI chains through the same door and reads the same
+// fraction. See input(), _resolve() and ai.js.
+export const CHAIN_AFTER = 2 / 3;
 
 // How many presses the tape keeps whole. Everything else it records — a
 // position taken, an attack started, points landed — is bounded by the rules
@@ -347,6 +356,17 @@ export class Match {
       return null;
     }
     if (blocked) {
+      // Chaining. A press in the last third of your own attack is not the
+      // buffer's business — it is the next move, named while the current one
+      // is still deciding. Parked on the attempt, so it fires only if the
+      // attempt lands and the moment it does, with no cooldown gap. The same
+      // thumb movement from the first two thirds stays a plain queue.
+      const a = this.attempt;
+      if (a && a.by === i && a.t >= a.tr.time * CHAIN_AFTER) {
+        a.chain = { i, dir };
+        if (i === 0) this._tape('press', { dir, res: 'chained', name: tr.name });
+        return 'chained';
+      }
       this.buffer = { i, dir, t: 0 };
       if (i === 0) this._tape('press', { dir, res: 'queued', name: tr.name });
       return 'queued';
@@ -379,6 +399,9 @@ export class Match {
       denied: false,
       denyOpen: !!tr.deny,
       resolved: false,
+      // A chain parked here by input(): a follow-up press aimed at where this
+      // attempt is going. It rides the landing and fires only if it lands.
+      chain: null,
       // When the picture started moving, which is not when the clock did: the
       // last move may still be landing or unwinding, and taking the blend over
       // mid-flight is the cut this field exists to avoid.
@@ -563,12 +586,16 @@ export class Match {
       this.landing = false;
       this._flushQueued();
     }
-    // The buffered press, once whatever was in its way has gone.
+    // The buffered press, once whatever was in its way has gone. A chain is
+    // the one exception to the cooldown: it was aimed at the position that has
+    // just arrived, so it starts on the instant rather than a third of a
+    // second later. It carries the same stamina gate as every other press —
+    // input() re-checks it on the way in.
     if (this.buffer) {
       this.buffer.t += dt;
       const b = this.buffer;
       if (b.t > BUFFER_HOLD) this.buffer = null;
-      else if (this.state === 'live' && !this.attempt && this.cool[b.i] <= 0) {
+      else if (this.state === 'live' && !this.attempt && (this.cool[b.i] <= 0 || b.chain)) {
         this.buffer = null;
         this.input(b.i, b.dir);
       }
@@ -766,6 +793,14 @@ export class Match {
     this._tape('try', { by: a.by, name: tr.name, res: 'landed' });
     this.tally.landed++;
     if (tr.sub) this.tally.subLanded++;
+    // A chain parked on this attempt starts the moment the position is there,
+    // no cooldown. It rides the landing because it was aimed at it; a landing
+    // is the only resolution that honours it, so a failed attempt simply lets
+    // it go. A submission eats the chain — the match is in the lock now, and a
+    // follow-up was never the point of one.
+    if (a.chain && !tr.sub) {
+      this.buffer = { i: a.chain.i, dir: a.chain.dir, t: 0, chain: true };
+    }
     this.goTo(tr, a.by);
   }
 
@@ -1470,7 +1505,7 @@ export class Match {
       go: scoring + zero,
       scoring,
       zero,
-      queued: n('queued'), none: n('none'), nostam: n('nostam'),
+      queued: n('queued'), chained: n('chained'), none: n('none'), nostam: n('nostam'),
       escape: n('escape'), escapeMiss: n('escape-miss'),
       denyOk: n('deny'), denyMiss: n('deny-miss'),
       threats: threats.length, answerable,

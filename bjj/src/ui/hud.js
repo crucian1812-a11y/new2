@@ -57,6 +57,11 @@ export class HUD {
     this._events(match, dt);
     if (match.state === 'ready') this._title(opts);
     if (match.state === 'over') { this.result = opts.result; this._result(match); }
+    // The first minute's coach, above everything except the result card.
+    if (opts.tutorial) {
+      if (opts.tutorial.done) this._tutorialDone();
+      else if (match.state === 'live' || match.state === 'sub') this._tutorial(opts.tutorial);
+    }
   }
 
   /* ------------------------------------------------------------ scorebug */
@@ -221,7 +226,11 @@ export class HUD {
     // the thumb said otherwise, and the thumb is where people look.
     const threat = !!(m.attempt && m.attempt.defender === 0);
     const read = threat ? (m.denyRead(0) || []) : null;
-    const buffered = m.buffer && m.buffer.i === 0 ? m.buffer.dir : null;
+    // A press the game has heard and not used yet: the plain buffer, and a
+    // chain parked on the attempt in flight (the next move, named while the
+    // current one is still deciding). Both read as remembered, not ignored.
+    const buffered = (m.buffer && m.buffer.i === 0 ? m.buffer.dir : null)
+      || (m.attempt && m.attempt.chain && m.attempt.chain.i === 0 ? m.attempt.chain.dir : null);
     // The ring scales with the screen and is pinned far enough off the bottom
     // that the lowest label still lands on glass. On a short landscape phone
     // that margin is the whole difference between readable and cropped.
@@ -529,6 +538,79 @@ export class HUD {
   }
 
   /* -------------------------------------------------------------- chrome */
+
+  // The coach, for the first minute. A banner with the current lesson and a
+  // pulsing mark on the control it is about, so the instruction sits where the
+  // thumb already is rather than in a wall of text.
+  _tutorial(t) {
+    const c = this.ctx;
+    const s = t.step;
+    if (!s) return;
+    const pulse = 0.5 + 0.5 * Math.sin(this.pulse * 3.2);
+
+    // The banner, bottom centre, clear of the ring and the event feed.
+    const w = Math.min(470, this.w - 32);
+    const x = (this.w - w) / 2;
+    const y = this.h - 58;
+    const h = 46;
+    c.save();
+    roundRect(c, x, y, w, h, 9);
+    c.fillStyle = 'rgba(6,8,12,0.88)';
+    c.fill();
+    c.strokeStyle = `rgba(255,209,102,${0.3 + pulse * 0.55})`;
+    c.lineWidth = 1.5;
+    c.stroke();
+    c.textAlign = 'center';
+    c.font = `800 12px ${FONT}`;
+    c.fillStyle = '#ffd166';
+    c.fillText(`${t.i + 1}/4 · ${s.title}`, this.w / 2, y + 14);
+    c.font = `600 11px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.92)';
+    c.fillText(s.text, this.w / 2, y + 34);
+    c.restore();
+
+    // The control the step is about, ringed where the thumb already is. The
+    // defence step needs no mark — the deny prompt fills the middle of the
+    // screen with the very arrow it is asking for.
+    if (s.highlight === 'base') {
+      const lx = this.w * 0.22, ly = this.h * 0.58, R = 46;
+      c.beginPath();
+      c.arc(lx, ly, R + 3 * pulse, 0, Math.PI * 2);
+      c.strokeStyle = `rgba(127,166,255,${0.4 + pulse * 0.5})`;
+      c.lineWidth = 3;
+      c.stroke();
+      c.font = `700 11px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.9)';
+      c.textAlign = 'center';
+      c.fillText('БАЗА', lx, ly - R - 14);
+    } else if (s.highlight === 'ring' || s.highlight === 'grip') {
+      const { R, cx, cy } = this.ringLayout();
+      const rr = s.highlight === 'grip' ? R * 0.34 : R * 0.72;
+      c.beginPath();
+      c.arc(cx, cy, rr + 3 * pulse, 0, Math.PI * 2);
+      c.strokeStyle = `rgba(255,209,102,${0.4 + pulse * 0.5})`;
+      c.lineWidth = 3;
+      c.stroke();
+    }
+  }
+
+  _tutorialDone() {
+    const c = this.ctx;
+    c.fillStyle = 'rgba(4,6,10,0.84)';
+    c.fillRect(0, 0, this.w, this.h);
+    c.textAlign = 'center';
+    c.font = `800 26px ${FONT}`;
+    c.fillStyle = '#4fd48a';
+    c.fillText('ОБУЧЕНИЕ ПРОЙДЕНО', this.w / 2, this.h / 2 - 26);
+    c.font = `600 13px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.75)';
+    c.fillText('база · переход · захват · защита — всё на месте', this.w / 2, this.h / 2 + 6);
+    c.font = `600 12px ${FONT}`;
+    c.fillStyle = '#ffd166';
+    c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
+    c.fillText('КОСНИСЬ — ВЫХОДИ НА НАСТОЯЩЕГО СОПЕРНИКА', this.w / 2, this.h / 2 + 40);
+    c.globalAlpha = 1;
+  }
 
   _events(m, dt) {
     const c = this.ctx;
