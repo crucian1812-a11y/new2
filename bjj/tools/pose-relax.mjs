@@ -44,6 +44,13 @@ const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 const rig = new PairRig();
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest', 'shinL', 'shinR'];
+// How far the skin hangs below each of those bones. The sole is measured on the
+// baked mesh (8.3 cm under the ankle bone); the rest are the capsule radii
+// collide.js gives them, which is the same shape the collision term uses.
+const SKIN_BELOW = {
+  headTop: 0.086, handL: 0.070, handR: 0.070, footL: 0.083, footR: 0.083,
+  hips: 0.190, chest: 0.212, shinL: 0.100, shinR: 0.100,
+};
 
 // ---------------------------------------------------------------- the cost
 
@@ -82,6 +89,19 @@ const ROM_LIMIT = {
   footL: 65, footR: 65,
 };
 
+// How far the deepest bit of skin is under the mat, for the report.
+function underMat() {
+  let worst = 0, where = '';
+  for (const role of ['A', 'B']) {
+    for (const b of READ) {
+      const m = rig.skel[role].world[BONE_INDEX[b]];
+      const under = MAT_Y - (m[13] - (SKIN_BELOW[b] || 0));
+      if (under > worst) { worst = under; where = `${role}.${b}`; }
+    }
+  }
+  return { worst, where };
+}
+
 function cost(id) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
@@ -118,12 +138,25 @@ function cost(id) {
     }
   }
 
-  // Under the mat.
+  // Under the mat — measured to the skin, not to the bone.
+  //
+  // This used to compare bone positions with the mat and call it grounded, and
+  // a bone is not what anybody sees. The sole sits 8.3 cm below the ankle bone
+  // (measured on the baked fighter, tools/weight-check.mjs), so a foot bone
+  // resting politely at 5 cm has its sole a hand's breadth inside the floor —
+  // which is exactly what the library had: fifteen poses with a limb through
+  // the mat, up to nineteen centimetres of it, held up at runtime by a clamp in
+  // rig._ground that hauled the ankle back out every frame and folded the knee
+  // to do it.
+  //
+  // The offsets are how far the skin reaches below each bone's own centre,
+  // taken from the capsules collide.js is built from and from the sole
+  // measurement for the feet.
   for (const sk of [A, B]) {
     for (const b of READ) {
       const m = sk.world[BONE_INDEX[b]];
-      const under = MAT_Y - 0.02 - m[13];
-      if (under > 0) c += under * under * 40;
+      const under = MAT_Y - (m[13] - (SKIN_BELOW[b] || 0));
+      if (under > 0) c += under * under * 200;
     }
   }
 
@@ -261,12 +294,16 @@ const ids = (ONLY.length ? ONLY : Object.keys(POSES));
 const changed = [];
 for (const id of ids) {
   const before = cost(id).pen;
+  const matBefore = underMat();
   relax(id);
   const after = cost(id).pen;
-  const mark = after.worst > 0.08 ? '!' : ' ';
+  const matAfter = underMat();
+  const mark = after.worst > 0.08 || matAfter.worst > 0.03 ? '!' : ' ';
   console.log(
-    `${mark} ${id.padEnd(14)} ${(before.worst * 100).toFixed(0).padStart(3)}cm -> ` +
-    `${(after.worst * 100).toFixed(0).padStart(3)}cm   ${after.worst > 0.05 ? after.where : ''}`
+    `${mark} ${id.padEnd(16)} overlap ${(before.worst * 100).toFixed(0).padStart(3)} -> ` +
+    `${(after.worst * 100).toFixed(0).padStart(3)}cm   under the mat ` +
+    `${(matBefore.worst * 100).toFixed(0).padStart(3)} -> ${(matAfter.worst * 100).toFixed(0).padStart(3)}cm ` +
+    `${matAfter.worst > 0.03 ? matAfter.where : ''} ${after.worst > 0.05 ? after.where : ''}`
   );
   changed.push(id);
 }

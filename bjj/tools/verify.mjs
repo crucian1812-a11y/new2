@@ -21,6 +21,10 @@ const steps = [
   // so when the measure inside it turned out to be reading a roll nothing
   // controls, nothing was watching.
   ['joints', 'joint-check.mjs', []],
+  // Whether a pose holds itself up: where the weight is, what is resting on
+  // what, and whether anybody is inside the mat or hanging above it. pose-check
+  // asks whether the bodies are possible; this asks whether they are standing.
+  ['weight', 'weight-check.mjs', []],
   ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
   ['the opponent', 'asset-check.mjs', ['bjj/assets/fighter-b.bin']],
   // Where the triangles went, against where the camera looks. Forty seconds,
