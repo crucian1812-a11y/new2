@@ -138,15 +138,30 @@ export function buildArena(rand = mulberry(20260826)) {
   }
 
   // The jumbotron. Lifted from the generated arena, which had little else in
-  // it worth having: a cube hung over the middle of the mat with a screen on
-  // each face. It costs twelve triangles and it is the thing that says the
-  // event is being broadcast rather than held in a gym.
-  s.box(0, 4.45, 0, 1.9, 1.15, 1.9, 2, false);
-  for (const [dx, dz, sx, sz] of [[0, 1, 1.62, 0.02], [0, -1, 1.62, 0.02], [1, 0, 0.02, 1.62], [-1, 0, 0.02, 1.62]]) {
-    s.box(dx * 0.97, 4.45, dz * 0.97, sx || 0.02, 0.82, sz || 0.02, 6);
+  // it worth having: a cube with a screen on each face, hung from the truss
+  // and showing the same numbers the broadcast scorebug does. It costs twelve
+  // triangles and it is the thing that says the event is being broadcast
+  // rather than held in a gym.
+  //
+  // It used to hang over the middle of the mat, and the broadcast camera
+  // never saw it: at 4.45 m it sits forty degrees above a camera that looks
+  // down at the mat from head height, so the whole cube lived out of frame
+  // and the score it now carries would have been invisible. It hangs over the
+  // far side instead — just in front of the far truss bar, over the safety
+  // border — where the wide shot frames it whole, above the fighters, against
+  // the dark stands. A scoreboard nobody can see is decoration; this one is
+  // in the frame.
+  s.box(0, 3.0, -5.5, 2.2, 1.3, 2.2, 2, false);
+  // The screens sit a touch proud of the frame (1.12 against a 1.1 half), the
+  // way the original cube's did — flush, they fall behind the frame's face and
+  // the depth buffer swallows them whole.
+  for (const [dx, dz, sx, sz] of [[0, 1, 1.9, 0.02], [0, -1, 1.9, 0.02], [1, 0, 0.02, 1.9], [-1, 0, 0.02, 1.9]]) {
+    s.box(dx * 1.12, 3.0, -5.5 + dz * 1.12, sx || 0.02, 0.92, sz || 0.02, 6);
   }
-  s.box(0, 5.12, 0, 0.16, 0.2, 0.16, 2);
-  for (const dz of [-0.55, 0.55]) s.box(0, 5.72, dz, 0.06, 1.2, 0.06, 2);
+  // The hanger: a plate on the cube's top and one rod up to the truss bar,
+  // which runs straight overhead here.
+  s.box(0, 3.78, -5.5, 0.5, 0.12, 0.5, 2);
+  s.box(0, 4.82, -5.5, 0.12, 1.96, 0.12, 2);
 
   // The truss overhead, which is what gives the key light somewhere to be.
   for (const side of [-1, 1]) {

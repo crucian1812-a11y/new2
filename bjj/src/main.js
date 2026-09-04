@@ -9,6 +9,7 @@ import { Skeleton, poseToQuats, BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { seedRandom } from './game/rng.js';
 import { AI } from './game/ai.js';
+import { Tutorial } from './game/tutorial.js';
 import { Camera } from './game/camera.js';
 import { Referee } from './game/referee.js';
 import { Input } from './core/input.js';
@@ -26,6 +27,10 @@ const state = {
   frameAvg: 16.7,
   paused: false,
 };
+
+// Nobody is touching the coach's partner. The tutorial passes this as the
+// opponent's control so he stands where he is instead of drifting.
+const ZERO = { mx: 0, mz: 0, turn: 0, drive: 0 };
 
 let renderer;
 try {
@@ -184,6 +189,33 @@ const myBelt = () => LADDER[Math.min(LADDER.length - 1, progress.rank)];
 const oppBelt = () => FORCED || LADDER[progress.rank];
 let lastResult = null;   // what the result card has to say
 
+// The first minute, when the address bar asks for it. `?tutorial` runs the
+// scripted lesson once and then drops into a real match; it is opt-in so the
+// measurement tools, which load the page bare and expect the ranked match,
+// never meet the coach. See tutorial.js.
+const TUTORIAL = new URLSearchParams(location.search).get('tutorial') !== null;
+let tut = TUTORIAL ? new Tutorial() : null;
+
+// The room watches the match. `crowd.level` is how far the stands are off
+// their feet right now — a score, a big throw, the tap — and `crowd.spot` is
+// the submission spotlight that dims the hall and leaves the pair lit. Both
+// are presentation only: they go to the arena shader and the match never reads
+// them, so they can be as dramatic as the director likes without touching
+// anything that is measured or balanced.
+const crowd = { level: 0, spot: 0 };
+
+// The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
+// Five fictional fighters, one per rung, so beating the ladder feels like
+// beating five different men rather than the same man in five belts. The last
+// one carries the master's name, which is the club whose name is on the mat.
+const ROSTER = {
+  white:  { name: 'МАРК',   giCol: [0.74, 0.76, 0.73], skinCol: [0.66, 0.50, 0.40] },
+  blue:   { name: 'ДЕНИС',  giCol: [0.11, 0.20, 0.50], skinCol: [0.58, 0.40, 0.30] },
+  purple: { name: 'РАФАЭЛ', giCol: [0.24, 0.15, 0.38], skinCol: [0.46, 0.31, 0.23] },
+  brown:  { name: 'АНДРЕЙ', giCol: [0.32, 0.25, 0.18], skinCol: [0.56, 0.41, 0.32] },
+  black:  { name: 'ОЛАВО',  giCol: [0.05, 0.06, 0.07], skinCol: [0.40, 0.26, 0.19] },
+};
+
 let match, ai;
 function newMatch() {
   const you = new Fighter('ВЫ', {
@@ -192,10 +224,10 @@ function newMatch() {
     skinCol: new Float32Array([0.60, 0.42, 0.31]),
     technique: 0.55, strength: 0.5, cardio: 0.55,
   });
-  const opp = new Fighter('СОПЕРНИК', {
-    giCol: new Float32Array([0.06, 0.14, 0.42]),
+  const opp = new Fighter(ROSTER[oppBelt()].name, {
+    giCol: new Float32Array(ROSTER[oppBelt()].giCol),
     beltCol: new Float32Array(BELT_COL[oppBelt()]),
-    skinCol: new Float32Array([0.52, 0.36, 0.26]),
+    skinCol: new Float32Array(ROSTER[oppBelt()].skinCol),
     technique: 0.55, strength: 0.55, cardio: 0.5,
   });
   match = new Match([you, opp], { time: MATCH_TIME, onEvent: onMatchEvent });
@@ -216,14 +248,17 @@ function onMatchEvent(e) {
     landing = { peak: 0, role: 'A', t: 0 };
     camera.impulse(e.tr.big ? 0.8 : 0.35);
     if (e.tr.big) camera.cut(e.tr.dir === 'left' ? -1 : 1);
+    crowd.level = Math.max(crowd.level, e.tr.big ? 0.85 : 0.5);
   } else if (e.kind === 'points') {
     referee.gesture('call', 1.1);
     audio.confirm();
     audio.swell(0.4, 1.2);
+    crowd.level = 1;
   } else if (e.kind === 'submission') {
     camera.cut(Math.random() < 0.5 ? -1 : 1);
     audio.lock(between());
     audio.swell(0.8, 2.4);
+    crowd.level = 1;
   } else if (e.kind === 'recall') {
     // He stops them and waves them back to the middle. The whistle is his
     // 'stop', held long enough to cover the walk.
@@ -242,6 +277,9 @@ function onMatchEvent(e) {
     // away: this is a game about learning a position, and a career that
     // demotes you for losing to a black belt teaches nobody anything.
     referee.gesture('stop', 3.2);
+    // The whole hall is on its feet for the tap and settles for a decision.
+    crowd.level = e.by === 'submission' ? 1 : 0.7;
+    crowd.spot = 0;
     const beat = oppBelt();
     const won = e.winner === 0;
     if (won) progress.wins++; else progress.losses++;
@@ -442,6 +480,17 @@ function frame(now) {
   last = now;
   const dt = raw;
 
+  // The room's mood decays on its own: a roar fades over a couple of seconds,
+  // and the spotlight follows the submission state, snapping up as the lock
+  // comes on and out as it breaks. `__crowd`/`__spot` are the measurement
+  // overrides, the same as `__gas` and `__still`: a tool pins them so two
+  // frames differ in one thing and nothing else.
+  crowd.level = window.__crowd != null ? window.__crowd : Math.max(0, crowd.level - dt * 0.45);
+  crowd.spot = window.__spot != null ? window.__spot
+    : match.state === 'sub'
+      ? Math.min(1, crowd.spot + dt * 3)
+      : Math.max(0, crowd.spot - dt * 4);
+
   // Adaptive resolution. The scene is cheap but a five year old phone is
   // cheaper; drop internal resolution before dropping frames.
   state.frameAvg = state.frameAvg * 0.94 + elapsed * 1000 * 0.06;
@@ -456,6 +505,10 @@ function frame(now) {
   }
 
   /* --- input ------------------------------------------------------------ */
+  // What the player's thumbs did this frame, so the tutorial's coach can read
+  // the same gestures the match just handled.
+  const did = { stick: false, moved: false, gripped: false, denied: false };
+
   if (input.anyPress) {
     audio.start();
     input.anyPress = false;
@@ -466,6 +519,12 @@ function frame(now) {
     if (match.state === 'ready') {
       match.start();
       startBell();
+    } else if (tut && tut.done) {
+      // The lesson is over; the next touch brings out a real opponent.
+      tut = null;
+      newMatch();
+      match.start();
+      startBell();
     } else if (match.state === 'over') {
       newMatch();
       match.start();
@@ -473,10 +532,12 @@ function frame(now) {
     }
   }
 
+  did.stick = input.stick.active || input.stick.mag > 0.3;
   if (input.flick) {
     const r = match.input(0, input.flick);
-    if (r === 'deny') audio.click();
+    if (r === 'deny') { did.denied = true; audio.click(); }
     else if (r === 'escape') audio.cloth(0.7);
+    else if (r && typeof r === 'object') { did.moved = true; audio.cloth(0.5); }
     else if (r) audio.cloth(0.5);
   }
   if (input.tap) {
@@ -492,14 +553,16 @@ function frame(now) {
     const dir = onBeat || !input.tapAt ? null : hud.ringDir(input.tapAt.x, input.tapAt.y);
     if (dir) {
       const r = match.input(0, dir);
-      if (r === 'deny') audio.click();
+      if (r === 'deny') { did.denied = true; audio.click(); }
       else if (r === 'escape') audio.cloth(0.7);
+      else if (r && typeof r === 'object') { did.moved = true; audio.cloth(0.5); }
       else if (r) audio.cloth(0.5);
     } else if (onBeat) {
       const r = match.subTap(0);
       if (r === 'tight') audio.tap(0.45); else audio.click();
     } else {
       const r = match.grip(0);
+      if (r === 'win' || r === 'lose') did.gripped = true;
       if (r) audio.cloth(r === 'win' ? 0.9 : 0.4);
     }
   }
@@ -519,13 +582,21 @@ function frame(now) {
     requestAnimationFrame(frame);
     return;
   }
-  ai.update(dt, match,
+  // The opponent is the coach's partner during the lesson and a fighter after
+  // it. The tutorial drives his one attack through the same `input` door, so
+  // nothing about the match knows the difference.
+  if (tut && !tut.done) tut.update(dt, match, did);
+  else ai.update(dt, match,
     (dir) => match.input(1, dir),
     () => (match.state === 'sub' && match.sub.attacker === 1 ? match.subTap(1) : match.grip(1)));
 
   /* --- sim -------------------------------------------------------------- */
   const c0 = control0();
-  match.update(dt, [c0, ai.control]);
+  // The coach's partner has no left thumb of his own: he stands where he is.
+  match.update(dt, [c0, tut && !tut.done ? ZERO : ai.control]);
+  // The lesson is not against the clock — five minutes is generous, but a
+  // player reading the coach is not racing, so the bell never rings mid-step.
+  if (tut && !tut.done) match.time = MATCH_TIME;
   clockSound();
   footsteps(dt);
   rig.origin[0] = match.origin[0];
@@ -603,8 +674,11 @@ function drawFrame(now, real) {
   // Before the bell, the screen belongs to one fighter and the empty mat.
   if (hero && match.state === 'ready') {
     camera.update(dt, HERO_FOCUS, 'hero', 0);
-    renderer.render({ camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero] });
-    hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult });
+    renderer.render({
+      camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero],
+      score: [match.f[0].points, match.f[1].points], clock: match.time,
+    });
+    hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut });
     return;
   }
 
@@ -663,8 +737,17 @@ function drawFrame(now, real) {
       { skeleton: referee.skel, gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
         flash: 0, gas: 0 },
     ],
+    // The room, watching. Handed to the arena shader every frame; the title
+    // card and the measurement freeze both pass nothing, so the hall sits at
+    // rest when there is nothing to react to.
+    crowd: crowd.level,
+    spot: crowd.spot,
+    // The board over the mat shows the same truth the scorebug does: the
+    // points and the clock, straight off the match.
+    score: [match.f[0].points, match.f[1].points],
+    clock: match.time,
   });
-  hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult });
+  hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut });
 }
 
 // One frame drawn before the loading card goes, so the first thing on screen is
@@ -678,6 +761,9 @@ requestAnimationFrame((t) => {
 // Debug hooks used by the tooling in bjj/tools; harmless in production.
 window.__bjj = {
   match: () => match,
+  // The first-minute coach, so a tool can drive the lesson and read how far
+  // the player has got — the same way it reads the match and the renderer.
+  tutorial: () => tut,
   // The HUD is here for the same reason the rig is: a tool has to be able to
   // ask where the ring's buttons are without re-deriving the layout and
   // drifting from it. tools/tap-check.mjs taps them.

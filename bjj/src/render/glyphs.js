@@ -133,6 +133,9 @@ const PUNCT = {
   "'": [0.24, [[[0.12, 1.0], [0.12, 0.74]]]],
   '/': [0.52, [[[0.04, -0.06], [0.48, 1.06]]]],
   '&': [0.70, [[[0.62, 0], [0.20, 0.62], ...arc(0.31, 0.80, 0.16, 0.20, 180, -60, 8), ...arc(0.33, 0.26, 0.27, 0.26, 65, -120, 10), [0.66, 0.40]]]],
+  // Two dots, one above the other, at the two heights a scoreboard colon sits:
+  // it separates minutes from seconds, not a sentence.
+  ':': [0.30, [[[0.15, 0.72], [0.15, 0.72]], [[0.15, 0.28], [0.15, 0.28]]]],
 };
 
 export const GLYPHS = { ...LATIN, ...CYRILLIC, ...PUNCT };
