@@ -477,7 +477,22 @@ function frame(now) {
     else if (r) audio.cloth(0.5);
   }
   if (input.tap) {
-    if (match.state === 'sub' && match.sub.attacker === 0) {
+    // A tap on one of the ring's buttons is that button. The ring is drawn as
+    // four labelled circles with a price on each, and until now the only way
+    // to press one was to swipe: tapping the button marked «+4» started a grip
+    // fight instead, silently. Everything that ever measured this game swiped,
+    // so nothing caught it.
+    //
+    // The beat inside a submission still owns the tap — there the whole screen
+    // is the rhythm and there is nothing else a tap could mean.
+    const onBeat = match.state === 'sub' && match.sub && match.sub.attacker === 0;
+    const dir = onBeat || !input.tapAt ? null : hud.ringDir(input.tapAt.x, input.tapAt.y);
+    if (dir) {
+      const r = match.input(0, dir);
+      if (r === 'deny') audio.click();
+      else if (r === 'escape') audio.cloth(0.7);
+      else if (r) audio.cloth(0.5);
+    } else if (onBeat) {
       const r = match.subTap(0);
       if (r === 'tight') audio.tap(0.45); else audio.click();
     } else {
@@ -649,6 +664,10 @@ requestAnimationFrame((t) => {
 // Debug hooks used by the tooling in bjj/tools; harmless in production.
 window.__bjj = {
   match: () => match,
+  // The HUD is here for the same reason the rig is: a tool has to be able to
+  // ask where the ring's buttons are without re-deriving the layout and
+  // drifting from it. tools/tap-check.mjs taps them.
+  hud,
   rig, renderer, camera, referee, POSES, BONE_INDEX,
   // Freeze on one paired pose. Used by the art tooling; also the quickest way
   // to check a pose by hand from the console.

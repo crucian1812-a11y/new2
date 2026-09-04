@@ -168,6 +168,38 @@ export class HUD {
   // The four things you can do, drawn where your thumb already is. The names
   // are on screen at all times on purpose: a position graph you have to
   // memorise is a position graph nobody plays.
+  // Where the four buttons of the ring are. One function, because the ring is
+  // drawn from it and hit-tested from it, and a button you can see but cannot
+  // press is exactly the bug this exists to prevent.
+  ringLayout() {
+    const R = clampN(Math.min(this.w, this.h) * 0.17, 44, 66);
+    return { R, rr: R * 0.3, cx: this.w - (R + 52), cy: this.h - (R + 46) };
+  }
+
+  // Which button a tap landed on, if any.
+  //
+  // The ring is four labelled circles with a price written on each, and for the
+  // whole life of this game the only way to press one was to swipe across the
+  // right-hand side. A tap on the button marked «+4» fought for a grip instead,
+  // in silence. Every tool that ever played the game swiped — thumb.mjs sends
+  // pointerdown, move, up — so nothing in the battery could catch it, and a
+  // person, who taps what looks like a button, scored nothing all match.
+  //
+  // The target is wider than the circle drawn: a thumb is about forty pixels
+  // and the drawn circle is thirteen to twenty. Narrow enough that the four
+  // never touch — they sit R apart, so anything under 0.7R is disjoint — and
+  // that the middle, where the thumb rests to fight for grips, belongs to
+  // nobody.
+  ringDir(x, y) {
+    const { R, cx, cy } = this.ringLayout();
+    const grab = R * 0.55;
+    for (const dir of ['up', 'down', 'left', 'right']) {
+      const [dx, dy] = DIR_VEC[dir];
+      if (Math.hypot(x - (cx + dx * R), y - (cy + dy * R)) <= grab) return dir;
+    }
+    return null;
+  }
+
   _ring(m, input) {
     const c = this.ctx;
     const opts = m.options(0);
@@ -193,9 +225,7 @@ export class HUD {
     // The ring scales with the screen and is pinned far enough off the bottom
     // that the lowest label still lands on glass. On a short landscape phone
     // that margin is the whole difference between readable and cropped.
-    const R = clampN(Math.min(this.w, this.h) * 0.17, 44, 66);
-    const cx = this.w - (R + 52);
-    const cy = this.h - (R + 46);
+    const { R, cx, cy } = this.ringLayout();
 
     c.save();
     for (const dir of ['up', 'down', 'left', 'right']) {
@@ -546,14 +576,16 @@ export class HUD {
 
     c.font = `500 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.42)';
-    c.fillText('левый палец — база · правый — свайп для перехода, тап для захвата', left, base + 16);
-    // The one sentence a player needs and nowhere said it. See the ring: the
-    // likeliest moves are the retreats, and points are only paid for holding.
-    c.fillText('очки идут за +N на кольце — и только если удержать три секунды', left, base + 32);
+    // Three lines, at three heights. The last two used to be drawn one pixel
+    // apart — base + 32 and base + 31 — so the sentence that explains where
+    // points come from was printed underneath the belt line and could not be
+    // read at all. It is the one rule a new player needs.
+    c.fillText('левый палец — база · правый — жми кнопку на кольце или свайпни', left, base + 14);
+    c.fillText('очки идут за +N на кольце — и только если удержать три секунды', left, base + 28);
     if (opts.level) {
       const p = opts.progress;
       const rec = p && (p.wins || p.losses) ? `  ·  ${p.wins}—${p.losses}` : '';
-      c.fillText(`твой пояс: ${opts.mine || 'white'}  ·  соперник: ${opts.level}${rec}`, left, base + 31);
+      c.fillText(`твой пояс: ${opts.mine || 'white'}  ·  соперник: ${opts.level}${rec}`, left, base + 42);
     }
 
     c.textAlign = 'right';

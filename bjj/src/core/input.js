@@ -3,10 +3,18 @@
 //
 // Left half of the screen is a floating stick. Standing, it walks; on the
 // ground it is weight and hip position, and it feeds directly into whether a
-// transition lands. Right half is a flick pad: a swipe is a direction and a tap
-// is a grip fight. Nothing is a button you have to find, because on a phone in
-// landscape your thumbs are already where they are going to be and they cannot
-// see what is under them.
+// transition lands. Right half is a flick pad: a swipe from anywhere on it is a
+// direction, and a tap on empty space is a grip fight — your thumbs are already
+// where they are going to be and they cannot see what is under them.
+//
+// A tap that lands **on** one of the ring's four buttons is that button, and
+// that is not a convenience. The ring is drawn as four labelled circles with a
+// price written on each; for the whole life of this game the only thing that
+// pressed one was a swipe, so a player who tapped the button marked «+4» —
+// which is what a person does with something that looks like a button — fought
+// for a grip instead, in silence, and scored nothing all match. Every tool that
+// has ever played this game swiped, so the battery could not see it. The hit
+// test lives next to the drawing, in hud.ringDir, so the two cannot drift.
 //
 // A press-and-hold was described here as a defensive frame for a long time and
 // never existed: `hold` and `drag` were computed every frame and read by
@@ -32,6 +40,9 @@ export class Input {
 
     this.flick = null; // consumed by the game each frame
     this.tap = false;
+    // Where the tap landed, so the game can ask the HUD whether it was on a
+    // button. Null for a tap that came from the keyboard.
+    this.tapAt = null;
 
     this.keys = new Set();
     this.keyFlickBuffer = [];
@@ -134,7 +145,10 @@ export class Input {
     if (!rec.fired) {
       const dt = performance.now() - rec.t0;
       const d = Math.hypot(rec.x - rec.x0, rec.y - rec.y0);
-      if (d < TAP_MAX && dt < TAP_TIME) this.tap = true;
+      if (d < TAP_MAX && dt < TAP_TIME) {
+        this.tap = true;
+        this.tapAt = { x: rec.x, y: rec.y };
+      }
     }
   }
 
@@ -154,6 +168,7 @@ export class Input {
     }
     if (k === ' ') {
       this.tap = true;
+      this.tapAt = null;
       e.preventDefault();
     }
     this.anyPress = true;
@@ -163,6 +178,7 @@ export class Input {
   endFrame() {
     this.flick = null;
     this.tap = false;
+    this.tapAt = null;
     let kx = 0, ky = 0;
     if (this.keys.has('a')) kx -= 1;
     if (this.keys.has('d')) kx += 1;
