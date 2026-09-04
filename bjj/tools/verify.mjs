@@ -40,12 +40,17 @@ const steps = [
   ['a hand on it', 'human-check.mjs', ['120']],
   // And whether what the game says about the match afterwards is true.
   ['the разбор', 'tape-check.mjs', ['120']],
+  // Whether the ring can be pressed the way it looks like it can. Everything
+  // that plays this game swipes, so nothing here could see that a tap on the
+  // button marked «+4» fought for a grip instead.
+  ['the ring is buttons', 'ring-check.mjs', []],
 ];
 if (withBrowser) {
   steps.push(['browser smoke', 'smoke.mjs', []]);
   steps.push(['sound', 'sound-check.mjs', []]);
   steps.push(['the cost of a frame', 'frame-check.mjs', []]);
   steps.push(['how it reads', 'look-check.mjs', []]);
+  steps.push(['a tap on a button', 'tap-check.mjs', []]);
 }
 // Not in the battery, on purpose, and both are worth running by hand:
 //
