@@ -70,6 +70,21 @@ const _t4 = v3();
 const _t5 = v3();
 const _t6 = v3();
 // Shoulder to wrist on the rest skeleton: 0.275 + 0.245.
+// Where the skin is, relative to the bone that carries it. Measured on the
+// baked fighter in its rest pose: the sole sits 8.3 cm below the ankle bone and
+// the front of the knee sticks 10 cm out from the knee joint.
+//
+// `_ground` used to stand the *bones* on the mat: it plants an ankle 4.2 cm
+// above it, which puts the sole four centimetres inside. Measured with
+// tools/weight-check.mjs, which skins the real mesh — the mat is drawn at
+// y = 0.05 and it is the skin that has to sit on it.
+//
+const SOLE = 0.083;
+// How close the ankle may come to the hip before the knee has to fold past what
+// a knee folds. Thigh 42.5 cm, shin 41 cm, and joint-check's limit is 155
+// degrees, which puts the ankle 18.1 cm from the hip; a centimetre of margin on
+// top of that.
+const LEG_MIN = 0.19;
 const ARM_REACH = 0.52;
 // A hand closes on something, and lets go of it, over about a fifth of a
 // second. See the top of _grips for what the number is holding back.
@@ -225,6 +240,9 @@ export class PairRig {
     // asks: the eased weight, the last thing it was told to hold, and the slack
     // it is carrying while it catches up with a goal that jumped. See _grips.
     this.hands = {};
+    // Whether a foot through the mat is put back on it. Off only while
+    // seat-solve is deciding where a pose sits — see _ground.
+    this.plantFeet = true;
     // Whether this rig is being watched or measured.
     //
     // The easing below is a function of elapsed time, and a solver does not
@@ -602,23 +620,49 @@ export class PairRig {
   // deliberately in the air is left alone.
   _ground(sk) {
     const FLOOR = 0.05;
-    let lift = 0;
-    for (const b of ['shinL', 'shinR']) {
-      sk.boneHead(_t, b);
-      lift = Math.max(lift, FLOOR + 0.055 - _t[1]);
-    }
-    if (lift > 0.002) {
-      // The cap matters: a pose that is genuinely airborne — the top of a
-      // throw — would otherwise get shoved onto the mat by its own knees.
-      sk.rootPos[1] += Math.min(lift, 0.24);
-      sk.pose();
-    }
+    // The lift is gone, and this is the note it left.
+    //
+    // It used to raise a man until his *knees* were on the mat, as a stand-in
+    // for tuning every pose's height by hand. Two things were wrong with it.
+    // It grounded bones rather than skin, so a knee it called "on the mat" was
+    // four centimetres inside it; and lifting by the knees is only right for a
+    // man who is kneeling — for a man on his back it hoists him off the floor
+    // by his shins. Worse, it fought the pose: seat-solve pushes a pair down to
+    // the mat and this pushed it back up, and the two never agreed.
+    //
+    // Where a pose sits is now the pose's own business — tools/seat-solve.mjs
+    // puts every one of them on the mat and tools/weight-check.mjs holds them
+    // there. A blend between two seated poses stays seated, which is what the
+    // lift was really for.
+    // And a foot that is through the mat is put back on it. A safety net for a
+    // blend, not a mechanism: it clamps the ankle to a fixed height, so while a
+    // pose is being seated it has to be off, or the seat pushes the pair down
+    // and this holds the foot where it was and the two never agree. Four poses
+    // sat in exactly that limit cycle before seat-solve learned to switch it.
+    if (!this.plantFeet) return;
     for (const [th, sh, ft] of [['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR']]) {
       sk.boneHead(_t, ft);
-      if (_t[1] < FLOOR + 0.035) {
-        _t[1] = FLOOR + 0.042;
-        solveTwoBone(sk, th, sh, ft, _t, null, 1);
+      if (_t[1] >= FLOOR + SOLE - 0.008) continue;
+      _t[1] = FLOOR + SOLE;
+      // A leg cannot be shorter than a folded leg.
+      //
+      // The target is a height, and pulling a foot up to it shortens the
+      // distance from the hip — past a point the only way to close that
+      // distance is to fold the knee past what a knee folds. The thigh is
+      // 42.5 cm and the shin 41, so at joint-check's 155-degree limit the hip
+      // is 18.1 cm from the ankle: any closer and the solver is inventing a
+      // joint. Measured after the poses were seated, this fired on
+      // SIDE_CONTROL>MOUNT and bent a knee to 173 degrees for 105 samples.
+      sk.boneHead(_t3, th);
+      const dx = _t[0] - _t3[0], dy = _t[1] - _t3[1], dz = _t[2] - _t3[2];
+      const d = Math.hypot(dx, dy, dz);
+      if (d < LEG_MIN && d > 1e-4) {
+        const k = LEG_MIN / d;
+        _t[0] = _t3[0] + dx * k;
+        _t[1] = _t3[1] + dy * k;
+        _t[2] = _t3[2] + dz * k;
       }
+      solveTwoBone(sk, th, sh, ft, _t, null, 1);
     }
   }
 
