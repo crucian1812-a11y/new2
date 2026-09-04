@@ -52,6 +52,9 @@ export class Input {
     this.keyFlickBuffer = [];
     this.enabled = true;
     this.anyPress = false;
+    // Where the last press began, so the game can tell a press on the
+    // full-screen button from the same tap it starts a match with.
+    this.pressAt = null;
 
     const o = { passive: false };
     canvas.addEventListener('pointerdown', (e) => this._down(e), o);
@@ -86,6 +89,7 @@ export class Input {
     try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* not a real finger */ }
     const p = this._pos(e);
     this.anyPress = true;
+    this.pressAt = { x: p.x, y: p.y };
     const leftHalf = p.x < this.canvas.clientWidth * 0.44;
     if (leftHalf && !this.stick.active) {
       this.stick.active = true;
@@ -196,6 +200,7 @@ export class Input {
     this.tap = false;
     this.tapAt = null;
     this.tapLeft = false;
+    this.pressAt = null;
     let kx = 0, ky = 0;
     if (this.keys.has('a')) kx -= 1;
     if (this.keys.has('d')) kx += 1;

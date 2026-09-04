@@ -215,10 +215,57 @@ const crowd = { level: 0, spot: 0 };
 const veil = { v: 0 };
 const fade = () => { veil.v = 1; };
 
+// The tab goes full-screen: the browser's address bar folds away and the mat
+// fills the glass. This is the one feature the page cannot do for itself on
+// every phone — a browser only enters full screen out of a gesture, and iOS
+// Safari will not enter it from a page at all (there the answer is the home
+// screen, which the manifest above makes chrome-less). So the HUD draws a
+// button, the tap is read here, and where the browser says no, a hint says
+// what to do instead.
+const isFullscreen = () => !!(
+  document.fullscreenElement || document.webkitFullscreenElement);
+// A short-lived toast the HUD draws, for a fullscreen ask the browser refused.
+let fsHint = null;
+let fsHintTimer = 0;
+function sayFullscreen(msg) {
+  fsHint = msg;
+  clearTimeout(fsHintTimer);
+  fsHintTimer = setTimeout(() => { fsHint = null; }, 4200);
+}
+function toggleFullscreen() {
+  const d = document;
+  if (isFullscreen()) {
+    if (d.exitFullscreen) d.exitFullscreen();
+    else if (d.webkitExitFullscreen) d.webkitExitFullscreen();
+    return;
+  }
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) {
+    // The ask comes back as a promise in every browser that has one, and a
+    // refusal arrives as a rejection rather than a throw, so it needs a catch
+    // as well as the guard below. Old webkit does not return one.
+    try {
+      const p = req.call(el);
+      if (p && p.catch) {
+        p.catch(() => sayFullscreen('Браузер не пускает в полный экран — добавь игру на домашний экран'));
+      }
+    } catch {
+      sayFullscreen('Браузер не пускает в полный экран — добавь игру на домашний экран');
+    }
+  } else {
+    // iOS Safari: a page cannot go full-screen. The install path is the one.
+    sayFullscreen('Полный экран: «Поделиться» → «На экран „Домой“»');
+  }
+}
+document.addEventListener('fullscreenchange', layout);
+document.addEventListener('webkitfullscreenchange', layout);
+
 // Everything the HUD needs each frame, built once so the draw calls stay short.
 const hudOpts = () => ({
   level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut,
   selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
+  fullscreen: isFullscreen(), fsHint,
 });
 
 // The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
@@ -555,12 +602,15 @@ function frame(now) {
     // The title card owns its tap below — the menu reads where it landed. The
     // result card and the end of the lesson start on any press, and both put
     // the menu back on the ladder so the next default fight is the ranked one.
-    if (match.state === 'over') {
+    // A press on the full-screen button is not that press: it must not start
+    // the next match out from under the menu the player is about to fold away.
+    const onFs = input.pressAt && hud.fsHit(input.pressAt);
+    if (match.state === 'over' && !onFs) {
       selection.belt = progress.rank;
       newMatch();
       match.start();
       startBell();
-    } else if (tut && tut.done) {
+    } else if (tut && tut.done && !onFs) {
       // The lesson is over; the next touch brings out a real opponent.
       selection.belt = progress.rank;
       tut = null;
@@ -579,10 +629,12 @@ function frame(now) {
     else if (r) audio.cloth(0.5);
   }
   if (input.tap) {
-    // The title card is a menu now: a tap on a belt or a match length changes
-    // the next fight, a tap anywhere else steps into it with whatever is
-    // selected. Locked belts — past the rung you have earned — do nothing.
-    if (match.state === 'ready') {
+    // The full-screen button, in the corner of every screen. It outranks
+    // everything else so a tap on it is never read as a grip or a menu row.
+    if (hud.fsHit(input.tapAt)) {
+      toggleFullscreen();
+      audio.click();
+    } else if (match.state === 'ready') {
       const hit = hud.menuHit(input.tapAt);
       if (hit && hit.kind === 'belt') {
         if (!FORCED && hit.value <= progress.rank) { selection.belt = hit.value; audio.click(); }
@@ -828,6 +880,9 @@ window.__bjj = {
   // The transition fade, so a tool can watch it rise and clear without a
   // screenshot racing the compositor.
   veil, fade,
+  // Full-screen: read the state and drive the toggle, so a tool can check the
+  // button without a browser UI it cannot see.
+  fullscreen: isFullscreen, toggleFullscreen, fsHint: () => fsHint,
   // Freeze on one paired pose. Used by the art tooling; also the quickest way
   // to check a pose by hand from the console.
   setPose: (id) => {

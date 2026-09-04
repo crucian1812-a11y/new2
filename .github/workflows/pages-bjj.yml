@@ -52,7 +52,7 @@ jobs:
         run: |
           rm -rf site/bjj
           mkdir -p site/bjj
-          cp repo/bjj/index.html repo/bjj/styles.css site/bjj/
+          cp repo/bjj/index.html repo/bjj/styles.css repo/bjj/manifest.webmanifest site/bjj/
           cp -r repo/bjj/src repo/bjj/assets site/bjj/
           # Pages runs Jekyll otherwise, and Jekyll drops anything whose name
           # starts with an underscore.
