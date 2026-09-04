@@ -24,7 +24,7 @@ import {
   Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT, BONE_INDEX,
   HAND_REST, TIP_REST,
 } from '../render/skeleton.js';
-import { quat, qEuler, v3, v3set } from '../core/m4.js';
+import { quat, qCopy, qEuler, qMul, v3, v3set } from '../core/m4.js';
 
 // Where he stands: this far from the middle of the fight, and this far round
 // from the camera's own bearing. Round from the camera and not from the pair,
@@ -34,9 +34,14 @@ import { quat, qEuler, v3, v3set } from '../core/m4.js';
 // stands and also where he is out of the way.
 const DIST = 2.35;
 const AROUND = (150 * Math.PI) / 180;
-// How fast he walks to keep that distance, in metres a second. He is not
-// running; the pair drifts about a metre a second at most.
-const STEP = 1.3;
+// How fast he is allowed to walk, in metres a second. This is a ceiling, not a
+// pace: the spring below eases him up to whatever speed the situation needs
+// and clamps him here, so a camera cut is a brisk stroll rather than a sprint.
+const VMAX = 1.3;
+// The dead zone he keeps around his target. He starts walking when the target
+// is ENGAGE metres away, and only stops once it is back inside RELEASE *and*
+// he has actually slowed down. Two numbers, not one, so the target drifting
+// with the camera does not flip him between walking and standing every frame.
 // How close he ever gets to the middle of the fight, walking or standing.
 //
 // The same circle he stands on, so the walk is an arc along it rather than a
@@ -45,6 +50,9 @@ const STEP = 1.3;
 // because in side control a leg reaches most of the way there on its own; the
 // distance he stands at is what he has to keep while moving too.
 const KEEP_OUT = DIST;
+// The two radii of the walking dead zone (see above).
+const ENGAGE = 0.5;
+const RELEASE = 0.2;
 
 // He holds nothing for the whole match and still has hands. Spread into every
 // pose below rather than typed into each: the fighters get the same angles from
@@ -113,11 +121,22 @@ for (const k in P) QUATS[k] = poseToQuats(Array.from({ length: BONE_COUNT }, () 
 
 export const REFEREE_POSES = P;
 
+const _bq = quat();
+// Add a small Euler rotation to a bone's local quaternion, in place. The same
+// idea as rig.js's addEuler: breathing is added on top of the authored pose
+// rather than written over a joint, so the pose keeps its own neck and the
+// torso reads as breathing rather than as being replaced by it.
+function addEuler(sk, bone, x, y, z) {
+  const i = BONE_INDEX[bone];
+  if (i === undefined) return;
+  qEuler(_bq, x, y, z);
+  qMul(sk.local[i], sk.local[i], _bq);
+}
+
 export class Referee {
   constructor() {
     this.skel = new Skeleton();
     this.pose = 'stand';
-    this.from = 'stand';
     this.blend = 1;
     this.t = 0;
     this.hold = 0;             // seconds left of a gesture that must finish
@@ -125,6 +144,15 @@ export class Referee {
     this.z = 0;
     this.yaw = 0;
     this.placed = false;
+    this.moving = false;
+    this.vx = 0;
+    this.vz = 0;
+    // A pose change blends from wherever he actually is. These hold the state
+    // to blend from — the quaternion state and the root height at the moment
+    // the change was asked for — so a change of mind never snaps him back to
+    // the start of the pose he was leaving.
+    this._fromQ = Array.from({ length: BONE_COUNT }, (_, i) => qCopy(quat(), QUATS.stand[i]));
+    this._rootFrom = P.stand.root.p[1];
     this._q = Array.from({ length: BONE_COUNT }, () => quat());
     // He walks, for the same reason the fighters do: a man crossing a mat with
     // his soles glued to it is the most visible wrong thing in a frame. Same
@@ -137,7 +165,13 @@ export class Referee {
   // rather than a scramble: he only ever repositions, and a foot that is not
   // moving stays where it was put.
   _step(dt, vx, vz) {
-    const STRIDE = 0.26, SWING = 0.28, LIFT = 0.06, LEAD = 1.4;
+    // STRIDE and SWING are matched so a foot stays planted longer than the
+    // other swings, up to VMAX: a stride is 0.44 m and a swing 0.30 s, so even
+    // at top speed the stance is 0.34 s and the planted foot is there to be
+    // seen. Before, the stride was 0.26 m — at any pace past a slow walk the
+    // swing outlasted the stance and both feet left the mat at once, which is
+    // the slide that made him look like he was on castors.
+    const STRIDE = 0.44, SWING = 0.30, LIFT = 0.07, LEAD = 1.4;
     const busy = this.feet.some((f) => f.t < 1);
     const names = [['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR']];
     for (let i = 0; i < 2; i++) {
@@ -165,10 +199,26 @@ export class Referee {
     }
   }
 
+  // Change what he is doing, starting from wherever the blend has him now.
+  //
+  // The straight version — `from = pose; blend = 0` — is only smooth when the
+  // old pose had finished. The camera drifts, the pair turns and the fight
+  // goes up and down, so he changes his mind mid-move all the time; restarting
+  // the blend from the authored pose sent his hips a quarter of a metre in one
+  // frame, which read as a twitch. Capturing the current state and blending
+  // from it keeps every change continuous.
+  switchTo(name) {
+    if (name === this.pose) return;
+    // Capture the blended state as it stands right now, then blend from it.
+    blendQuats(this._fromQ, this._fromQ, QUATS[this.pose], this.blend);
+    this._rootFrom += (P[this.pose].root.p[1] - this._rootFrom) * this.blend;
+    this.pose = name;
+    this.blend = 0;
+  }
+
   // A gesture that outranks whatever he would be doing otherwise, for a while.
   gesture(name, seconds) {
-    if (this.pose !== name) { this.from = this.pose; this.blend = 0; }
-    this.pose = name;
+    this.switchTo(name);
     this.hold = seconds;
   }
 
@@ -213,12 +263,30 @@ export class Referee {
     if (!this.placed) { this.x = tx; this.z = tz; this.placed = true; }
     const dx = tx - this.x, dz = tz - this.z;
     const d = Math.hypot(dx, dz);
-    // A dead zone, so he is not shuffling on the spot every frame the pair
-    // breathes. Below a third of a metre he stays where he is.
-    if (d > 0.32) {
-      const k = Math.min(1, (STEP * dt) / d);
-      this.x += dx * k;
-      this.z += dz * k;
+    // Follow the target the way a man crosses a mat, not a stop-motion puppet.
+    //
+    // A hard speed cap has him chase a target that is itself drifting: he
+    // catches it, stands still, falls behind, chases it again — a few times a
+    // minute, and each burst too short for a step, so he twitches and slides.
+    // Instead he is a critically damped spring: he eases up to speed, settles
+    // into the target's own pace, and eases back down, so the only time he
+    // visibly starts or stops is when the target genuinely did. The dead zone
+    // keeps him from creeping the last few centimetres, and the two thresholds
+    // keep a drifting target from flip-flopping him.
+    if (!this.moving && d > ENGAGE) this.moving = true;
+    if (this.moving) {
+      const K = 5, DAMP = 2 * Math.sqrt(K);
+      this.vx += (dx * K - this.vx * DAMP) * dt;
+      this.vz += (dz * K - this.vz * DAMP) * dt;
+      const v = Math.hypot(this.vx, this.vz);
+      if (v > VMAX) { const s = VMAX / v; this.vx *= s; this.vz *= s; }
+      this.x += this.vx * dt;
+      this.z += this.vz * dt;
+      if (d < RELEASE && Math.hypot(this.vx, this.vz) < 0.18) {
+        this.moving = false;
+        this.vx = 0;
+        this.vz = 0;
+      }
     }
     // Round them, not through them.
     //
@@ -239,8 +307,8 @@ export class Referee {
       this.x = origin[0] + (r > 1e-4 ? rx * push : KEEP_OUT);
       this.z = origin[2] + (r > 1e-4 ? rz * push : 0);
     }
-    const lastX = this.x - dx * (d > 0.32 ? Math.min(1, (STEP * dt) / d) : 0);
-    const lastZ = this.z - dz * (d > 0.32 ? Math.min(1, (STEP * dt) / d) : 0);
+    // The step planner takes the body's velocity straight from the spring; a
+    // step is the body moving, not the radial shove back out of the fight.
     const want = Math.atan2(origin[0] - this.x, origin[2] - this.z);
     let turn = ((want - this.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     this.yaw += turn * Math.min(1, dt * 4);
@@ -256,31 +324,34 @@ export class Referee {
       // because a squat has nowhere to put a step. Nobody moves like that. The
       // dead zone below is what "arrived" means, and it is the same number, so
       // he settles into the crouch exactly when he stops.
-      const moving = d > 0.32;
       const next = state === 'over' ? 'stop'
         : state === 'ready' ? 'stand'
-        : ground && !moving ? 'crouch' : 'stand';
-      if (next !== this.pose) { this.from = this.pose; this.pose = next; this.blend = 0; }
+        : ground && !this.moving ? 'crouch' : 'stand';
+      if (next !== this.pose) this.switchTo(next);
     }
     this.blend = Math.min(1, this.blend + dt * 2.6);
 
-    blendQuats(this._q, QUATS[this.from], QUATS[this.pose], this.blend);
+    blendQuats(this._q, this._fromQ, QUATS[this.pose], this.blend);
     for (let i = 0; i < BONE_COUNT; i++) {
       const q = this.skel.local[i], s = this._q[i];
       q[0] = s[0]; q[1] = s[1]; q[2] = s[2]; q[3] = s[3];
     }
-    // Breathing, so he is not a statue: one number, on the chest, because at
-    // this distance that is all anybody can see.
-    const br = Math.sin(this.t * 1.6) * 0.9;
-    qEuler(this.skel.local[3], br, 0, 0);
+    // Breathing, added to the chest like the fighters' rather than written
+    // over a joint. It was applied as an overwrite on the neck, which quietly
+    // discarded whatever the pose had the neck doing and left him breathing
+    // through a joint nobody breathes through.
+    const br = Math.sin(this.t * 1.6);
+    addEuler(this.skel, 'chest', br * 1.1, 0, 0);
+    addEuler(this.skel, 'spine', br * 0.6, 0, 0);
+    addEuler(this.skel, 'neck', -br * 0.5, 0, 0);
 
-    const ph = P[this.from].root.p[1] + (P[this.pose].root.p[1] - P[this.from].root.p[1]) * this.blend;
+    const ph = this._rootFrom + (P[this.pose].root.p[1] - this._rootFrom) * this.blend;
     this.skel.rootPos[0] = this.x;
     this.skel.rootPos[1] = ph;
     this.skel.rootPos[2] = this.z;
     qEuler(this.skel.rootRot, 0, (this.yaw * 180) / Math.PI, 0);
     this.skel.pose();
-    this._step(dt, (this.x - lastX) / Math.max(dt, 1e-4), (this.z - lastZ) / Math.max(dt, 1e-4));
+    this._step(dt, this.vx, this.vz);
     this._ground();
     this.skel.finishSkin();
   }

@@ -12,7 +12,7 @@
 
 import { createGL, program, vao, texture, framebuffer, QUAD } from './gl.js';
 import { giWeave, skinTex, tatamiTex, uploadPacked } from './textures.js';
-import { markAtlas, cellRect, MAT_MARKS, ARENA_MARKS, GI_PATCHES, fitPatches } from './marks.js';
+import { markAtlas, cellRect, scoreCellRects, scoreAdvances, scoreInset, MAT_MARKS, ARENA_MARKS, GI_PATCHES, fitPatches } from './marks.js';
 import { OCCLUDERS } from '../game/collide.js';
 import { BONE_INDEX, BONES } from './skeleton.js';
 import { buildArena } from './arena.js';
@@ -662,6 +662,13 @@ void main() {
   gl_Position = u_viewProj * vec4(a_pos, 1.0);
 }`;
 
+// The jumbotron scoreboard's geometry, typed once in marks.js
+// (ARENA_MARKS.score) and folded into the shader here so the checker and the
+// shader share one source rather than two numbers that can drift.
+const SCORE = ARENA_MARKS.score;
+const SCORE_BOTTOM = SCORE.top - SCORE.size;
+const SCORE_CENTRE = SCORE.top - SCORE.size * 0.5;
+
 const STATIC_FS = COMMON + LIGHTING + MARKS + `
 in vec3 v_world;
 in vec3 v_nrm;
@@ -676,9 +683,40 @@ uniform float u_area;
 uniform float u_time;
 uniform vec4 u_cell[3];    // crest, corner roundel, wordmark
 uniform vec4 u_boardMark;  // top, height, start, width — see ARENA_MARKS
-uniform vec4 u_jumboMark;  // top, size
 uniform vec4 u_matMark;    // crest size, corner offset, corner size, edge offset
 uniform vec2 u_matEdge;    // wordmark length and height, metres
+// The room, watching. u_crowd is how far the stands are off their feet — a
+// score, a big throw, the tap — and u_spot is the submission spotlight that
+// lets the hall fall away and leaves the pair in the pool of light on the mat.
+// Both are presentation: the match never reads them, so the director can move
+// them as fast as he likes without touching anything that is measured.
+uniform float u_crowd;
+uniform float u_spot;
+
+// The scoreboard (Г2): the two fighters' points and the clock, drawn on the
+// jumbotron digit by digit off the scoreboard strip of the marks atlas. The
+// cells and the advances come from marks.js — the strip is one glyph per cell,
+// white ink in a padded box — and u_score is the match's own numbers.
+uniform vec4 u_digitRect[11];
+uniform float u_digitAdv[11];
+uniform vec2 u_digitInset;   // the pad around each glyph, in atlas uv
+uniform vec2 u_score;        // x = fighter 0's points, y = fighter 1's
+uniform float u_clock;       // seconds on the clock
+
+// The glyph a scoreboard slot shows. The layout is fixed — two digits for each
+// man, the clock m:ss between them — so the shader can lay the line out with no
+// texture and the numbers are the match's own.
+int slotGlyph(int slot) {
+  if (slot == 0) return int(mod(u_score.x, 100.0) / 10.0);
+  if (slot == 1) return int(mod(u_score.x, 10.0));
+  if (slot == 2) return int(mod(u_clock / 60.0, 10.0));
+  if (slot == 3) return 10;
+  if (slot == 4) return int(mod(u_clock, 60.0) / 10.0);
+  if (slot == 5) return int(mod(u_clock, 10.0));
+  if (slot == 6) return int(mod(u_score.y, 100.0) / 10.0);
+  if (slot == 7) return int(mod(u_score.y, 10.0));
+  return 0;
+}
 
 void main() {
   int m = int(v_mat + 0.5);
@@ -735,7 +773,12 @@ void main() {
   } else if (m == 2) {
     albedo = vec3(0.05, 0.055, 0.07); rough = 0.8; spec = 0.14;
   } else if (m == 3) {
-    albedo = vec3(0.028, 0.03, 0.038); rough = 1.0; spec = 0.02; ao = 0.5;
+    // The tiered stands. They are the bulk of what reads as "the hall", and
+    // they lighten with the room: a crowd on its feet throws the tiers into
+    // the key light, so u_crowd lifts them out of the dark too — not just the
+    // torsos that stand on them.
+    albedo = vec3(0.028, 0.03, 0.038) * (1.0 + 1.5 * u_crowd);
+    rough = 1.0; spec = 0.02; ao = 0.5;
   } else if (m == 4) {
     // The crowd. Barely lit, tinted all over the place, and the variation is
     // driven off world position so it is stable frame to frame.
@@ -745,6 +788,13 @@ void main() {
     // of light instead of in a lit box.
     albedo *= 0.5 + 0.5 * h;
     albedo *= smoothstep(28.0, 9.0, max(abs(v_world.x), abs(v_world.z)));
+    // A hall does not sit still when somebody scores. u_crowd is how far it is
+    // off its feet, and it lifts the whole stands out of the dark — brighter
+    // everywhere, with a wave running from the front rows back, so the room
+    // reacts a beat after the mat does instead of like a switch.
+    float ring = max(abs(v_world.x), abs(v_world.z));
+    float wave = 1.0 + u_crowd * (0.45 * sin(u_time * 6.5 - ring * 2.4) - 0.1);
+    albedo *= 1.0 + 1.0 * u_crowd;
     rough = 1.0; spec = 0.0; ao = 0.26;
 
     // Catchlights. A dark crowd with nothing in it is a black wall; a dark
@@ -757,12 +807,16 @@ void main() {
     float warm = fract(sp * 91.7);
     vec3 spark = mix(vec3(0.42, 0.52, 0.95), vec3(1.0, 0.78, 0.42), warm);
     // They breathe slightly, at their own rates, so the stands are not a still
-    // photograph behind a moving fight.
+    // photograph behind a moving fight — and they surge, not just brighten,
+    // when the room goes up.
     lit *= 0.65 + 0.35 * sin(u_time * (0.8 + warm * 2.2) + sp * 40.0);
-    emis += spark * lit * 3.4 * smoothstep(34.0, 10.0, max(abs(v_world.x), abs(v_world.z)));
+    emis += spark * lit * 3.4 * (1.0 + 1.4 * u_crowd) * wave
+          * smoothstep(34.0, 10.0, ring);
   } else if (m == 5) {
     // Lamp housings: emissive, and the only thing in frame allowed to blow out.
-    outColor = vec4(vec3(2.6, 2.45, 2.2), 1.0);
+    // They flare a touch when the room does — a truss answering the score
+    // rather than a static ceiling.
+    outColor = vec4(vec3(2.6, 2.45, 2.2) * (1.0 + 0.22 * u_crowd), 1.0);
     return;
   } else if (m == 7) {
     // The sponsor boards around the mat: internally lit panels, a new one every
@@ -831,21 +885,70 @@ void main() {
     albedo = c * 0.3; rough = 0.5; spec = 0.2; ao = 0.85;
   } else {
     // The jumbotron's screens. Bright enough to read as a display and to feed
-    // the bloom, dim enough that they are not a second key light — and with
-    // the club's crest on them, which is what a screen over a mat shows
-    // between rounds. The small screen on the referee's table shares this
-    // material and is nowhere near this height, so the decal masks itself off
-    // it rather than needing a material of its own.
+    // the bloom, dim enough that they are not a second key light — and they
+    // carry the match now: each man's points and the clock, the same numbers
+    // the scorebug shows, drawn digit by digit off the scoreboard strip. The
+    // small screen on the referee's table shares this material and sits far
+    // lower (y 0.83 against the board's 3.0), so the line masks itself off it
+    // by height rather than needing a material of its own.
     float band = 0.5 + 0.5 * sin(v_world.y * 42.0 + u_time * 2.2);
-    vec3 scr = vec3(0.20, 0.34, 0.62) * (1.35 + band * 0.25);
-    float ax6 = abs(v_world.x), az6 = abs(v_world.z);
-    float a6 = ax6 > az6 ? -v_world.z * sign(v_world.x) : v_world.x * sign(v_world.z);
-    outColor = vec4(decal(scr, u_cell[0],
-      vec2((a6 + u_jumboMark.y * 0.5) / u_jumboMark.y,
-           (v_world.y - u_jumboMark.x + u_jumboMark.y) / u_jumboMark.y), 1.15), 1.0);
+    vec3 scr = vec3(0.06, 0.10, 0.20) * (1.35 + band * 0.25);
+    // The horizontal coordinate across a face, taken from the face's own
+    // outward normal so that every screen reads left-to-right from the side it
+    // faces — and taken from the cube's centre, so the two side faces get the
+    // same centred line the two front faces do instead of a strip of one digit.
+    float a6 = abs(v_nrm.z) > abs(v_nrm.x)
+      ? (v_world.x - ${SCORE.x.toFixed(2)}) * v_nrm.z
+      : -(v_world.z - ${SCORE.z.toFixed(2)}) * v_nrm.x;
+
+    // The scoreboard line, only on the screens high enough to be the board.
+    float onBoard = smoothstep(${SCORE_BOTTOM.toFixed(2)}, ${(SCORE_BOTTOM + 0.15).toFixed(2)}, v_world.y)
+                  * smoothstep(${SCORE.top.toFixed(2)}, ${(SCORE.top - 0.12).toFixed(2)}, v_world.y);
+    if (onBoard > 0.0) {
+      float capH = ${SCORE.cap};      // digit cap height, metres
+      float gap = ${SCORE.gap};       // between score and clock
+      float cellW = ${SCORE.cell} * capH;    // every digit's own cell
+      float colonW = ${SCORE.colon} * capH;  // the colon's narrower cell
+      float y0 = ${SCORE_CENTRE.toFixed(2)} - capH * 0.5;
+      // Walk the eight slots once to centre the line on the face. The cells
+      // are monospace — each digit takes the widest advance no matter what it
+      // draws — so a score tick changes exactly one cell and nothing else
+      // shifts. Proportional type re-centres the line on every tick, and the
+      // board shimmers like a badly synced scorebug.
+      float total = gap * 2.0;
+      for (int s = 0; s < 8; s++) total += (slotGlyph(s) == 10 ? colonW : cellW);
+      float x = -total * 0.5;
+      for (int s = 0; s < 8; s++) {
+        int g = slotGlyph(s);
+        float cw = (g == 10) ? colonW : cellW;
+        float w = u_digitAdv[g] * capH;
+        float x0 = x + (cw - w) * 0.5;
+        if (a6 >= x0 && a6 < x0 + w) {
+          // The glyph is masked to its own cell, the way every decal on the
+          // mat is: q is the unclamped position in the cell, so the mask is
+          // zero outside it, and the fetch is clamped to the edge so the
+          // sampler never wraps into a neighbour.
+          vec2 q = vec2((a6 - x0) / w, (v_world.y - y0) / capH);
+          float on = step(0.0, min(q.x, q.y)) * step(max(q.x, q.y), 1.0);
+          vec2 qc = clamp(q, 0.0, 1.0);
+          vec2 uv = u_digitRect[g].xy + u_digitInset + qc * (u_digitRect[g].zw - 2.0 * u_digitInset);
+          vec4 m = texture(u_marks, uv);
+          scr = mix(scr, vec3(0.94, 0.96, 0.92), m.a * on);
+          break;
+        }
+        x += cw;
+        if (s == 1 || s == 5) x += gap;
+      }
+    }
+    outColor = vec4(scr, 1.0);
     return;
   }
-  outColor = vec4(shade(v_world, N, albedo, rough, spec, 0.15, ao) + emis, 1.0);
+  // The submission spotlight. When a lock is on, the house falls away and the
+  // pair stay in the pool of light on the mat: the mat itself (m == 0) keeps
+  // every lumen, and everything round it — floor, boards, stands, crowd — dims
+  // so the only thing left to look at is the two men.
+  float house = 1.0 - u_spot * (m == 0 ? 0.0 : 0.55);
+  outColor = vec4((shade(v_world, N, albedo, rough, spec, 0.15, ao) + emis) * house, 1.0);
 }`;
 
 const SHADOW_VS_SKIN = COMMON + `
@@ -982,6 +1085,12 @@ export class Renderer {
     this.markCells = new Float32Array([
       ...cellRect('aresRound'), ...cellRect('olavoRound'), ...cellRect('wordmark'),
     ]);
+    // The scoreboard strip: one cell and one advance per glyph, for the
+    // jumbotron to lay a number out of. Same source as the rasterisation, so
+    // the two cannot drift.
+    this.scoreCells = new Float32Array(scoreCellRects().flat());
+    this.scoreAdv = new Float32Array(scoreAdvances());
+    this.scoreInset = new Float32Array(scoreInset());
     this.patchCells = new Float32Array(GI_PATCHES.flatMap((p) => cellRect(p.cell)));
     // The fallback layout, for a body nobody has measured — the procedural one.
     this.patchRects = new Float32Array(GI_PATCHES.flatMap((p) => [p.u, p.du, p.v, p.dv]));
@@ -1207,6 +1316,34 @@ export class Renderer {
       return;
     }
 
+    // Tooling hook: the same instant, scored several ways.
+    //
+    // The jumbotron scoreboard is the one uniform that changes with the match
+    // rather than with the shading, so it cannot ride the `want` list above —
+    // those passes all share the scene's own score. This redraws the frame
+    // once per `[[scoreA, scoreB], clock]` pair from the same simulation state,
+    // so the only thing that differs between the readbacks is the board. Two
+    // grabs a frame apart would not do: the fighters breathe and the grain
+    // crawls, and a score change is a dozen pixels against thousands that
+    // moved on their own.
+    if (Array.isArray(this.scoreShots)) {
+      const shots = this.scoreShots.slice();
+      const keep = this._scoreOverride;
+      this.scoreShots = null;
+      this.want = false;
+      this._grabbing = true;
+      const out = [];
+      for (const shot of shots) {
+        this._scoreOverride = [shot[0], shot[1]];
+        this.render(scene);
+        out.push({ score: [shot[0][0], shot[0][1]], clock: shot[1], px: this._readback() });
+      }
+      this._scoreOverride = keep;
+      this._grabbing = false;
+      this.grabbed = Object.assign(this.grabbed || {}, { scoreShots: out, w: this.canvas.width, h: this.canvas.height });
+      return;
+    }
+
     // The light rides with the action so the shadow map spends its whole
     // resolution on the two people in it.
     const cx = clamp(scene.focus[0], -3, 3);
@@ -1287,7 +1424,19 @@ export class Renderer {
     gl.uniform2f(this.progStatic.u.u_matEdge, MAT_MARKS.edge.len, MAT_MARKS.edge.height);
     gl.uniform4f(this.progStatic.u.u_boardMark, ARENA_MARKS.board.top, ARENA_MARKS.board.height,
       ARENA_MARKS.board.at, ARENA_MARKS.board.width);
-    gl.uniform4f(this.progStatic.u.u_jumboMark, ARENA_MARKS.jumbo.top, ARENA_MARKS.jumbo.size, 0.0, 0.0);
+    gl.uniform1f(this.progStatic.u.u_crowd, scene.crowd || 0);
+    gl.uniform1f(this.progStatic.u.u_spot, scene.spot || 0);
+    // The scoreboard: the match's own numbers, handed straight to the arena
+    // shader. Whatever the scorebug says, the board over the mat says. The
+    // `scoreShots` hook above overrides both numbers so one frame can be
+    // scored several ways and read back between the passes.
+    const sc = this._scoreOverride
+      || [scene.score || [0, 0], scene.clock != null ? scene.clock : 0];
+    gl.uniform4fv(this.progStatic.u.u_digitRect, this.scoreCells);
+    gl.uniform1fv(this.progStatic.u.u_digitAdv, this.scoreAdv);
+    gl.uniform2f(this.progStatic.u.u_digitInset, this.scoreInset[0], this.scoreInset[1]);
+    gl.uniform2f(this.progStatic.u.u_score, sc[0][0], sc[0][1]);
+    gl.uniform1f(this.progStatic.u.u_clock, sc[1]);
     gl.bindVertexArray(this.arenaVAO);
     gl.drawElements(gl.TRIANGLES, this.arena.count, gl.UNSIGNED_INT, 0);
 

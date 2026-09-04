@@ -15,7 +15,7 @@
 // for the club, not a generic demo, and it is the one place where invented
 // branding would have been worse than the real thing.
 
-import { textStrokes, textWidth } from './glyphs.js';
+import { textStrokes, textWidth, glyph } from './glyphs.js';
 
 // Every word that appears on the mat or on a kimono, in one place. The font is
 // drawn rather than loaded, so a letter nobody thought about is not a fallback
@@ -423,6 +423,50 @@ export const CELLS = {
 };
 const ATLAS = 1024;
 
+// The scoreboard type, for the jumbotron (Г2). The digits and the colon are
+// rasterised into the atlas's free corner, one cell each, so the arena shader
+// can lay a number out digit by digit with nothing but uniforms — the same
+// mechanism the mat's decals already use, and the same "no files" rule.
+//
+// Kept out of CELLS on purpose: mark-check's atlas pass measures the four club
+// marks against the club's palette, and these are white ink — the digits get
+// their own pass there instead.
+export const SCORE_GLYPHS = '0123456789:';
+// The strip's geometry. Each cell is its glyph's own advance wide, so a
+// scoreboard 1 next to a 0 reads as 10 and not as a gap. The ink sits inside a
+// fixed pad — the round pen extends past the glyph box, and a cell that bleeds
+// into its neighbour bleeds when the sampler takes a mipmap.
+const SCORE_H = 96;        // cell height, texels
+const SCORE_SCALE = 72;    // cap height inside it
+const SCORE_PAD_X = 8;     // horizontal pad, texels
+const SCORE_PAD_Y = 12;    // vertical pad, texels (baseline sits padY up)
+const SCORE_X = 384, SCORE_Y = 640;   // top-left of the strip
+
+function scoreStrip() {
+  const cells = [];
+  let x = SCORE_X;
+  for (const ch of SCORE_GLYPHS) {
+    const adv = glyph(ch)[0];
+    const w = Math.max(2, Math.round(adv * SCORE_SCALE) + SCORE_PAD_X * 2);
+    cells.push({ ch, x, y: SCORE_Y, w, h: SCORE_H, adv });
+    x += w;
+  }
+  return cells;
+}
+
+// Texture-space cell rects for the strip, GL-side up like cellRect, plus the
+// advances in cap-heights and the pad in atlas UV. The shader walks these to
+// lay a number out, so they have to stay in step with the rasterisation above.
+export function scoreCellRects() {
+  return scoreStrip().map((c) => [c.x / ATLAS, 1 - (c.y + c.h) / ATLAS, c.w / ATLAS, c.h / ATLAS]);
+}
+export function scoreAdvances() {
+  return scoreStrip().map((c) => c.adv);
+}
+export function scoreInset() {
+  return [SCORE_PAD_X / ATLAS, SCORE_PAD_Y / ATLAS];
+}
+
 // Texture coordinates for a cell, after the vertical flip that makes the atlas
 // GL-side up. Handed to the shader as uniforms rather than written into it
 // twice, so the layout has exactly one home.
@@ -453,6 +497,22 @@ export function markAtlas(scale = 1) {
       }
     }
   }
+  // The scoreboard strip, white ink, one glyph per cell. Same flip as above;
+  // the pad around the ink is part of the cell, which is why the shader gets
+  // the pad back out of scoreInset rather than guessing it.
+  for (const cell of scoreStrip()) {
+    const cv = view(canvas(cell.w, cell.h), SCORE_SCALE, SCORE_PAD_X, cell.h - SCORE_PAD_Y);
+    text(cv, cell.ch, { x: 0, y: 0, size: 1, weight: 0.18, col: [1, 1, 1], align: 'left', tracking: 0 });
+    for (let j = 0; j < cell.h; j++) {
+      const dstRow = S - 1 - (cell.y + j);
+      if (dstRow < 0 || dstRow >= S) continue;
+      for (let i = 0; i < cell.w; i++) {
+        const src = (j * cell.w + i) * 4;
+        const dst = (dstRow * S + cell.x + i) * 4;
+        for (let k = 0; k < 4; k++) out[dst + k] = Math.max(0, Math.min(255, Math.round(cv.px[src + k] * 255)));
+      }
+    }
+  }
   return { size: S, data: out };
 }
 
@@ -471,11 +531,17 @@ export function markAtlas(scale = 1) {
 //   board: the pale plate across a hoarding is `height` tall with its top at
 //   `top`; the wordmark sits on the middle `width` of each 2.5 m board,
 //   starting `at`. The seats are about `dist` away.
-//   jumbo: the crest on each screen of the cube over the mat, `size` across
-//   with its top at `top`.
+//   score: the digits on each face of the jumbotron cube. Each screen is
+//   `size` tall with its top at `top`, and the type is `cap` metres tall,
+//   laid out across the middle of the screen with a `gap` between the score
+//   and the clock. Every digit sits in the same `cell` — the widest digit's
+//   advance, in cap-heights, so a score tick never shoves its neighbours over
+//   — and the colon keeps its own narrower `colon` cell. The nearest seats are
+//   about `dist` away — the number the readability check and the shader both
+//   want, kept here so they cannot drift apart.
 export const ARENA_MARKS = {
   board: { top: 0.612, height: 0.27, at: 0.23, width: 0.54, dist: 8.0 },
-  jumbo: { top: 4.86, size: 0.82, dist: 5.5 },
+  score: { top: 3.46, size: 0.92, cap: 0.32, gap: 0.13, cell: 0.62, colon: 0.30, dist: 8.7, x: 0, z: -5.5 },
 };
 
 export const MAT_MARKS = {

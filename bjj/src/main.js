@@ -9,6 +9,7 @@ import { Skeleton, poseToQuats, BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { seedRandom } from './game/rng.js';
 import { AI } from './game/ai.js';
+import { Tutorial } from './game/tutorial.js';
 import { Camera } from './game/camera.js';
 import { Referee } from './game/referee.js';
 import { Input } from './core/input.js';
@@ -26,6 +27,10 @@ const state = {
   frameAvg: 16.7,
   paused: false,
 };
+
+// Nobody is touching the coach's partner. The tutorial passes this as the
+// opponent's control so he stands where he is instead of drifting.
+const ZERO = { mx: 0, mz: 0, turn: 0, drive: 0 };
 
 let renderer;
 try {
@@ -181,8 +186,112 @@ const progress = loadProgress();
 // Your own belt is the ladder you have climbed: beat the white belt and you
 // are a blue belt yourself.
 const myBelt = () => LADDER[Math.min(LADDER.length - 1, progress.rank)];
-const oppBelt = () => FORCED || LADDER[progress.rank];
+// What the next match is. The menu can point this at any belt up to the one
+// already earned, and at a longer or shorter clock; the ladder itself is the
+// default, so a straight tap on «в бой» still plays the ranked match.
+const selection = { belt: progress.rank, time: 5 };
+const oppBelt = () => FORCED || LADDER[selection.belt];
 let lastResult = null;   // what the result card has to say
+
+// The first minute, when the address bar asks for it. `?tutorial` runs the
+// scripted lesson once and then drops into a real match; it is opt-in so the
+// measurement tools, which load the page bare and expect the ranked match,
+// never meet the coach. See tutorial.js.
+const TUTORIAL = new URLSearchParams(location.search).get('tutorial') !== null;
+let tut = TUTORIAL ? new Tutorial() : null;
+
+// The room watches the match. `crowd.level` is how far the stands are off
+// their feet right now — a score, a big throw, the tap — and `crowd.spot` is
+// the submission spotlight that dims the hall and leaves the pair lit. Both
+// are presentation only: they go to the arena shader and the match never reads
+// them, so they can be as dramatic as the director likes without touching
+// anything that is measured or balanced.
+const crowd = { level: 0, spot: 0 };
+
+// A fade from black between screens: the title, the fight and the result card
+// used to swap with nothing between them, which read as a mistake rather than
+// as a director cutting. `veil` spikes to black at a transition and clears
+// over the next half second; the HUD draws it over everything.
+const veil = { v: 0 };
+const fade = () => { veil.v = 1; };
+
+// The tab goes full-screen: the browser's address bar folds away and the mat
+// fills the glass. This is the one feature the page cannot do for itself on
+// every phone — a browser only enters full screen out of a gesture, and iOS
+// Safari will not enter it from a page at all (there the answer is the home
+// screen, which the manifest above makes chrome-less). So the HUD draws a
+// button, the tap is read here, and where the browser says no, a hint says
+// what to do instead.
+const isFullscreen = () => !!(
+  document.fullscreenElement || document.webkitFullscreenElement);
+// A short-lived toast the HUD draws, for a fullscreen ask the browser refused.
+let fsHint = null;
+let fsHintTimer = 0;
+function sayFullscreen(msg) {
+  fsHint = msg;
+  clearTimeout(fsHintTimer);
+  fsHintTimer = setTimeout(() => { fsHint = null; }, 4200);
+}
+function toggleFullscreen() {
+  const d = document;
+  if (isFullscreen()) {
+    if (d.exitFullscreen) d.exitFullscreen();
+    else if (d.webkitExitFullscreen) d.webkitExitFullscreen();
+    return;
+  }
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) {
+    // The ask comes back as a promise in every browser that has one, and a
+    // refusal arrives as a rejection rather than a throw, so it needs a catch
+    // as well as the guard below. Old webkit does not return one.
+    try {
+      const p = req.call(el);
+      if (p && p.catch) {
+        p.catch(() => sayFullscreen('Браузер не пускает в полный экран — добавь игру на домашний экран'));
+      }
+    } catch {
+      sayFullscreen('Браузер не пускает в полный экран — добавь игру на домашний экран');
+    }
+  } else {
+    // iOS Safari: a page cannot go full-screen. The install path is the one.
+    sayFullscreen('Полный экран: «Поделиться» → «На экран „Домой“»');
+  }
+}
+document.addEventListener('fullscreenchange', layout);
+document.addEventListener('webkitfullscreenchange', layout);
+
+// Everything the HUD needs each frame, built once so the draw calls stay short.
+const hudOpts = () => ({
+  level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut,
+  selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
+  fullscreen: isFullscreen(), fsHint,
+});
+
+// The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
+// Five fictional fighters, one per rung, so beating the ladder feels like
+// beating five different men rather than the same man in five belts. The last
+// one carries the master's name, which is the club whose name is on the mat.
+//
+// The player wears white, so every opponent wears something that is not white:
+// a white gi against a white gi is two men the eye cannot tell apart, which is
+// exactly what the first match was. The first man comes out in competition
+// blue — the white-vs-blue a televised bracket actually starts with — and the
+// rest keep their own hue so the ladder reads as five men.
+const ROSTER = {
+  white:  { name: 'МАРК',   giCol: [0.12, 0.23, 0.56], skinCol: [0.66, 0.50, 0.40] },
+  blue:   { name: 'ДЕНИС',  giCol: [0.06, 0.12, 0.36], skinCol: [0.58, 0.40, 0.30] },
+  purple: { name: 'РАФАЭЛ', giCol: [0.24, 0.15, 0.38], skinCol: [0.46, 0.31, 0.23] },
+  brown:  { name: 'АНДРЕЙ', giCol: [0.32, 0.25, 0.18], skinCol: [0.56, 0.41, 0.32] },
+  black:  { name: 'ОЛАВО',  giCol: [0.05, 0.06, 0.07], skinCol: [0.40, 0.26, 0.19] },
+};
+
+// What the menu shows: the belt's Russian label, its colour for the dot, and
+// the man who wears it. One list the HUD can draw and hit-test without knowing
+// the ladder's internals.
+const BELT_LABEL = { white: 'БЕЛЫЙ', blue: 'СИНИЙ', purple: 'ПУРПУРНЫЙ', brown: 'КОРИЧНЕВЫЙ', black: 'ЧЁРНЫЙ' };
+const MENU_BELTS = LADDER.map((b) => ({ name: b, label: BELT_LABEL[b], col: BELT_COL[b], man: ROSTER[b].name }));
+const TIMES = [3, 5, 10];
 
 let match, ai;
 function newMatch() {
@@ -192,13 +301,13 @@ function newMatch() {
     skinCol: new Float32Array([0.60, 0.42, 0.31]),
     technique: 0.55, strength: 0.5, cardio: 0.55,
   });
-  const opp = new Fighter('СОПЕРНИК', {
-    giCol: new Float32Array([0.06, 0.14, 0.42]),
+  const opp = new Fighter(ROSTER[oppBelt()].name, {
+    giCol: new Float32Array(ROSTER[oppBelt()].giCol),
     beltCol: new Float32Array(BELT_COL[oppBelt()]),
-    skinCol: new Float32Array([0.52, 0.36, 0.26]),
+    skinCol: new Float32Array(ROSTER[oppBelt()].skinCol),
     technique: 0.55, strength: 0.55, cardio: 0.5,
   });
-  match = new Match([you, opp], { time: MATCH_TIME, onEvent: onMatchEvent });
+  match = new Match([you, opp], { time: selection.time * 60, onEvent: onMatchEvent });
   ai = new AI(1, oppBelt());
   rig.origin[0] = 0;
   rig.origin[2] = 0;
@@ -216,14 +325,17 @@ function onMatchEvent(e) {
     landing = { peak: 0, role: 'A', t: 0 };
     camera.impulse(e.tr.big ? 0.8 : 0.35);
     if (e.tr.big) camera.cut(e.tr.dir === 'left' ? -1 : 1);
+    crowd.level = Math.max(crowd.level, e.tr.big ? 0.85 : 0.5);
   } else if (e.kind === 'points') {
     referee.gesture('call', 1.1);
     audio.confirm();
     audio.swell(0.4, 1.2);
+    crowd.level = 1;
   } else if (e.kind === 'submission') {
     camera.cut(Math.random() < 0.5 ? -1 : 1);
     audio.lock(between());
     audio.swell(0.8, 2.4);
+    crowd.level = 1;
   } else if (e.kind === 'recall') {
     // He stops them and waves them back to the middle. The whistle is his
     // 'stop', held long enough to cover the walk.
@@ -242,14 +354,21 @@ function onMatchEvent(e) {
     // away: this is a game about learning a position, and a career that
     // demotes you for losing to a black belt teaches nobody anything.
     referee.gesture('stop', 3.2);
+    // The whole hall is on its feet for the tap and settles for a decision.
+    crowd.level = e.by === 'submission' ? 1 : 0.7;
+    crowd.spot = 0;
     const beat = oppBelt();
     const won = e.winner === 0;
     if (won) progress.wins++; else progress.losses++;
-    const climbed = won && !FORCED && progress.rank < LADDER.length - 1;
-    if (won && !FORCED && progress.rank === LADDER.length - 1) progress.champion = true;
+    // The ladder only moves when the man in front of you goes down. A win
+    // against somebody you already beat is training, not a promotion.
+    const onLadder = !FORCED && selection.belt === progress.rank;
+    const climbed = won && onLadder && progress.rank < LADDER.length - 1;
+    if (won && onLadder && progress.rank === LADDER.length - 1) progress.champion = true;
     if (climbed) progress.rank++;
     saveProgress();
     lastResult = { won, beat, next: oppBelt(), climbed, champion: progress.champion };
+    fade();
     audio.bell();
     audio.duck(0.2, 3.5);
     audio.swell(1, 3);
@@ -304,6 +423,7 @@ function startBell() {
   audio.bell();
   audio.duck(0.25, 2.2);
   setTimeout(() => audio.whistle(), 520);
+  fade();
   beeped = 0;
 }
 
@@ -442,6 +562,18 @@ function frame(now) {
   last = now;
   const dt = raw;
 
+  // The room's mood decays on its own: a roar fades over a couple of seconds,
+  // and the spotlight follows the submission state, snapping up as the lock
+  // comes on and out as it breaks. `__crowd`/`__spot` are the measurement
+  // overrides, the same as `__gas` and `__still`: a tool pins them so two
+  // frames differ in one thing and nothing else.
+  crowd.level = window.__crowd != null ? window.__crowd : Math.max(0, crowd.level - dt * 0.45);
+  crowd.spot = window.__spot != null ? window.__spot
+    : match.state === 'sub'
+      ? Math.min(1, crowd.spot + dt * 3)
+      : Math.max(0, crowd.spot - dt * 4);
+  veil.v = Math.max(0, veil.v - dt * 2.4);
+
   // Adaptive resolution. The scene is cheap but a five year old phone is
   // cheaper; drop internal resolution before dropping frames.
   state.frameAvg = state.frameAvg * 0.94 + elapsed * 1000 * 0.06;
@@ -456,6 +588,10 @@ function frame(now) {
   }
 
   /* --- input ------------------------------------------------------------ */
+  // What the player's thumbs did this frame, so the tutorial's coach can read
+  // the same gestures the match just handled.
+  const did = { stick: false, moved: false, gripped: false, denied: false };
+
   if (input.anyPress) {
     audio.start();
     input.anyPress = false;
@@ -463,44 +599,79 @@ function frame(now) {
       started = true;
       loading.classList.add('gone');
     }
-    if (match.state === 'ready') {
+    // The title card owns its tap below — the menu reads where it landed. The
+    // result card and the end of the lesson start on any press, and both put
+    // the menu back on the ladder so the next default fight is the ranked one.
+    // A press on the full-screen button is not that press: it must not start
+    // the next match out from under the menu the player is about to fold away.
+    const onFs = input.pressAt && hud.fsHit(input.pressAt);
+    if (match.state === 'over' && !onFs) {
+      selection.belt = progress.rank;
+      newMatch();
       match.start();
       startBell();
-    } else if (match.state === 'over') {
+    } else if (tut && tut.done && !onFs) {
+      // The lesson is over; the next touch brings out a real opponent.
+      selection.belt = progress.rank;
+      tut = null;
       newMatch();
       match.start();
       startBell();
     }
   }
 
+  did.stick = input.stick.active || input.stick.mag > 0.3;
   if (input.flick) {
     const r = match.input(0, input.flick);
-    if (r === 'deny') audio.click();
+    if (r === 'deny') { did.denied = true; audio.click(); }
     else if (r === 'escape') audio.cloth(0.7);
+    else if (r && typeof r === 'object') { did.moved = true; audio.cloth(0.5); }
     else if (r) audio.cloth(0.5);
   }
   if (input.tap) {
-    // A tap on one of the ring's buttons is that button. The ring is drawn as
-    // four labelled circles with a price on each, and until now the only way
-    // to press one was to swipe: tapping the button marked «+4» started a grip
-    // fight instead, silently. Everything that ever measured this game swiped,
-    // so nothing caught it.
-    //
-    // The beat inside a submission still owns the tap — there the whole screen
-    // is the rhythm and there is nothing else a tap could mean.
-    const onBeat = match.state === 'sub' && match.sub && match.sub.attacker === 0;
-    const dir = onBeat || !input.tapAt ? null : hud.ringDir(input.tapAt.x, input.tapAt.y);
-    if (dir) {
-      const r = match.input(0, dir);
-      if (r === 'deny') audio.click();
-      else if (r === 'escape') audio.cloth(0.7);
-      else if (r) audio.cloth(0.5);
-    } else if (onBeat) {
-      const r = match.subTap(0);
-      if (r === 'tight') audio.tap(0.45); else audio.click();
-    } else {
-      const r = match.grip(0);
-      if (r) audio.cloth(r === 'win' ? 0.9 : 0.4);
+    // The full-screen button, in the corner of every screen. It outranks
+    // everything else so a tap on it is never read as a grip or a menu row.
+    if (hud.fsHit(input.tapAt)) {
+      toggleFullscreen();
+      audio.click();
+    } else if (match.state === 'ready') {
+      const hit = hud.menuHit(input.tapAt);
+      if (hit && hit.kind === 'belt') {
+        if (!FORCED && hit.value <= progress.rank) { selection.belt = hit.value; audio.click(); }
+      } else if (hit && hit.kind === 'time') {
+        selection.time = hit.value; audio.click();
+      } else {
+        // The match on the title card is the boot-time one; build the one the
+        // menu actually chose, then ring the bell on it.
+        newMatch();
+        match.start();
+        startBell();
+      }
+    } else if (!input.tapLeft) {
+      // A tap on one of the ring's buttons is that button. The ring is drawn
+      // as four labelled circles with a price on each, and until now the only
+      // way to press one was to swipe: tapping the button marked «+4» started a
+      // grip fight instead, silently. Everything that ever measured this game
+      // swiped, so nothing caught it.
+      //
+      // The beat inside a submission still owns the tap — there the whole
+      // screen is the rhythm and there is nothing else a tap could mean.
+      const onBeat = match.state === 'sub' && match.sub && match.sub.attacker === 0;
+      const dir = onBeat || !input.tapAt ? null : hud.ringDir(input.tapAt.x, input.tapAt.y);
+      if (dir) {
+        const r = match.input(0, dir);
+        if (r === 'deny') { did.denied = true; audio.click(); }
+        else if (r === 'escape') audio.cloth(0.7);
+        else if (r && typeof r === 'object') { did.moved = true; audio.cloth(0.5); }
+        else if (r) audio.cloth(0.5);
+      } else if (onBeat) {
+        const r = match.subTap(0);
+        if (r === 'tight') audio.tap(0.45); else audio.click();
+      } else {
+        const r = match.grip(0);
+        if (r === 'win' || r === 'lose') did.gripped = true;
+        if (r) audio.cloth(r === 'win' ? 0.9 : 0.4);
+      }
     }
   }
 
@@ -519,13 +690,21 @@ function frame(now) {
     requestAnimationFrame(frame);
     return;
   }
-  ai.update(dt, match,
+  // The opponent is the coach's partner during the lesson and a fighter after
+  // it. The tutorial drives his one attack through the same `input` door, so
+  // nothing about the match knows the difference.
+  if (tut && !tut.done) tut.update(dt, match, did);
+  else ai.update(dt, match,
     (dir) => match.input(1, dir),
     () => (match.state === 'sub' && match.sub.attacker === 1 ? match.subTap(1) : match.grip(1)));
 
   /* --- sim -------------------------------------------------------------- */
   const c0 = control0();
-  match.update(dt, [c0, ai.control]);
+  // The coach's partner has no left thumb of his own: he stands where he is.
+  match.update(dt, [c0, tut && !tut.done ? ZERO : ai.control]);
+  // The lesson is not against the clock — five minutes is generous, but a
+  // player reading the coach is not racing, so the bell never rings mid-step.
+  if (tut && !tut.done) match.time = MATCH_TIME;
   clockSound();
   footsteps(dt);
   rig.origin[0] = match.origin[0];
@@ -603,8 +782,11 @@ function drawFrame(now, real) {
   // Before the bell, the screen belongs to one fighter and the empty mat.
   if (hero && match.state === 'ready') {
     camera.update(dt, HERO_FOCUS, 'hero', 0);
-    renderer.render({ camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero] });
-    hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult });
+    renderer.render({
+      camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero],
+      score: [match.f[0].points, match.f[1].points], clock: match.time,
+    });
+    hud.draw(match, input, 1 / 60, hudOpts());
     return;
   }
 
@@ -663,8 +845,17 @@ function drawFrame(now, real) {
       { skeleton: referee.skel, gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
         flash: 0, gas: 0 },
     ],
+    // The room, watching. Handed to the arena shader every frame; the title
+    // card and the measurement freeze both pass nothing, so the hall sits at
+    // rest when there is nothing to react to.
+    crowd: crowd.level,
+    spot: crowd.spot,
+    // The board over the mat shows the same truth the scorebug does: the
+    // points and the clock, straight off the match.
+    score: [match.f[0].points, match.f[1].points],
+    clock: match.time,
   });
-  hud.draw(match, input, 1 / 60, { level: oppBelt(), mine: myBelt(), progress, result: lastResult });
+  hud.draw(match, input, 1 / 60, hudOpts());
 }
 
 // One frame drawn before the loading card goes, so the first thing on screen is
@@ -678,11 +869,20 @@ requestAnimationFrame((t) => {
 // Debug hooks used by the tooling in bjj/tools; harmless in production.
 window.__bjj = {
   match: () => match,
+  // The first-minute coach, so a tool can drive the lesson and read how far
+  // the player has got — the same way it reads the match and the renderer.
+  tutorial: () => tut,
   // The HUD is here for the same reason the rig is: a tool has to be able to
   // ask where the ring's buttons are without re-deriving the layout and
   // drifting from it. tools/tap-check.mjs taps them.
   hud,
-  rig, renderer, camera, referee, POSES, BONE_INDEX,
+  rig, renderer, camera, referee, input, POSES, BONE_INDEX,
+  // The transition fade, so a tool can watch it rise and clear without a
+  // screenshot racing the compositor.
+  veil, fade,
+  // Full-screen: read the state and drive the toggle, so a tool can check the
+  // button without a browser UI it cannot see.
+  fullscreen: isFullscreen, toggleFullscreen, fsHint: () => fsHint,
   // Freeze on one paired pose. Used by the art tooling; also the quickest way
   // to check a pose by hand from the console.
   setPose: (id) => {

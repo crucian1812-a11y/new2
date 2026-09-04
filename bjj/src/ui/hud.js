@@ -57,6 +57,19 @@ export class HUD {
     this._events(match, dt);
     if (match.state === 'ready') this._title(opts);
     if (match.state === 'over') { this.result = opts.result; this._result(match); }
+    // The first minute's coach, above everything except the result card.
+    if (opts.tutorial) {
+      if (opts.tutorial.done) this._tutorialDone();
+      else if (match.state === 'live' || match.state === 'sub') this._tutorial(opts.tutorial);
+    }
+    // The full-screen button and its one-line hint, on every screen.
+    this._fullscreen(opts);
+    // The cut between screens: a fade from black that covers everything while
+    // the title swaps for the fight and the fight for the result.
+    if (opts.veil && opts.veil.v > 0.002) {
+      c.fillStyle = `rgba(2,4,8,${Math.min(1, opts.veil.v)})`;
+      c.fillRect(0, 0, this.w, this.h);
+    }
   }
 
   /* ------------------------------------------------------------ scorebug */
@@ -221,7 +234,11 @@ export class HUD {
     // the thumb said otherwise, and the thumb is where people look.
     const threat = !!(m.attempt && m.attempt.defender === 0);
     const read = threat ? (m.denyRead(0) || []) : null;
-    const buffered = m.buffer && m.buffer.i === 0 ? m.buffer.dir : null;
+    // A press the game has heard and not used yet: the plain buffer, and a
+    // chain parked on the attempt in flight (the next move, named while the
+    // current one is still deciding). Both read as remembered, not ignored.
+    const buffered = (m.buffer && m.buffer.i === 0 ? m.buffer.dir : null)
+      || (m.attempt && m.attempt.chain && m.attempt.chain.i === 0 ? m.attempt.chain.dir : null);
     // The ring scales with the screen and is pinned far enough off the bottom
     // that the lowest label still lands on glass. On a short landscape phone
     // that margin is the whole difference between readable and cropped.
@@ -530,6 +547,79 @@ export class HUD {
 
   /* -------------------------------------------------------------- chrome */
 
+  // The coach, for the first minute. A banner with the current lesson and a
+  // pulsing mark on the control it is about, so the instruction sits where the
+  // thumb already is rather than in a wall of text.
+  _tutorial(t) {
+    const c = this.ctx;
+    const s = t.step;
+    if (!s) return;
+    const pulse = 0.5 + 0.5 * Math.sin(this.pulse * 3.2);
+
+    // The banner, bottom centre, clear of the ring and the event feed.
+    const w = Math.min(470, this.w - 32);
+    const x = (this.w - w) / 2;
+    const y = this.h - 58;
+    const h = 46;
+    c.save();
+    roundRect(c, x, y, w, h, 9);
+    c.fillStyle = 'rgba(6,8,12,0.88)';
+    c.fill();
+    c.strokeStyle = `rgba(255,209,102,${0.3 + pulse * 0.55})`;
+    c.lineWidth = 1.5;
+    c.stroke();
+    c.textAlign = 'center';
+    c.font = `800 12px ${FONT}`;
+    c.fillStyle = '#ffd166';
+    c.fillText(`${t.i + 1}/4 · ${s.title}`, this.w / 2, y + 14);
+    c.font = `600 11px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.92)';
+    c.fillText(s.text, this.w / 2, y + 34);
+    c.restore();
+
+    // The control the step is about, ringed where the thumb already is. The
+    // defence step needs no mark — the deny prompt fills the middle of the
+    // screen with the very arrow it is asking for.
+    if (s.highlight === 'base') {
+      const lx = this.w * 0.22, ly = this.h * 0.58, R = 46;
+      c.beginPath();
+      c.arc(lx, ly, R + 3 * pulse, 0, Math.PI * 2);
+      c.strokeStyle = `rgba(127,166,255,${0.4 + pulse * 0.5})`;
+      c.lineWidth = 3;
+      c.stroke();
+      c.font = `700 11px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.9)';
+      c.textAlign = 'center';
+      c.fillText('БАЗА', lx, ly - R - 14);
+    } else if (s.highlight === 'ring' || s.highlight === 'grip') {
+      const { R, cx, cy } = this.ringLayout();
+      const rr = s.highlight === 'grip' ? R * 0.34 : R * 0.72;
+      c.beginPath();
+      c.arc(cx, cy, rr + 3 * pulse, 0, Math.PI * 2);
+      c.strokeStyle = `rgba(255,209,102,${0.4 + pulse * 0.5})`;
+      c.lineWidth = 3;
+      c.stroke();
+    }
+  }
+
+  _tutorialDone() {
+    const c = this.ctx;
+    c.fillStyle = 'rgba(4,6,10,0.84)';
+    c.fillRect(0, 0, this.w, this.h);
+    c.textAlign = 'center';
+    c.font = `800 26px ${FONT}`;
+    c.fillStyle = '#4fd48a';
+    c.fillText('ОБУЧЕНИЕ ПРОЙДЕНО', this.w / 2, this.h / 2 - 26);
+    c.font = `600 13px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.75)';
+    c.fillText('база · переход · захват · защита — всё на месте', this.w / 2, this.h / 2 + 6);
+    c.font = `600 12px ${FONT}`;
+    c.fillStyle = '#ffd166';
+    c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
+    c.fillText('КОСНИСЬ — ВЫХОДИ НА НАСТОЯЩЕГО СОПЕРНИКА', this.w / 2, this.h / 2 + 40);
+    c.globalAlpha = 1;
+  }
+
   _events(m, dt) {
     const c = this.ctx;
     c.textAlign = 'left';
@@ -547,6 +637,109 @@ export class HUD {
     c.globalAlpha = 1;
   }
 
+  // The title-card menu: five belts, three match lengths, a start button. One
+  // source of geometry for both drawing and hit-testing, the same rule the
+  // control ring runs on — a button you can see but cannot press is exactly the
+  // bug this exists to prevent. Everything sits in the left half, where the
+  // stick is, so the hero on the right stays clear and a thumb can reach it.
+  menuLayout() {
+    const left = Math.max(20, this.w * 0.05);
+    const mw = Math.min(236, this.w * 0.37);
+    const top = Math.min(Math.max(46, this.h * 0.14), 96);
+    const rowH = 28, pitch = 32;
+    const beltY = top + 40;
+    const timeY = beltY + 5 * pitch + 12;
+    const timeH = 24;
+    const startY = timeY + timeH + 12;
+    const startH = 34;
+    const cw = (mw - 12) / 3;
+    return {
+      left, mw, top, rowH, pitch, beltY, timeY, timeH, startY, startH,
+      belt: (i) => ({ x: left, y: beltY + i * pitch, w: mw, h: rowH }),
+      time: (t) => ({ x: left + TIMES_ORDER.indexOf(t) * (cw + 6), y: timeY, w: cw, h: timeH }),
+      start: { x: left, y: startY, w: mw, h: startH },
+    };
+  }
+
+  // What a tap on the title card meant: a belt, a match length, or the start
+  // of the fight. Null — empty glass — is the start too.
+  menuHit(p) {
+    if (!p) return null;
+    const L = this.menuLayout();
+    if (inside(p, L.start)) return { kind: 'start' };
+    for (let i = 0; i < 5; i++) if (inside(p, L.belt(i))) return { kind: 'belt', value: i };
+    for (const t of TIMES_ORDER) if (inside(p, L.time(t))) return { kind: 'time', value: t };
+    return null;
+  }
+
+  // The full-screen button, in the corner every screen shares. It is the one
+  // control that belongs to the page rather than the match, so it sits clear
+  // of the scorebug and the ring: top-right, where no thumb rests and where
+  // the eye goes when it looks for a way out of the browser chrome.
+  fsButton() {
+    return { x: this.w - 24, y: 26, r: 21 };
+  }
+
+  fsHit(p) {
+    if (!p) return false;
+    const b = this.fsButton();
+    return Math.hypot(p.x - b.x, p.y - b.y) <= b.r;
+  }
+
+  _fullscreen(opts) {
+    const c = this.ctx;
+    const b = this.fsButton();
+    const on = !!opts.fullscreen;
+
+    c.save();
+    c.beginPath();
+    c.arc(b.x, b.y, 15, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(8,11,17,0.5)';
+    c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.16)';
+    c.lineWidth = 1;
+    c.stroke();
+
+    // Four corner brackets: hugged to the corners to mean "make it bigger",
+    // pulled in to mean "bring it back". The glyph the whole web uses for
+    // this, in thin lines.
+    const m = on ? 6 : 9;
+    const len = 7;
+    c.strokeStyle = 'rgba(255,255,255,0.85)';
+    c.lineWidth = 1.6;
+    c.lineCap = 'round';
+    c.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const cx = b.x + sx * m;
+      const cy = b.y + sy * m;
+      c.moveTo(cx - sx * len, cy);
+      c.lineTo(cx, cy);
+      c.lineTo(cx, cy - sy * len);
+    }
+    c.stroke();
+    c.restore();
+
+    // The one-line answer for a browser that refused the ask. Centred near
+    // the bottom so it never fights the menu or the scorebug for attention.
+    if (opts.fsHint) {
+      c.save();
+      c.font = `600 12px ${FONT}`;
+      const w = c.measureText(opts.fsHint).width + 32;
+      const x = (this.w - w) / 2;
+      const y = this.h - 46;
+      roundRect(c, x, y - 16, w, 32, 8);
+      c.fillStyle = 'rgba(6,8,12,0.92)';
+      c.fill();
+      c.strokeStyle = 'rgba(255,209,102,0.6)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.fillStyle = 'rgba(255,255,255,0.92)';
+      c.textAlign = 'center';
+      c.fillText(opts.fsHint, x + w / 2, y + 1);
+      c.restore();
+    }
+  }
+
   _title(opts) {
     const c = this.ctx;
     // A gradient off the bottom rather than a wash over everything: there is a
@@ -558,42 +751,100 @@ export class HUD {
     c.fillStyle = g;
     c.fillRect(0, 0, this.w, this.h);
 
-    const left = Math.max(28, this.w * 0.06);
-    const base = this.h - Math.max(46, this.h * 0.14);
+    const L = this.menuLayout();
+    const sel = opts.selection || { belt: 0, time: 5 };
+    const belts = opts.belts || [];
+    const times = opts.times || TIMES_ORDER;
+    const rank = opts.progress ? opts.progress.rank : 0;
+    const rec = opts.progress && (opts.progress.wins || opts.progress.losses)
+      ? ` · ${opts.progress.wins}—${opts.progress.losses}` : '';
+
+    // Brand, with the belt you have earned riding the same line.
     c.textAlign = 'left';
-
-    c.fillStyle = 'rgba(255,255,255,0.42)';
-    c.font = `700 10px ${FONT}`;
-    c.fillText('IBJJF · ADULTO · 5 МИНУТ', left, base - 58);
-
     c.fillStyle = '#fff';
-    c.font = `800 ${Math.round(Math.min(38, this.w * 0.055))}px ${FONT}`;
-    c.fillText('JIU-JITSU', left, base - 28);
+    c.font = `800 ${Math.round(Math.min(32, this.w * 0.046))}px ${FONT}`;
+    c.fillText('JIU-JITSU', L.left, L.top - 16);
+    c.font = `600 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    c.fillText(`позиционная борьба · твой пояс: ${(opts.mine || 'white').toUpperCase()}${rec}`,
+      L.left, L.top + 4);
 
-    c.font = `600 12px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.58)';
-    c.fillText('позиционная борьба', left, base - 4);
-
-    c.font = `500 10px ${FONT}`;
+    // The difficulty ladder. Locked rungs — past the one you have earned — are
+    // dimmed and answer nothing; the rest pick the man you fight next.
+    c.font = `700 9px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.42)';
-    // Three lines, at three heights. The last two used to be drawn one pixel
-    // apart — base + 32 and base + 31 — so the sentence that explains where
-    // points come from was printed underneath the belt line and could not be
-    // read at all. It is the one rule a new player needs.
-    c.fillText('левый палец — база · правый — жми кнопку на кольце или свайпни', left, base + 14);
-    c.fillText('очки идут за +N на кольце — и только если удержать три секунды', left, base + 28);
-    if (opts.level) {
-      const p = opts.progress;
-      const rec = p && (p.wins || p.losses) ? `  ·  ${p.wins}—${p.losses}` : '';
-      c.fillText(`твой пояс: ${opts.mine || 'white'}  ·  соперник: ${opts.level}${rec}`, left, base + 42);
+    c.fillText('СЛОЖНОСТЬ', L.left, L.beltY - 12);
+    for (let i = 0; i < belts.length; i++) {
+      const b = belts[i];
+      const r = L.belt(i);
+      const locked = !opts.forced && i > rank;
+      const on = sel.belt === i;
+      c.globalAlpha = locked ? 0.38 : 1;
+      roundRect(c, r.x, r.y, r.w, r.h, 6);
+      c.fillStyle = on ? 'rgba(20,28,40,0.86)' : 'rgba(8,11,17,0.58)';
+      c.fill();
+      c.strokeStyle = on ? 'rgba(255,209,102,0.72)' : 'rgba(255,255,255,0.12)';
+      c.lineWidth = on ? 1.5 : 1;
+      c.stroke();
+      // The belt's colour, the same dot the scorebug wears.
+      c.fillStyle = rgb(b.col);
+      c.beginPath();
+      c.arc(r.x + 14, r.y + r.h / 2, 6, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.28)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.font = `700 11px ${FONT}`;
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.8)';
+      c.fillText(`${b.label} ПОЯС`, r.x + 28, r.y + r.h / 2);
+      c.textAlign = 'right';
+      if (locked) {
+        c.font = `600 9px ${FONT}`;
+        c.fillStyle = 'rgba(255,255,255,0.45)';
+        c.fillText('ЗАКРЫТО', r.x + r.w - 10, r.y + r.h / 2);
+      } else {
+        c.font = `600 10px ${FONT}`;
+        c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.5)';
+        c.fillText(b.man, r.x + r.w - 10, r.y + r.h / 2);
+      }
+      c.textAlign = 'left';
+    }
+    c.globalAlpha = 1;
+
+    // The match length — the one number that changes the shape of the fight
+    // without touching the fight itself.
+    c.font = `700 9px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.42)';
+    c.fillText('РЕГЛАМЕНТ', L.left, L.timeY - 10);
+    for (const t of times) {
+      const r = L.time(t);
+      const on = sel.time === t;
+      roundRect(c, r.x, r.y, r.w, r.h, 5);
+      c.fillStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(8,11,17,0.58)';
+      c.fill();
+      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.12)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.font = `700 11px ${FONT}`;
+      c.fillStyle = on ? '#1a1203' : 'rgba(255,255,255,0.8)';
+      c.textAlign = 'center';
+      c.fillText(`${t} МИН`, r.x + r.w / 2, r.y + r.h / 2);
+      c.textAlign = 'left';
     }
 
-    c.textAlign = 'right';
-    c.font = `700 12px ${FONT}`;
-    c.fillStyle = '#ffd166';
-    c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
-    c.fillText('КОСНИСЬ ЭКРАНА', this.w - left, base - 4);
-    c.globalAlpha = 1;
+    // The start, and the one rule a new player needs underneath it.
+    const s = L.start;
+    roundRect(c, s.x, s.y, s.w, s.h, 8);
+    c.fillStyle = 'rgba(255,209,102,0.92)';
+    c.fill();
+    c.font = `800 15px ${FONT}`;
+    c.fillStyle = '#1a1203';
+    c.textAlign = 'center';
+    c.fillText('В БОЙ', s.x + s.w / 2, s.y + s.h / 2);
+    c.textAlign = 'left';
+    c.font = `600 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.fillText('очки — за +N на кольце, если удержать 3 секунды', L.left, s.y + s.h + 16);
   }
 
   _result(m) {
@@ -668,6 +919,8 @@ const COLORS = {
 
 const tau = (p) => -Math.PI / 2 + Math.PI * 2 * p;
 const clampN = (v, a, b) => (v < a ? a : v > b ? b : v);
+const TIMES_ORDER = [3, 5, 10];
+const inside = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 
 function rgb(c) {
   return `rgb(${(c[0] * 255) | 0},${(c[1] * 255) | 0},${(c[2] * 255) | 0})`;

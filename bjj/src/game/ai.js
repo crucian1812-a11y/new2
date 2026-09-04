@@ -13,6 +13,7 @@
 import { optionsFor } from './positions.js';
 import { POSES } from './poses.js';
 import { rand, randInt } from './rng.js';
+import { CHAIN_AFTER } from './match.js';
 
 const LEVELS = {
   white: { react: 0.62, read: 0.24, aggression: 0.5, patience: 1.5, tapSkill: 0.4 },
@@ -99,6 +100,52 @@ export class AI {
     this.commit = 7 + rand() * 7;
     this.control = { mx: 0, mz: 0, turn: 0, drive: 0 };
     this.wander = rand() * 10;
+  }
+
+  // The best move on the board right now, or null when there is nothing worth
+  // doing. Factored out of the decision loop so the chain below can ask the
+  // same question the ordinary decision does — the answer is a direction,
+  // because the only thing either path does with it is hand it to `input`.
+  _best(match) {
+    const me = match.f[this.i];
+    const opts = optionsFor(match.position, match.tagOf(this.i));
+    const keys = Object.keys(opts);
+    if (!keys.length) return null;
+    const here = valueHere(match, this.i);
+    let best = null, bestScore = -1e9;
+    for (const k of keys) {
+      const tr = opts[k];
+      const gain = valueAfter(tr, match) - here;
+      // Expected value, honestly computed: what it is worth times how likely
+      // it is, minus what it costs when there is not much gas left.
+      //
+      // "How likely it is" used to be the table's nominal rate, which is the
+      // same number in every position the fight has ever been in — so nobody
+      // ever waited for a better moment, and submissions were attempted on men
+      // whose posture was still at 46 out of 100. The live chance is what the
+      // match can actually compute; how much of it a fighter sees is his belt.
+      // A black belt reads the moment and waits for it; a white belt sees the
+      // move and takes it.
+      const live = match.chanceOf(tr, this.i);
+      const seen = tr.base + (live - tr.base) * this.level.read;
+      // The floor under the odds is lower for a submission, because a
+      // submission is the one move whose value is so large that any floor at
+      // all makes it worth taking cold: at 0.4 a choke on a fully postured man
+      // still outscored everything on the board, so the read above changed
+      // nothing and the fight parked in back control hunting it. At 0.15 a
+      // cold one is worth a quarter of a set-up one and the black belt waits.
+      const floor = tr.sub ? 0.15 : 0.4;
+      let s = gain * (floor + seen) + tr.points * 0.5;
+      s -= tr.cost * (me.stamina < 40 ? 0.09 : 0.03);
+      if (me.stamina < tr.cost * 0.5) s -= 8;
+      s *= 0.75 + this.level.aggression * 0.5;
+      s += (rand() - 0.5) * 2.4 * (1.3 - this.level.read);
+      if (s > bestScore) {
+        bestScore = s;
+        best = tr;
+      }
+    }
+    return best ? { tr: best, score: bestScore } : null;
   }
 
   update(dt, match, onFlick, onTap) {
@@ -189,47 +236,41 @@ export class AI {
     /* --- choosing something to do --------------------------------------- */
     this.think -= dt;
     this.commit -= dt;
-    if (this.think > 0 || match.attempt || match.state !== 'live') return;
-    this.think = this.level.patience * (0.6 + rand() * 0.8);
+    if (this.think > 0 || match.state !== 'live') return;
 
-    const opts = optionsFor(match.position, match.tagOf(this.i));
-    const keys = Object.keys(opts);
-    if (!keys.length) return;
-
-    const here = valueHere(match, this.i);
-    let best = null, bestScore = -1e9;
-    for (const k of keys) {
-      const tr = opts[k];
-      const gain = valueAfter(tr, match) - here;
-      // Expected value, honestly computed: what it is worth times how likely
-      // it is, minus what it costs when there is not much gas left.
-      //
-      // "How likely it is" used to be the table's nominal rate, which is the
-      // same number in every position the fight has ever been in — so nobody
-      // ever waited for a better moment, and submissions were attempted on men
-      // whose posture was still at 46 out of 100. The live chance is what the
-      // match can actually compute; how much of it a fighter sees is his belt.
-      // A black belt reads the moment and waits for it; a white belt sees the
-      // move and takes it.
-      const live = match.chanceOf(tr, this.i);
-      const seen = tr.base + (live - tr.base) * this.level.read;
-      // The floor under the odds is lower for a submission, because a
-      // submission is the one move whose value is so large that any floor at
-      // all makes it worth taking cold: at 0.4 a choke on a fully postured man
-      // still outscored everything on the board, so the read above changed
-      // nothing and the fight parked in back control hunting it. At 0.15 a
-      // cold one is worth a quarter of a set-up one and the black belt waits.
-      const floor = tr.sub ? 0.15 : 0.4;
-      let s = gain * (floor + seen) + tr.points * 0.5;
-      s -= tr.cost * (me.stamina < 40 ? 0.09 : 0.03);
-      if (me.stamina < tr.cost * 0.5) s -= 8;
-      s *= 0.75 + this.level.aggression * 0.5;
-      s += (rand() - 0.5) * 2.4 * (1.3 - this.level.read);
-      if (s > bestScore) {
-        bestScore = s;
-        best = tr;
-      }
+    if (match.attempt) {
+      // Chaining. During the last third of our own attack the next move is
+      // pre-loaded, the way a player pre-loads a follow-up: it rides the
+      // landing and fires the moment the position is there, with no pause in
+      // between — which is the pressure a real opponent applies and the thing
+      // that makes one. Only our own attack, only once it is all but decided,
+      // and not every time: a grappler who chains everything telegraphs
+      // everything. Someone else's attempt is none of our business until it
+      // lands.
+      if (match.attempt.by !== this.i) return;
+      if (match.attempt.t < match.attempt.tr.time * CHAIN_AFTER) return;
+      // Not gated on `commit`: a chain is a continuation of the move already
+      // committed to, not a new commitment, and `commit` was just re-armed the
+      // moment that move fired. Gated instead on chance and on the board still
+      // having a next step worth taking — a grappler who chains everything
+      // telegraphs everything, and a chain into a bad idea is a bad idea made
+      // earlier.
+      if (rand() < 0.5) return;
+      const best = this._best(match);
+      if (!best) return;
+      // The same reserve as below: a man who is winning can wait, and a chain
+      // is a commitment made earlier, so it asks for the same tank.
+      const reserve = match.isDominant(this.i) ? 20 : 8;
+      if (me.stamina - best.tr.cost * 0.45 < reserve) return;
+      this.think = this.level.patience * (0.6 + rand() * 0.8);
+      this.commit = 5.0 * (1.3 - this.level.aggression * 0.6) * (0.7 + rand() * 0.6);
+      onFlick(best.tr.dir);
+      return;
     }
+
+    this.think = this.level.patience * (0.6 + rand() * 0.8);
+    const best = this._best(match);
+
     // Keep something in the tank.
     //
     // Without this the fight settles at nought: the only brake on attacking was
@@ -241,7 +282,7 @@ export class AI {
     // A man who is winning can wait; a man who is losing cannot, and spends
     // what he has left. That is the whole of pacing, and it is one line.
     const reserve = match.isDominant(this.i) ? 20 : 8;
-    if (best && me.stamina - best.cost * 0.45 < reserve) {
+    if (best && me.stamina - best.tr.cost * 0.45 < reserve) {
       if (rand() < 0.3) onTap();
       return;
     }
@@ -259,7 +300,7 @@ export class AI {
     // the other man's posture and buys the moment the move needed. Since the
     // scores above now fall when the moment is wrong, this is the branch that
     // performs the set-up, and it takes it nearly every time rather than half.
-    if (!best || bestScore < (match.isDominant(this.i) ? 0.4 : -2.5)) {
+    if (!best || best.score < (match.isDominant(this.i) ? 0.4 : -2.5)) {
       if (rand() < 0.85) onTap();
       return;
     }
@@ -268,7 +309,7 @@ export class AI {
     // in three into a tap: with the entry cheap to retry, back control became a
     // man hunting the same choke over and over instead of a position.
     this.commit = 7.0 * (1.3 - this.level.aggression * 0.6) * (0.7 + rand() * 0.6);
-    onFlick(best.dir);
+    onFlick(best.tr.dir);
   }
 }
 

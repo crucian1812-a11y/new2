@@ -43,11 +43,18 @@ export class Input {
     // Where the tap landed, so the game can ask the HUD whether it was on a
     // button. Null for a tap that came from the keyboard.
     this.tapAt = null;
+    // A tap on the stick's half, kept apart from a flick-pad tap: the left
+    // half is the stick while a thumb drags on it, but a quick press that never
+    // travelled is a tap, and the menu on the title card lives on that side.
+    this.tapLeft = false;
 
     this.keys = new Set();
     this.keyFlickBuffer = [];
     this.enabled = true;
     this.anyPress = false;
+    // Where the last press began, so the game can tell a press on the
+    // full-screen button from the same tap it starts a match with.
+    this.pressAt = null;
 
     const o = { passive: false };
     canvas.addEventListener('pointerdown', (e) => this._down(e), o);
@@ -82,6 +89,7 @@ export class Input {
     try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* not a real finger */ }
     const p = this._pos(e);
     this.anyPress = true;
+    this.pressAt = { x: p.x, y: p.y };
     const leftHalf = p.x < this.canvas.clientWidth * 0.44;
     if (leftHalf && !this.stick.active) {
       this.stick.active = true;
@@ -89,7 +97,7 @@ export class Input {
       this.stick.ox = p.x;
       this.stick.oy = p.y;
       this.stick.x = this.stick.y = this.stick.mag = 0;
-      this.pointers.set(e.pointerId, { role: 'stick' });
+      this.pointers.set(e.pointerId, { role: 'stick', t0: performance.now(), x0: p.x, y0: p.y });
       return;
     }
     this.pointers.set(e.pointerId, {
@@ -140,6 +148,18 @@ export class Input {
     if (rec.role === 'stick') {
       this.stick.active = false;
       this.stick.x = this.stick.y = this.stick.mag = 0;
+      // A quick press on the stick's half that never travelled is a tap, not a
+      // hold: the left half is the stick while a thumb is dragging, and a tap
+      // is how the title card's menu is pressed. A pointer that was cancelled
+      // (or a thumb that did travel) is still a stick, and stays silent.
+      const p = this._pos(e);
+      if (e.type === 'pointerup'
+        && Math.hypot(p.x - rec.x0, p.y - rec.y0) < TAP_MAX
+        && performance.now() - rec.t0 < TAP_TIME) {
+        this.tap = true;
+        this.tapLeft = true;
+        this.tapAt = { x: p.x, y: p.y };
+      }
       return;
     }
     if (!rec.fired) {
@@ -179,6 +199,8 @@ export class Input {
     this.flick = null;
     this.tap = false;
     this.tapAt = null;
+    this.tapLeft = false;
+    this.pressAt = null;
     let kx = 0, ky = 0;
     if (this.keys.has('a')) kx -= 1;
     if (this.keys.has('d')) kx += 1;
