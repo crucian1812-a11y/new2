@@ -18,6 +18,14 @@
 // two of them do not join up (the final-minute track jumps almost half its own
 // level at the seam), and every repeated one-shot is detuned a little, because
 // three cloth samples on their own become a rhythm inside ten seconds.
+//
+// On top of the two layers there are two more, and both are pure code. The
+// master bus is a gentle compressor and a soft ceiling, so the bell, a swell
+// and a slam landing together are one mix and not three crackles. And the
+// hall is a generated convolution reverb: every sound that has a place on the
+// mat is sent into it, so the room the renderer drew is also the room you
+// hear. `tools/sound-check.mjs` measures the tail of a slam to prove the hall
+// is there and collapses when it is switched off.
 
 const BASE = new URL('../../assets/audio/', import.meta.url).href;
 
@@ -94,12 +102,97 @@ export class Audio {
     this.ctx = new Ctx();
     this.master = this.ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 0.5;
-    this.master.connect(this.ctx.destination);
+    // The master bus, and the room the mat sits in. Both are built once here
+    // and both are pure code — see _bus and _hall.
+    this._bus();
+    this._hall();
     this.musicGain = this.ctx.createGain();
     this.musicGain.gain.value = this.musicVol;
     this.musicGain.connect(this.master);
     this._crowd();
     this._load();
+  }
+
+  // ------------------------------------------------------------- the bus
+
+  // The master bus: a glue compressor and a soft ceiling in front of the
+  // speaker. Everything is gain-staged to sit in its own band, but the bell,
+  // a crowd swell and a slam are three independent events and they do land on
+  // the same instant; a compressor welds them into one mix and the tanh
+  // ceiling keeps the sum off a phone speaker's clip. The numbers are gentle
+  // on purpose — the levels are already right, this only has to catch the
+  // overlaps. It sits *after* master so the volume and mute knobs still do
+  // exactly what they always did.
+  _bus() {
+    const ctx = this.ctx;
+    this.compressor = ctx.createDynamicsCompressor();
+    this.compressor.threshold.value = -12;
+    this.compressor.knee.value = 20;
+    this.compressor.ratio.value = 4;
+    this.compressor.attack.value = 0.004;
+    this.compressor.release.value = 0.24;
+    const limiter = ctx.createWaveShaper();
+    const n = 1024;
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * 2.4) / Math.tanh(2.4);
+    }
+    limiter.curve = curve;
+    limiter.oversample = '2x';
+    this.master.connect(this.compressor);
+    this.compressor.connect(limiter);
+    limiter.connect(ctx.destination);
+  }
+
+  // ------------------------------------------------------------- the hall
+
+  // The room the fight happens in. The renderer built a jumbotron, a podium,
+  // four speakers and an LED ribbon, and every sound came out dry — a mat in
+  // an anechoic chamber. A convolution reverb gives the room back, and the
+  // impulse it convolves with is generated, not recorded: two seconds of
+  // low-passed noise with a hall's decay, so it costs nothing to load and
+  // nothing to fail on a phone that has lost signal. Only the sounds that have
+  // a place on the mat go through it (_place wires the send); the bell, the
+  // clock, the UI and the music stay dry, the way a produced track should.
+  _hall() {
+    const ctx = this.ctx;
+    const secs = 1.8;
+    const len = Math.floor(ctx.sampleRate * secs);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    let peak = 0;
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      let low = 0;
+      for (let i = 0; i < len; i++) {
+        const w = Math.random() * 2 - 1;
+        // One-pole low-pass on the noise: the air in a hall eats treble faster
+        // than it eats bass, so the tail darkens as it dies.
+        low += 0.18 * (w - low);
+        const t = i / ctx.sampleRate;
+        // Dense early reflections, then an exponential fall. RT60 ≈ 1.5 s.
+        const env = Math.exp(-t / 0.22) * (1 - 0.72 * Math.exp(-t / 0.011));
+        d[i] = low * env;
+        if (Math.abs(d[i]) > peak) peak = Math.abs(d[i]);
+      }
+    }
+    // The decay is authored, so it is scaled to a peak of one and left alone —
+    // the convolver's own normalisation would flatten the tail right back up.
+    const ir = ctx.createConvolver();
+    ir.normalize = false;
+    const s = peak > 1e-6 ? 1 / peak : 1;
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < len; i++) d[i] *= s;
+    }
+    ir.buffer = buf;
+    this.reverbSend = ctx.createGain();
+    this.reverbSend.gain.value = 0.4;
+    this.reverbReturn = ctx.createGain();
+    this.reverbReturn.gain.value = 0.6;
+    this.reverbSend.connect(ir);
+    ir.connect(this.reverbReturn);
+    this.reverbReturn.connect(this.master);
   }
 
   // ------------------------------------------------------------- loading
@@ -254,7 +347,7 @@ export class Audio {
   // starts making a grip on the far side of the tangle vanish. What carries the
   // information here is the pan, and the distance term only has to keep a
   // referee at the edge of the mat behind the two men in front of him.
-  _place(x, y, z) {
+  _place(x, y, z, reverb = true) {
     if (!this.ctx) return null;
     const dx = x - this.ear[0], dy = y - this.ear[1], dz = z - this.ear[2];
     const d = Math.hypot(dx, dy, dz) || 0.001;
@@ -264,6 +357,12 @@ export class Audio {
     const g = this.ctx.createGain();
     g.gain.value = 2.4 / (2.4 + d);
     p.connect(g).connect(this.master);
+    // A sound with a place in the match has a place in the room: the panner
+    // also feeds the hall, so a slam two metres left rings out of the left of
+    // the space rather than out of nowhere. The send is taken *after* the
+    // distance gain, so a far sound sends a far-sized splash of reverb and the
+    // room fades with the sound instead of floating up to meet it.
+    if (reverb && this.reverbSend) g.connect(this.reverbSend);
     return p;
   }
 
@@ -411,7 +510,11 @@ export class Audio {
     if (this.breathAt[i] < now + 0.2) this.breathAt[i] = now + 0.2;
 
     const t = this._at();
-    const dest = at ? this._place(at[0], at[1], at[2]) : null;
+    // Breath keeps its place (it pans with the chest) but not the hall: it is
+    // the closest sound in the game, air moving a hand's width from the mic,
+    // and a wash of reverb would turn a cue meant to sit under the room into a
+    // hiss that sits beside it.
+    const dest = at ? this._place(at[0], at[1], at[2], false) : null;
     // An inhale is higher, shorter and thinner — it is air through a gap. An
     // exhale is lower and longer, and it is the one that carries when a man is
     // tired, which is why the gas term is on its length and not on the inhale's.

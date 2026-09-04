@@ -68,6 +68,11 @@ const { result, fallback } = await page.evaluate(async () => {
     // left one cannot tell a grip on the far side of the mat from a quiet one.
     const probe = a.ctx.createScriptProcessor(4096, 2, 2);
     let peak = 0, peakL = 0, peakR = 0;
+    // A running power sum, for the reverb tail below. Peak is the right
+    // instrument for a one-shot and the wrong one for a hall: a tail is quiet
+    // by definition, and it is its duration — its energy — that says "room"
+    // rather than "recording played dry".
+    let energy = 0;
     probe.onaudioprocess = (e) => {
       const l = e.inputBuffer.getChannelData(0);
       const r = e.inputBuffer.numberOfChannels > 1 ? e.inputBuffer.getChannelData(1) : l;
@@ -77,6 +82,7 @@ const { result, fallback } = await page.evaluate(async () => {
         if (b0 > peakR) peakR = b0;
         const v = Math.max(a0, b0);
         if (v > peak) peak = v;
+        energy += l[i] * l[i] + r[i] * r[i];
       }
       for (let c = 0; c < e.outputBuffer.numberOfChannels; c++) e.outputBuffer.getChannelData(c).fill(0);
     };
@@ -218,6 +224,28 @@ const { result, fallback } = await page.evaluate(async () => {
     const breathFresh = await breathLoud(0.1, 0);
     const breathSpent = await breathLoud(0.9, 1);
 
+    // The hall. A slam has a tail when there is a room around the mat, and the
+    // tail is the room: measure the power left after the sample itself has
+    // gone, once with the hall and once with the send shut off. The difference
+    // is the reverb, and nothing else.
+    const hallTail = async (on) => {
+      const crowd = a.crowdGain.gain.value;
+      a.crowdGain.gain.value = 0;
+      const send = a.reverbSend.gain.value;
+      if (!on) a.reverbSend.gain.value = 0;
+      await new Promise((r) => setTimeout(r, 500));   // settle
+      for (let k = 0; k < 3; k++) { a.tap(1, [0, 0.3, 0]); await new Promise((r) => setTimeout(r, 500)); }
+      await new Promise((r) => setTimeout(r, 450));   // the sample (0.31 s) is over
+      energy = 0;
+      await new Promise((r) => setTimeout(r, 1200));  // the hall rings on
+      const got = energy;
+      a.crowdGain.gain.value = crowd;
+      a.reverbSend.gain.value = send;
+      return got;
+    };
+    const hallWet = await hallTail(true);
+    const hallDry = await hallTail(false);
+
     let music = 0;
     if (waitForPack) {
       await a.track('match');
@@ -231,7 +259,7 @@ const { result, fallback } = await page.evaluate(async () => {
 
     const out = {
       loaded: a.loaded, samples: Object.keys(a.sfx).length, events, room, music, muted,
-      left, right, near, far, breathFresh, breathSpent,
+      left, right, near, far, breathFresh, breathSpent, hallWet, hallDry,
     };
     // Close it, or the second half of this test runs beside a context that is
     // still mixing a crowd — and two live contexts in one headless tab is how
@@ -383,6 +411,15 @@ const under = result.breathSpent.heard < result.room * 1.2;
 if (!under) problems++;
 console.log(`${under ? ' ' : '!'} and sits under the room             ` +
   `${db(result.breathSpent.heard)} against a room at ${db(result.room)}`);
+
+// The hall rings. After the tap's own sample has gone, the reverb keeps the
+// room alive; with the send off, the same window is silence. The ratio is the
+// claim — a tail ten times the dry floor is a room, and a slam with no hall
+// leaves nothing behind it.
+const hall = result.hallWet > result.hallDry * 10;
+if (!hall) problems++;
+console.log(`${hall ? ' ' : '!'} the hall rings                     ` +
+  `tail power ${result.hallWet.toExponential(1)} wet, ${result.hallDry.toExponential(1)} with the hall off`);
 
 console.log(`\n  with the pack unreachable — ${fallback.samples} samples, synthesis only:`);
 for (const [name, built] of Object.entries(fallback.events)) {
