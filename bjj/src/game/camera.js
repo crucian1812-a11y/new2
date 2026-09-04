@@ -26,6 +26,16 @@ import { v3, v3set, v3lerp, lerp } from '../core/m4.js';
 // look of a security camera. Thirty-four degrees covers a metre and a half,
 // which is the pair and a hand's breadth around them, and a long lens is what
 // a broadcast camera at the edge of a mat actually has on it.
+// How much room the pair gets inside the frame. 1.25 means the two of them,
+// measured from the point the camera is aimed at, may take four fifths of the
+// half-height — the rest is the margin a broadcast frame leaves round a tangle
+// so that the hands are still in it.
+const FRAME_MARGIN = 1.25;
+// The widest the lens goes before the tripod has to move instead. Past about
+// fifty degrees the mat curves and the two of them start to look far away.
+const FOV_MAX = 50;
+const DEG = Math.PI / 180;
+
 const SHOTS = {
   // The title card: low, close and off the shoulder, the way a promo still is
   // framed. Nothing is happening yet, so the shot has to do the work.
@@ -66,7 +76,16 @@ export class Camera {
     this.shake = Math.min(1, this.shake + a);
   }
 
-  update(dt, focus, mode, intensity) {
+  // `spread` is how far the pair reaches from the point being aimed at, in
+  // metres. Without it the camera frames by the shot alone and has no idea what
+  // is in front of it: measured over forty-five minutes of match, the pair
+  // filled 79% of the frame's height on average, stood taller than the picture
+  // on one frame in six, and inside a submission — the moment the whole game is
+  // about reading — it filled 113% and something was out of frame on *every*
+  // frame. What fell out was hands, fingers and forearms, which is the technique
+  // itself. A player put it plainly: "камера слишком близко подъезжает и не
+  // понятно какой приём сейчас происходит".
+  update(dt, focus, mode, intensity, spread = 0) {
     this.t += dt;
     const s = SHOTS[mode] || SHOTS.ground;
 
@@ -83,8 +102,18 @@ export class Camera {
     // seconds, and going to the mat did the same in reverse. A broadcast
     // director cuts between cameras, and the shots here are cameras. Only the
     // small adjustments — pushing in as the effort rises — are eased.
-    const wantDist = s.dist - intensity * 0.18;
-    const wantFov = s.fov - intensity * 2.5;
+    let wantDist = s.dist - intensity * 0.18;
+    let wantFov = s.fov - intensity * 2.5;
+    // Framed on what is actually there. The shot says how close and how long the
+    // lens is; this only ever opens it, never tightens it, so the look of each
+    // shot is the look it was written with and the camera simply refuses to cut
+    // the fight in half.
+    if (spread > 0.01) {
+      const need = 2 * Math.atan((spread * FRAME_MARGIN) / Math.max(0.6, this.dist)) / DEG;
+      wantFov = Math.max(wantFov, Math.min(FOV_MAX, need));
+      // And when even the widest lens cannot hold them, the tripod goes back.
+      wantDist = Math.max(wantDist, (spread * FRAME_MARGIN) / Math.tan((FOV_MAX / 2) * DEG));
+    }
     if (this._shot !== mode) {
       this._shot = mode;
       this.dist = wantDist;

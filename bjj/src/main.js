@@ -614,9 +614,20 @@ function drawFrame(now, real) {
   focus[1] = (ha[13] + hb[13]) / 2;
   focus[2] = (ha[14] + hb[14]) / 2;
   const mode = match.state === 'sub' ? 'sub' : POSES[match.position].ground ? 'ground' : 'stand';
+  // How far the two of them reach from the point the camera is aimed at, so the
+  // lens can be opened enough to hold them. Fifty-two joints, once a frame.
+  let spread = 0;
+  for (const role of ['A', 'B']) {
+    const sk = rig.skel[role];
+    for (let i = 0; i < sk.world.length; i++) {
+      const w = sk.world[i];
+      const d = Math.hypot(w[12] - focus[0], w[13] - focus[1], w[14] - focus[2]);
+      if (d > spread) spread = d;
+    }
+  }
   // Held still too, and for the same reason: a camera that is still settling
   // moves every pixel, which swamps whatever the measurement was about.
-  camera.update(window.__still != null ? 0 : dt, focus, mode, match.intensity);
+  camera.update(window.__still != null ? 0 : dt, focus, mode, match.intensity, spread);
   // The ear follows the camera, and it has to be told after the camera has
   // moved and before anything sounds: a shot that cuts to the other side of the
   // mat swaps left and right, and a sound placed against last frame's listener
