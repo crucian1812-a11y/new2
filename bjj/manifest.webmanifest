@@ -1,0 +1,19 @@
+{
+  "name": "Jiu-Jitsu — позиционная борьба",
+  "short_name": "Jiu-Jitsu",
+  "description": "Браузерная игра про бразильское джиу-джитсу: позиционная борьба, проходы, свипы, сабмишены. Управление в стиле UFC, под телефон.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "landscape",
+  "background_color": "#05070b",
+  "theme_color": "#05070b",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

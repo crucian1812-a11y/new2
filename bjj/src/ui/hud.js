@@ -62,6 +62,8 @@ export class HUD {
       if (opts.tutorial.done) this._tutorialDone();
       else if (match.state === 'live' || match.state === 'sub') this._tutorial(opts.tutorial);
     }
+    // The full-screen button and its one-line hint, on every screen.
+    this._fullscreen(opts);
     // The cut between screens: a fade from black that covers everything while
     // the title swaps for the fight and the fight for the result.
     if (opts.veil && opts.veil.v > 0.002) {
@@ -668,6 +670,74 @@ export class HUD {
     for (let i = 0; i < 5; i++) if (inside(p, L.belt(i))) return { kind: 'belt', value: i };
     for (const t of TIMES_ORDER) if (inside(p, L.time(t))) return { kind: 'time', value: t };
     return null;
+  }
+
+  // The full-screen button, in the corner every screen shares. It is the one
+  // control that belongs to the page rather than the match, so it sits clear
+  // of the scorebug and the ring: top-right, where no thumb rests and where
+  // the eye goes when it looks for a way out of the browser chrome.
+  fsButton() {
+    return { x: this.w - 24, y: 26, r: 21 };
+  }
+
+  fsHit(p) {
+    if (!p) return false;
+    const b = this.fsButton();
+    return Math.hypot(p.x - b.x, p.y - b.y) <= b.r;
+  }
+
+  _fullscreen(opts) {
+    const c = this.ctx;
+    const b = this.fsButton();
+    const on = !!opts.fullscreen;
+
+    c.save();
+    c.beginPath();
+    c.arc(b.x, b.y, 15, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(8,11,17,0.5)';
+    c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.16)';
+    c.lineWidth = 1;
+    c.stroke();
+
+    // Four corner brackets: hugged to the corners to mean "make it bigger",
+    // pulled in to mean "bring it back". The glyph the whole web uses for
+    // this, in thin lines.
+    const m = on ? 6 : 9;
+    const len = 7;
+    c.strokeStyle = 'rgba(255,255,255,0.85)';
+    c.lineWidth = 1.6;
+    c.lineCap = 'round';
+    c.beginPath();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const cx = b.x + sx * m;
+      const cy = b.y + sy * m;
+      c.moveTo(cx - sx * len, cy);
+      c.lineTo(cx, cy);
+      c.lineTo(cx, cy - sy * len);
+    }
+    c.stroke();
+    c.restore();
+
+    // The one-line answer for a browser that refused the ask. Centred near
+    // the bottom so it never fights the menu or the scorebug for attention.
+    if (opts.fsHint) {
+      c.save();
+      c.font = `600 12px ${FONT}`;
+      const w = c.measureText(opts.fsHint).width + 32;
+      const x = (this.w - w) / 2;
+      const y = this.h - 46;
+      roundRect(c, x, y - 16, w, 32, 8);
+      c.fillStyle = 'rgba(6,8,12,0.92)';
+      c.fill();
+      c.strokeStyle = 'rgba(255,209,102,0.6)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.fillStyle = 'rgba(255,255,255,0.92)';
+      c.textAlign = 'center';
+      c.fillText(opts.fsHint, x + w / 2, y + 1);
+      c.restore();
+    }
   }
 
   _title(opts) {
