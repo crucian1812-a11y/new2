@@ -569,17 +569,30 @@ export class HUD {
     c.fillStyle = 'rgba(4,6,10,0.78)';
     c.fillRect(0, 0, this.w, this.h);
     c.textAlign = 'center';
+
+    // The разбор. Read once, off the tape the match kept of itself, and held
+    // for as long as the card is up — debrief() walks the whole tape and this
+    // card is drawn sixty times a second.
+    //
+    // It is here rather than on a screen of its own because a card that says
+    // only who won is a card nobody reads twice, and because the thing a
+    // beaten player wants is not a tutorial, it is the answer to "what did I
+    // do". Three lines, each one a fact about this match and a fix.
+    if (this._dbTape !== m.tape) { this._dbTape = m.tape; this._db = m.debrief(); }
+    const lines = (this._db && this._db.lines) || [];
+    const extra = lines.length ? lines.length * 15 + 14 : 0;
+    const base = this.h / 2 - extra / 2;
     const win = m.winner === null ? 'НИЧЬЯ' : `${m.f[m.winner].name.toUpperCase()}`;
     c.fillStyle = m.winner === 0 ? '#4fd48a' : m.winner === 1 ? '#ff6a55' : '#fff';
     c.font = `800 28px ${FONT}`;
-    c.fillText(win, this.w / 2, this.h / 2 - 24);
+    c.fillText(win, this.w / 2, base - 24);
     c.fillStyle = 'rgba(255,255,255,0.7)';
     c.font = `600 13px ${FONT}`;
     const by = { submission: 'победа сдачей', points: 'победа по очкам', advantages: 'победа по преимуществам', draw: '' };
-    c.fillText(by[m.winBy] || '', this.w / 2, this.h / 2 + 2);
+    c.fillText(by[m.winBy] || '', this.w / 2, base + 2);
     c.font = `700 16px ${FONT}`;
     c.fillStyle = '#fff';
-    c.fillText(`${m.f[0].points} — ${m.f[1].points}`, this.w / 2, this.h / 2 + 30);
+    c.fillText(`${m.f[0].points} — ${m.f[1].points}`, this.w / 2, base + 30);
     // What the win was worth. A result card that says only who won is a card
     // nobody reads twice; this one says which belt was in front of you and
     // which one is next, because that is the whole of the career mode.
@@ -591,13 +604,26 @@ export class HUD {
         : r.climbed ? `${r.beat} belt взят  ·  следующий: ${r.next}`
         : r.won ? `${r.beat} belt взят`
         : `${r.beat} belt — ещё раз`;
-      c.fillText(line, this.w / 2, this.h / 2 + 48);
+      c.fillText(line, this.w / 2, base + 48);
+    }
+    // Разбор: what this match was, in the game's own numbers.
+    if (lines.length) {
+      const ly = base + 76;
+      c.strokeStyle = 'rgba(255,255,255,0.12)';
+      c.lineWidth = 1;
+      c.beginPath();
+      c.moveTo(this.w / 2 - 90, ly - 12);
+      c.lineTo(this.w / 2 + 90, ly - 12);
+      c.stroke();
+      c.font = `600 11px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.8)';
+      for (let i = 0; i < lines.length; i++) c.fillText(lines[i], this.w / 2, ly + i * 15);
     }
     c.font = `600 12px ${FONT}`;
     c.fillStyle = '#ffd166';
     c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
     c.fillText(r && !r.won ? 'КОСНИСЬ, ЧТОБЫ ПОПРОБОВАТЬ СНОВА' : 'КОСНИСЬ, ЧТОБЫ ВЫЙТИ НА СЛЕДУЮЩЕГО',
-      this.w / 2, this.h / 2 + 70);
+      this.w / 2, base + 70 + extra);
     c.globalAlpha = 1;
   }
 }

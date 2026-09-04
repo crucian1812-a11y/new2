@@ -32,6 +32,14 @@ const steps = [
   ['match simulation', 'sim-check.mjs', ['400']],
   ['the way out', 'escape-check.mjs', ['240']],
   ['how it flows', 'flow-check.mjs', ['40']],
+  // Whether a person can win. Everything above this line measures the game
+  // against itself, and the game against itself was balanced while the half a
+  // human plays was impossible: the AI never reads the prompt on the screen,
+  // so nothing here noticed that the window to answer an attack was shorter
+  // than a hand.
+  ['a hand on it', 'human-check.mjs', ['120']],
+  // And whether what the game says about the match afterwards is true.
+  ['the разбор', 'tape-check.mjs', ['120']],
 ];
 if (withBrowser) {
   steps.push(['browser smoke', 'smoke.mjs', []]);
