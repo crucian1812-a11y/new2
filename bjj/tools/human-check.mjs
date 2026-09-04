@@ -19,6 +19,8 @@
 // and reads nothing the screen does not show.
 //
 //   node bjj/tools/human-check.mjs                  the ladder, 120 matches a belt
+//         — by default a phone player: 450 ms to react, and 150 ms to turn his
+//           head from the two men on the mat to the ring in the corner of his eye
 //   node bjj/tools/human-check.mjs 400
 //   node bjj/tools/human-check.mjs --react 250      a faster hand
 //   node bjj/tools/human-check.mjs --plan likely    the naive line
@@ -37,12 +39,21 @@ const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
 const N = +(args[0] > 0 ? args[0] : 120);
 const CFG = {
-  react: +flag('react', 320),   // ms from a thing appearing to the thumb moving
+  react: +flag('react', 450),   // ms from a thing appearing to the thumb moving
   jitter: +flag('jitter', 90),  // one sigma on that
   beat: +flag('beat', 90),      // one sigma on the tap that has to land on a beat
   plan: flag('plan', 'points'),
   belts: flag('belts', 'white,blue,purple,black').split(','),
   window: flag('window', null),   // seconds to answer an attack; null = the game's own
+  // What it costs to look somewhere else. A player is watching two men on a
+  // mat, not the ring; the ring turning red is in the corner of his eye, and
+  // the head turn is paid once, on the reaction that needs it. thumb.mjs has
+  // had this since it was written and could never answer with it, because a
+  // browser on a software rasteriser runs the match at a third of real time
+  // and the delay is in match seconds either way — the whole measurement gets
+  // a threefold discount it never earned. Here the clock is the loop, so the
+  // cost is exactly what it says.
+  attention: +flag('attention', 150),
 };
 const WHY = args.includes('--why');
 const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : 20260903);
@@ -78,11 +89,13 @@ const late = () => Math.max(0.05, (CFG.react + gauss(CFG.jitter)) / 1000);
 class Hand {
   constructor(plan) {
     this.plan = plan;
+    this.focus = null;    // what he is currently looking at
     this.timer = -1;      // seconds until the thumb lands
     this.dir = null;      // what it will land on
     this.what = null;     // 'deny' | 'move' | 'escape'
     this.tapped = false;  // this beat, already tapped
     this.target = 0;
+    this.turns = 0;
   }
 
   update(dt, m) {
@@ -95,7 +108,7 @@ class Hand {
     if (read && read.length) {
       if (this.what !== 'deny') {
         this.what = 'deny';
-        this.timer = late();
+        this.timer = late() + this._turnTo('deny');
         // He can only pick from what he was shown. One door is a read, two is
         // a coin, four is a guess — which is exactly what denyRead promises.
         this.dir = read[randInt(read.length)];
@@ -113,7 +126,7 @@ class Hand {
     // else, plus the beat it takes to compare four labels.
     if (this.what !== 'move') {
       this.what = 'move';
-      this.timer = late() + 0.25 + rand() * 0.35;
+      this.timer = late() + 0.25 + rand() * 0.35 + this._turnTo('move');
       this.dir = null;
     }
     this.timer -= dt;
@@ -130,6 +143,14 @@ class Hand {
     // pad is for and a player who never touches it is not the player to
     // measure. Not every beat: it is a second thing to think about.
     else if (rand() < 0.3) m.grip(0);
+  }
+
+  // Turning the head from one thing to another, charged once per turn.
+  _turnTo(kind) {
+    if (this.focus === kind) return 0;
+    this.focus = kind;
+    this.turns++;
+    return CFG.attention / 1000;
   }
 
   _choose(dirs, pv, m) {
@@ -160,7 +181,11 @@ class Hand {
     // Underneath: the way out, if the lock is young enough to show one.
     const dir = m.visibleEscape(0);
     const shown = dir || DIRS[randInt(4)];
-    if (this.what !== 'escape') { this.what = 'escape'; this.timer = late(); this.dir = shown; }
+    if (this.what !== 'escape') {
+      this.what = 'escape';
+      this.timer = late() + this._turnTo('escape');
+      this.dir = shown;
+    }
     this.timer -= dt;
     if (this.timer <= 0) { m.input(0, this.dir); this.what = null; }
   }
@@ -185,7 +210,8 @@ function play(level, plan) {
 }
 
 console.log(`${N} matches a belt, seed ${SEED}, plan "${CFG.plan}", ` +
-  `hand ${CFG.react}±${CFG.jitter} ms\n`);
+  `hand ${CFG.react}±${CFG.jitter} ms` +
+  (CFG.attention ? `, ${CFG.attention} ms to turn its head` : ', perfectly vigilant') + '\n');
 
 const rows = [];
 const t0 = Date.now();
@@ -236,6 +262,15 @@ if (white) {
   check(white.wins / N > 0.5, 'a person can beat a white belt',
     `${Math.round(white.wins / N * 100)}% of ${N}, ${(white.mine / N).toFixed(1)}:${(white.theirs / N).toFixed(1)}`);
 }
+// And the defence has to be a defence. This is the number that was one per cent
+// while nothing in the battery was watching it: a window shorter than a hand
+// turns half the game into a cutscene the player is asked to sit through.
+const denied = rows.reduce((s, r) => s + r.agg.denyOk, 0);
+const askable = rows.reduce((s, r) => s + r.agg.answerable, 0);
+check(denied / Math.max(1, askable) > 0.4, 'and can answer what can be answered',
+  `${Math.round(denied / Math.max(1, askable) * 100)}% of ${askable} readable attacks, ` +
+  'across every belt');
+
 // And the ladder still has to be a ladder: harder belts win more.
 const wr = rows.map((r) => r.wins / N);
 check(wr.every((v, i) => i === 0 || v <= wr[i - 1] + 0.12),
