@@ -60,6 +60,13 @@ const ONLY = (() => {
 // See grid.mjs: this has to stay a refinement of what blend-check judges on.
 const STEPS = SOLVE_STEPS;
 const MAT_Y = 0.05;
+// How far the skin hangs below each read bone: the sole is measured on the
+// baked fighter (8.3 cm under the ankle) and the rest are the capsule radii
+// collide.js gives them. Same table as tools/pose-relax.mjs.
+const SKIN_BELOW = {
+  headTop: 0.086, handL: 0.070, handR: 0.070, footL: 0.083, footR: 0.083,
+  hips: 0.190, chest: 0.212, shinL: 0.100, shinR: 0.100,
+};
 // Contact is fine in flight too — they are still grappling. This is where a
 // limb starts being inside a body.
 const ALLOW = 0.05;
@@ -126,7 +133,7 @@ function fold(sk, upper, mid, low) {
 }
 
 function measure(from, to) {
-  let sum = 0, worst = 0, where = null, deepestFold = 0;
+  let sum = 0, worst = 0, where = null, deepestFold = 0, deepestSink = 0;
   const low = new Array(STEPS);
   for (let i = 0; i < STEPS; i++) {
     const t = i / (STEPS - 1);
@@ -140,12 +147,22 @@ function measure(from, to) {
       if (over > 0) sum += over * over;
       if (p.pen > worst) { worst = p.pen; where = p.where; }
     }
-    // Nobody goes through the mat on the way, either.
+    // Nobody goes through the mat on the way, either — measured to the skin.
+    //
+    // This used to compare bone positions with the mat and only start charging
+    // six centimetres below it, which is a bone six centimetres under and a
+    // *hand* thirteen: the hand's skin reaches 7 cm past its bone. So a lobe
+    // could dive a hand clean through the floor for nothing. Measured on
+    // CLINCH>SIDE_CONTROL_X, the right hand went ten centimetres under at
+    // t=0.9 and came back at t=1.0, and the whole cost of it was 0.02.
     for (const role of ['A', 'B']) {
       for (const b of READ) {
         const m = rig.skel[role].world[BONE_INDEX[b]];
-        const under = MAT_Y - 0.06 - m[13];
-        if (under > 0) sum += under * under * 3;
+        const under = MAT_Y - (m[13] - (SKIN_BELOW[b] || 0));
+        if (under > 0) {
+          sum += under * under * 20;
+          if (under > deepestSink) deepestSink = under;
+        }
       }
     }
     let lo = Infinity;
@@ -194,7 +211,7 @@ function measure(from, to) {
     // with all of them has to be large.
     if (up > 0) { sum += up * up * 60; lift = Math.max(lift, low[i] - base); }
   }
-  return { sum, worst, where, lift, fold: deepestFold };
+  return { sum, worst, where, lift, fold: deepestFold, sink: deepestSink };
 }
 
 // The graph's transitions, and the loops a held position runs inside itself.
@@ -265,7 +282,7 @@ const incoming = {};
 for (const key of keys) {
   const [from, to] = key.split('>');
   const m = measure(from, to);
-  incoming[key] = { sum: m.sum, worst: m.worst, lift: m.lift, fold: m.fold };
+  incoming[key] = { sum: m.sum, worst: m.worst, lift: m.lift, fold: m.fold, sink: m.sink };
 }
 
 // Anything not being solved this run keeps the arc it has, and is reported as
@@ -502,7 +519,17 @@ for (const key of keys) {
   // folded past what an elbow does is more visible than eight centimetres of
   // overlap. The rule has not changed: worsen nothing anybody measures.
   const worseFold = after.fold > incoming[key].fold + 1e-9;
-  if (worseCost || worseDepth || worseLift || worseFold) {
+  // And the fifth: how far the deepest bit of skin goes under the mat.
+  //
+  // The same lesson for the fifth time, and this one cost a run. blend-check
+  // ships on a body sunk more than six centimetres, and the guard did not know
+  // the number — so when the mat term was finally measured to the skin rather
+  // than to the bone, the search found the answer, the guard compared four
+  // other numbers, saw one of them a hair worse and threw the answer away. A
+  // hand went on diving ten centimetres through the floor of a transition that
+  // had just been re-solved to stop it. Worsen nothing anybody measures.
+  const worseSink = after.sink > incoming[key].sink + 1e-9;
+  if (worseCost || worseDepth || worseLift || worseFold || worseSink) {
     if (shipped[key]) ARCS[key] = JSON.parse(JSON.stringify(shipped[key]));
     else delete ARCS[key];
     after = measure(from, to);
