@@ -36,6 +36,10 @@ const steps = [
   // poses, the path between them, whether the blend parameter jumps. None of it
   // had ever looked at where a knee was on two consecutive frames.
   ['shake', 'shake-check.mjs', ['12']],
+  // And whether the shot contains the fight. The camera framed by the shot
+  // alone and had no idea what was in front of it: inside a submission the pair
+  // filled 113% of the frame and something was cropped on every single frame.
+  ['the shot', 'camera-check.mjs', ['12']],
   // Whether a person can win. Everything above this line measures the game
   // against itself, and the game against itself was balanced while the half a
   // human plays was impossible: the AI never reads the prompt on the screen,
