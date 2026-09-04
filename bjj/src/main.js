@@ -37,6 +37,9 @@ try {
 }
 
 const rig = new PairRig();
+// This one is being watched, so its hands ease rather than snap. Tools that
+// solve or sample leave it off, or their numbers would depend on call order.
+rig.live = true;
 
 // The fighters come from a baked sculpt when one is present, and from the
 // procedural body builder when it is not. The two produce the same vertex

@@ -36,7 +36,7 @@ const rows = [];
 for (const id of Object.keys(POSES)) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
-  rig.time = 0;
+  rig.rewind();
   rig.applyAt(id, id, 1, 0.016);
 
   const info = { id, notes: [] };
@@ -258,7 +258,7 @@ console.log(
     rig.heldId = null;
     rig.effort.A = rig.effort.B = 0.3;
     rig.slack.A = rig.slack.B = 0;
-    rig.time = 0;
+    rig.rewind();
     rig.origin[0] = 0; rig.origin[2] = 0;
     let worst = 0;
     for (let i = 0; i < 360; i++) {
@@ -321,7 +321,7 @@ console.log(
     rig.heldId = null;
     rig.lag = false;                    // one thing at a time
     rig.origin[0] = 0; rig.origin[2] = 0;
-    rig.time = 0;
+    rig.rewind();
     rig.live = true;
     rig.apply(from, to, 0, STEP);
     const speeds = [];
@@ -383,7 +383,7 @@ console.log(
     rig.heldId = null;
     rig.origin[0] = 0; rig.origin[2] = 0;
     rig.vel[0] = 0; rig.vel[2] = 0;
-    rig.time = 0;
+    rig.rewind();
     for (const role of ['A', 'B']) {
       for (const b in rig.inert[role]) rig.inert[role][b].set = false;
     }
@@ -450,7 +450,7 @@ console.log(
   let still = 0, frames = 0;
   rig.effort.A = rig.effort.B = 0.15;
   rig.slack.A = rig.slack.B = 0;
-  rig.time = 0;
+  rig.rewind();
   rig.origin[0] = 0; rig.origin[2] = 0;
   rig.heldId = null;
   for (let i = 0; i < 240; i++) {
@@ -535,7 +535,7 @@ console.log(
     rig.heldId = null;
     rig.effort.A = rig.effort.B = 0.25;
     rig.slack.A = rig.slack.B = 0;
-    rig.time = 0;
+    rig.rewind();
     for (let i = 0; i < n; i++) {
       rig.hold(id, STEP);
       const row = [];
@@ -638,7 +638,7 @@ console.log(
   let near = 9, worstPose = null, worstAt = 0;
   for (const id of Object.keys(POSES)) {
     if (POSES[id].waypoint) continue;
-    rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
+    rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.rewind();
     rig.applyAt(id, id, 1, 0.016);
     ref.placed = false;
     ref.update(0.5, 'live', POSES[id].ground, [0, 0, 0], 0);

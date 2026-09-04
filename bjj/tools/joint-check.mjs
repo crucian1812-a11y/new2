@@ -121,7 +121,7 @@ for (const id of Object.keys(POSES)) {
   if (POSES[id].refereeOnly) continue;
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
-  rig.time = 0;
+  rig.rewind();
   rig.applyAt(id, id, 1, 0.016);
   sample(id, rig.skel.A, 'A');
   sample(id, rig.skel.B, 'B');
@@ -140,7 +140,7 @@ for (const [from, to] of BLENDS) {
     const t = i / (STEPS - 1);
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
-    rig.time = 0;
+    rig.rewind();
     rig.applyAt(from, to, t, 0.016);
     sample(`${key} @${t.toFixed(2)}`, rig.skel.A, 'A');
     sample(`${key} @${t.toFixed(2)}`, rig.skel.B, 'B');
@@ -184,7 +184,7 @@ const romBad = [];
 for (const id of Object.keys(POSES)) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
-  rig.time = 0;
+  rig.rewind();
   rig.applyAt(id, id, 1, 0.016);
   for (const role of ['A', 'B']) {
     for (const bone of Object.keys(ROM)) {

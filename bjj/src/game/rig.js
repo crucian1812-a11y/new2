@@ -66,8 +66,29 @@ import { quat, qEuler, qMul, qSlerp, v3, v3set, v3lerp, m4point, smooth, clamp }
 const _t = v3();
 const _t2 = v3();
 const _t3 = v3();
+const _t4 = v3();
+const _t5 = v3();
+const _t6 = v3();
 // Shoulder to wrist on the rest skeleton: 0.275 + 0.245.
 const ARM_REACH = 0.52;
+// A hand closes on something, and lets go of it, over about a fifth of a
+// second. See the top of _grips for what the number is holding back.
+const GRIP_EASE = 0.20;
+// And a goal may not run away from the hand faster than a hand travels.
+// Whatever it does beyond that is carried as slack and bled off over
+// SLACK_BLEED seconds, so the hand catches up by moving rather than by cutting.
+const GOAL_SPEED = 3.2;
+const SLACK_BLEED = 0.18;
+// And the corners of that ease are rounded over this, so a hand does not go
+// from still to two metres a second in one frame. See _easeHand.
+const GRIP_ROUND = 0.09;
+// And what the sim asks of a body arrives over a quarter of a second rather
+// than in one frame. `working` in main.js flips the instant an attempt starts,
+// so effort stepped from a third to its ceiling between two frames — and
+// everything effort scales stepped with it: the breath, the tremor, the reach
+// of a hold loop. Every arm displaced at once, twice per attempt, sixty times
+// a match.
+const DRIVE_EASE = 0.25;
 const _q = quat();
 const _rq = quat();
 const _b1 = quat();
@@ -193,9 +214,43 @@ export class PairRig {
     // is back. Measurement leaves it at zero, so nothing that judges a pose or
     // a path ever sees it.
     this.fight = { A: 0, B: 0 };
+    // The same four, as the body has them: what the sim asks for arrives here
+    // over DRIVE_EASE rather than in one frame. `fight` is not eased — it is a
+    // spike by design, and the reach it drives is already zero at its peak.
+    this.drive = { A: { effort: 0, slack: 0, gas: 0 }, B: { effort: 0, slack: 0, gas: 0 } };
+    // Where each man is in his own breath. It has to be integrated rather than
+    // read off the clock — see _life.
+    this.breath = { A: 0, B: 0 };
+    // What each hand is doing as the picture has it, rather than as the pose
+    // asks: the eased weight, the last thing it was told to hold, and the slack
+    // it is carrying while it catches up with a goal that jumped. See _grips.
+    this.hands = {};
+    // Whether this rig is being watched or measured.
+    //
+    // The easing below is a function of elapsed time, and a solver does not
+    // advance time: arc-solve samples a path at whatever t it likes, in
+    // whatever order, and blend-check and pose-check take single frames. Carry
+    // state across those and the measurement depends on what was measured
+    // before it, which would make every number in the battery a function of
+    // its own call order. So the rig snaps by default and eases only for
+    // something that is actually playing — main.js, and the tools that play
+    // real matches.
+    this.live = false;
   }
 
   invalidate(id) { invalidatePose(id); }
+
+  // Back to the top of the clock. Tools set the rig's clock to zero before a
+  // sample so that what they measure is the pose and not the moment; the breath
+  // keeps its own phase now (see _life), so it has to be rewound with it —
+  // otherwise the thirty-eighth pose in a sweep is measured with two thirds of
+  // a radian of breath on it that the first one did not have, which is exactly
+  // how turtle came to report eight centimetres of arm inside an arm.
+  rewind() {
+    this.time = 0;
+    this.breath.A = 0;
+    this.breath.B = 0;
+  }
 
   // from/to are pose ids, t is 0..1 across the transition.
   // Holding a position.
@@ -220,7 +275,7 @@ export class PairRig {
     // Work harder and the cycle runs faster and reaches further: the two are
     // the same fact about a man under pressure, and the effort the sim already
     // tracks is where it is written.
-    const eff = Math.max(this.effort.A, this.effort.B);
+    const eff = Math.max(this.drive.A.effort, this.drive.B.effort);
     this.heldT += dt;
     this.legT += dt;
     if (this.legT >= this.legDur) {
@@ -247,7 +302,7 @@ export class PairRig {
   // Math.random: the same hold plays the same way twice, which is what lets a
   // measurement of it mean anything.
   _leg(id) {
-    const eff = Math.max(this.effort.A, this.effort.B);
+    const eff = Math.max(this.drive.A.effort, this.drive.B.effort);
     const period = 5.4 - 2.0 * eff;
     const r = (k) => hash2(this._idSeed(id), this.legN * 3 + k);
     this.legDur = period * (0.70 + 0.62 * r(0));
@@ -293,6 +348,7 @@ export class PairRig {
   // the path itself; the game goes through `apply`, which decides the timing.
   applyAt(from, to, e, dt, inPlaceKnown) {
     this._dt = dt;
+    this._settle(dt);
     const inPlaceCurve = inPlaceKnown !== undefined ? inPlaceKnown
       : from === to || POSES[to].variantOf === from || POSES[from].variantOf === to;
 
@@ -697,20 +753,64 @@ export class PairRig {
     }
   }
 
+  // How much of a grip is on, easing towards what the pose asks.
+  //
+  // Two stages, and the second one is not decoration. A rate limit alone gets
+  // the release down to a fifth of a second but leaves a corner at each end of
+  // the ramp — the hand goes from still to two metres a second in one frame,
+  // which is the jerk this whole exercise is about, just smaller. The second
+  // pass is a light low-pass that rounds those corners off; measured, it is
+  // worth more than the rate limit itself at the top end of the distribution.
+  _easeHand(st, want, dt) {
+    if (st.raw === undefined) st.raw = st.w;
+    const step = dt / GRIP_EASE;
+    st.raw += clamp(want - st.raw, -step, step);
+    st.w += (st.raw - st.w) * (1 - Math.exp(-dt / GRIP_ROUND));
+  }
+
+  // What the sim asks for, arriving at the body over a moment. Snapped when the
+  // rig is not live, so a solver sees exactly what it set.
+  _settle(dt) {
+    const k = this.live && dt > 0 ? Math.min(1, dt / DRIVE_EASE) : 1;
+    for (const role of ['A', 'B']) {
+      const d = this.drive[role];
+      d.effort += (this.effort[role] - d.effort) * k;
+      d.slack += (this.slack[role] - d.slack) * k;
+      d.gas += (this.gas[role] - d.gas) * k;
+    }
+  }
+
   _life(role, sk, from, to, e) {
     const T = this.time;
     this._inertia(role, sk, e === undefined ? 0 : this._dt);
-    const eff = this.effort[role];
-    const slack = this.slack[role];
-    const gas = this.gas[role];
+    const eff = this.drive[role].effort;
+    const slack = this.drive[role].slack;
+    const gas = this.drive[role].gas;
     const ground = POSES[to].ground;
 
     // Breath: faster and deeper the harder they are working — and it does not
     // come back down when they stop. A man three minutes in is still heaving
     // between exchanges, and that is the whole difference between a fighter
     // who is tired and a bar that says he is.
+    // A breath advances its own phase.
+    //
+    // This was `Math.sin(T * rate)` with the rate a function of effort and
+    // fatigue — and both of those change every single frame, because stamina
+    // drains continuously. So the *phase* jumped every frame rather than the
+    // speed changing: three minutes in, T is around 180, and a thousandth of a
+    // change in rate moves the argument of the sine by a fifth of a radian.
+    // The chest, the spine and the neck all hang off this, and both arms hang
+    // off the chest.
+    //
+    // Measured with tools/shake-check.mjs, it was the largest single source of
+    // shake in the game by an order of magnitude: switching the breath off
+    // dropped the ninetieth percentile of joint acceleration from 105 m/s² to
+    // 14, while switching the whole effort tremor off changed it by nothing at
+    // all. A player saw it as "дрожат неестественно", which is exactly what a
+    // torso whose breathing phase is re-randomised sixty times a second is.
     const rate = 1.1 + eff * 2.6 + gas * 2.0;
-    const breath = Math.sin(T * rate) * (0.55 + eff * 1.6 + gas * 2.4);
+    this.breath[role] += rate * (this._dt || 0);
+    const breath = Math.sin(this.breath[role]) * (0.55 + eff * 1.6 + gas * 2.4);
     addEuler(sk, 'chest', breath * 1.1, 0, 0);
     addEuler(sk, 'spine', breath * 0.6, 0, 0);
     addEuler(sk, 'neck', -breath * 0.5 + slack * 9, 0, 0);
@@ -731,16 +831,31 @@ export class PairRig {
       addEuler(sk, 'head', gas * 4, 0, 0);
     }
 
-    // Effort tremor. Two frequencies so it does not read as a sine wave, and
-    // scaled by the limb's leverage — a shoulder shakes more than a wrist.
+    // Strain, and a shiver on top of it.
+    //
+    // This was one thing and it was in the worst possible band. Two sines at
+    // 17 and 27 rad/s — 2.7 and 4.4 Hz — at 1.6 degrees on the shoulder, which
+    // is three and a half centimetres of wrist. Fast enough that the eye reads
+    // vibration rather than movement, slow enough that no frame hides it, and
+    // wide enough to see across the mat: a player called it "дрожат и дёргаются
+    // неестественно", and measured with shake-check it was the largest single
+    // source of shake in the game — switching effort off dropped the hard
+    // accelerations from 11.8% of joint-frames to 5.5%.
+    //
+    // A man straining is two things, so this is two things. The strain is slow
+    // and wide: about a second a cycle, a centimetre at the wrist, and it reads
+    // as somebody pushing. The shiver is fast and small: six hertz, three
+    // millimetres, which is what a loaded limb actually does and what gives the
+    // close camera something to see. Neither is in the band between.
     if (eff > 0.01) {
-      const j = (f, a) => (Math.sin(T * f) + Math.sin(T * f * 1.61 + 1.3)) * a * eff;
-      addEuler(sk, 'armL', j(17, 1.6), 0, j(13, 1.2));
-      addEuler(sk, 'armR', j(16.4, -1.6), 0, j(12.3, -1.2));
-      addEuler(sk, 'hips', j(11, 0.9), j(9, 1.4), 0);
+      const strain = (f, a) => (Math.sin(T * f) + Math.sin(T * f * 1.61 + 1.3)) * a * eff;
+      const shiver = (f, a) => Math.sin(T * f + 0.7) * a * eff;
+      addEuler(sk, 'armL', strain(5.5, 1.1) + shiver(38, 0.32), 0, strain(4.3, 0.8));
+      addEuler(sk, 'armR', strain(5.3, -1.1) + shiver(36.6, -0.32), 0, strain(4.1, -0.8));
+      addEuler(sk, 'hips', strain(3.7, 0.6), strain(3.1, 0.9), 0);
       if (ground) {
-        addEuler(sk, 'thighL', j(14, 1.4), 0, 0);
-        addEuler(sk, 'thighR', j(14.7, -1.4), 0, 0);
+        addEuler(sk, 'thighL', strain(4.6, 0.9), 0, 0);
+        addEuler(sk, 'thighR', strain(4.9, -0.9), 0, 0);
       }
     }
 
@@ -778,7 +893,6 @@ export class PairRig {
     // would land it seven eighths of the way there and a grip that is supposed
     // to be releasing would be gripping harder.
     const PASSES = 3;
-    for (const g of list) g.pass = 1 - Math.pow(1 - g.w, 1 / PASSES);
 
     // Where the pose put each elbow, remembered before anything moves.
     //
@@ -832,6 +946,92 @@ export class PairRig {
       list.push(reach);
     }
 
+    // Nothing a hand does may happen between two frames.
+    //
+    // A grip's weight is how far the hand is pulled off the pose towards what
+    // it is holding, so *changing* that weight moves the hand, and changing it
+    // in one frame teleports it. Two things used to change it in one frame.
+    // `fit` releases a grip over the last five centimetres of the arm's reach
+    // — a window in distance — and during a transition the distance to a point
+    // on the other man changes by two to five centimetres a frame, so the
+    // release could complete inside one; and a grip under two per cent weight
+    // was skipped outright.
+    //
+    // Measured with tools/shake-check.mjs, which walks a transition at sixty
+    // frames a second and watches every joint: **every transition in the game
+    // had a single-frame jump of thirty to sixty-seven centimetres in it, and
+    // all of them were hands.** On HALF_GUARD>BACK a hand sat fifty-one
+    // centimetres off the pose, held there by a grip on a sleeve it could not
+    // reach, and arrived back at the pose in one frame when the grip let go.
+    //
+    // So the weight eases, the goal is rate-limited, and a hand whose grip has
+    // gone on holding onto its last target while it opens. The three of them
+    // are one rule: a hand travels.
+    const dt = this._dt || 0;
+    const snap = !this.live || dt <= 0;
+    const live = new Set();
+    for (const g of list) {
+      const key = g.role + g.hand;
+      live.add(key);
+      const st = this.hands[key] || (this.hands[key] = { w: 0, o: v3(0, 0, 0), p: v3(0, 0, 0), had: false });
+      g.st = st;
+      // Where it is being asked to reach, before anything is smoothed.
+      const ok = this._goal(_t4, g, false);
+      // How much of it the arm can honour, as the last pass of the last frame
+      // measured it.
+      //
+      // Not measured here: the three passes exist because the targets move as
+      // each other's bodies are solved, and a distance taken before any of them
+      // have run is the wrong distance. Taken here it read 52 cm on a target
+      // that ends the frame at 48, faded the grip to three quarters, and left
+      // two hands in open guard fourteen centimetres off sleeves they were
+      // holding — pose-check said so on the first run.
+      // Snapped, the fade is the solver's own business and this must not read
+      // a value left behind by whatever was measured before: pose-check walks
+      // thirty-eight poses on one rig, and a fit remembered from the last one
+      // put two hands in turtle twelve centimetres off knees they were holding.
+      const want = snap ? g.w : g.w * (st.fit === undefined ? 1 : st.fit);
+      if (snap) {
+        st.w = st.raw = want;
+        v3set(st.o, 0, 0, 0);
+      } else {
+        this._easeHand(st, want, dt);
+        // The goal itself: anything it moves beyond a hand's speed becomes
+        // slack the hand carries and bleeds off.
+        if (st.had && ok) {
+          const dx = _t4[0] - st.p[0], dy = _t4[1] - st.p[1], dz = _t4[2] - st.p[2];
+          const len = Math.hypot(dx, dy, dz);
+          const cap = GOAL_SPEED * dt;
+          if (len > cap && len > 1e-6) {
+            const k = 1 - cap / len;
+            st.o[0] += dx * k; st.o[1] += dy * k; st.o[2] += dz * k;
+          }
+        }
+        const bleed = Math.exp(-dt / SLACK_BLEED);
+        st.o[0] *= bleed; st.o[1] *= bleed; st.o[2] *= bleed;
+      }
+      if (ok) { v3set(st.p, _t4[0], _t4[1], _t4[2]); st.had = true; }
+      st.point = g.point; st.self = !!g.self; st.role = g.role; st.hand = g.hand;
+      st.pole = g.pole;
+      g.eff = st.w;
+    }
+    // Hands whose grip has gone: they open over the same fifth of a second,
+    // still holding what they were holding. Without this the release is the
+    // jump — the whole distance the grip was pulling, in one frame.
+    if (!snap) {
+      for (const key in this.hands) {
+        if (live.has(key)) continue;
+        const st = this.hands[key];
+        if (st.w <= 0.02 || !st.point) { st.w = 0; continue; }
+        this._easeHand(st, 0, dt);
+        const bleed = Math.exp(-dt / SLACK_BLEED);
+        st.o[0] *= bleed; st.o[1] *= bleed; st.o[2] *= bleed;
+        list.push({ role: st.role, hand: st.hand, point: st.point, self: st.self,
+                    w: st.w, eff: st.w, pole: st.pole, st, ghost: true });
+      }
+    }
+    for (const g of list) g.pass = 1 - Math.pow(1 - clamp(g.eff, 0, 1), 1 / PASSES);
+
     this.curl = {};
     for (let pass = 0; pass < PASSES; pass++) this._solveGrips(list);
 
@@ -866,60 +1066,92 @@ export class PairRig {
     }
   }
 
+  // Where one hand is being asked to reach, in the world, this frame.
+  //
+  // Two targets crossfade in space: a hand letting go of a lapel and taking a
+  // neck travels between them rather than changing which one it is on. `slack`
+  // adds whatever the hand has not caught up with yet — see _grips.
+  _goal(out, g, slack = true) {
+    const def = GRIP_POINTS[g.point];
+    if (!def) return false;
+    const other = this.skel[g.self ? g.role : g.role === 'A' ? 'B' : 'A'];
+    m4point(out, other.world[BONE_INDEX[def[0]]], def[1]);
+    if (g.alt) {
+      const alt = GRIP_POINTS[g.alt.point];
+      if (alt) {
+        const oth = this.skel[g.alt.self ? g.role : g.role === 'A' ? 'B' : 'A'];
+        m4point(_t5, oth.world[BONE_INDEX[alt[0]]], alt[1]);
+        const k = g.alt.w / Math.max(1e-6, (g.baseW || 0) + g.alt.w);
+        // Around the shoulder, not straight through it.
+        //
+        // A straight line between two holds is the wrong path for a hand,
+        // because the two ends are both about an arm's length away and the
+        // middle of the line is not: on BACK>RNC, the lapel and the neck are
+        // half a metre out each and the point between them passes close enough
+        // to the shoulder to fold the elbow to 173 degrees. joint-check caught
+        // it the first time this ran. So the direction turns and the reach
+        // changes, which is what an arm does.
+        this.skel[g.role].boneHead(_t6, g.hand === 'L' ? 'armL' : 'armR');
+        const ax = out[0] - _t6[0], ay = out[1] - _t6[1], az = out[2] - _t6[2];
+        const bx = _t5[0] - _t6[0], by = _t5[1] - _t6[1], bz = _t5[2] - _t6[2];
+        const la = Math.hypot(ax, ay, az) || 1e-6;
+        const lb = Math.hypot(bx, by, bz) || 1e-6;
+        let dx = ax / la + (bx / lb - ax / la) * k;
+        let dy = ay / la + (by / lb - ay / la) * k;
+        let dz = az / la + (bz / lb - az / la) * k;
+        const dl = Math.hypot(dx, dy, dz) || 1e-6;
+        const r = la + (lb - la) * k;
+        out[0] = _t6[0] + (dx / dl) * r;
+        out[1] = _t6[1] + (dy / dl) * r;
+        out[2] = _t6[2] + (dz / dl) * r;
+      }
+    }
+    if (slack && g.st) { out[0] += g.st.o[0]; out[1] += g.st.o[1]; out[2] += g.st.o[2]; }
+    return true;
+  }
+
   _solveGrips(list) {
     for (const g of list) {
-      if (g.w < 0.02) continue;
+      if (g.eff < 0.02) continue;
+      if (!this._goal(_t2, g)) continue;
       const sk = this.skel[g.role];
-      const other = this.skel[g.self ? g.role : g.role === 'A' ? 'B' : 'A'];
-      const def = GRIP_POINTS[g.point];
-      if (!def) continue;
-      const bi = BONE_INDEX[def[0]];
-      m4point(_t2, other.world[bi], def[1]);
       const L = g.hand === 'L';
       const upper = L ? 'armL' : 'armR';
 
-      // If the target is out of reach the analytic solver has no choice but to
-      // point the arm straight at it, and a straight arm aimed at somebody's
-      // collar from a metre away is the single most broken-looking thing a rig
-      // can do. Fade the grip out instead: the hand goes back to where the pose
-      // put it, which is at worst approximately right.
+      // How much of the grip the arm can honour, from where everything is now.
+      //
+      // Out of reach, the analytic solver has no choice but to point the arm
+      // straight at the target, and a straight arm aimed at a collar a metre
+      // away is the single most broken-looking thing a rig can do — so a grip
+      // past the arm's length lets go over the few centimetres beyond it.
+      //
+      // And the same at the other end, which is new: a hand cannot hold
+      // something inside its own shoulder. Below about twelve centimetres the
+      // two bones of an arm have to fold past what an elbow folds — 155 degrees
+      // is joint-check's limit and the geometry reaches it at 0.116 m. On
+      // BACK>RNC the sleeve B is holding passes within five centimetres of B's
+      // own shoulder halfway through the blend, and the elbow came out at 173.
       sk.boneHead(_t3, upper);
-      const reach = ARM_REACH;
       const d = Math.hypot(_t2[0] - _t3[0], _t2[1] - _t3[1], _t2[2] - _t3[2]);
-      // Released only when it is actually out of reach.
-      //
-      // The fade used to start at nine tenths of the arm — 47 cm of a 52 cm
-      // arm — and most grips in the library sit at 48 to 50: a seatbelt, a
-      // cross-face, a hand on a far hip. All of them were permanently half
-      // released, and a half-released grip is a hand hanging in the air near
-      // the thing it is supposed to be holding. Measured across the pose
-      // library it was ten to forty-two centimetres of air.
-      //
-      // So: hold anything the arm can reach, and let go over the few
-      // centimetres past it. Beyond that the analytic solver has no choice but
-      // to point the arm straight at the target, and a straight arm aimed at
-      // somebody's collar from a metre away is the single most broken-looking
-      // thing a rig can do — which is what the fade is for, and it still does
-      // it, just at the distance where it is true.
-      const fit = 1 - smooth(clamp((d - reach * 0.97) / (reach * 0.11), 0, 1));
-      const w = g.pass * fit;
-      if (w < 0.02) continue;
-
+      let fit = 1 - smooth(clamp((d - ARM_REACH * 0.97) / (ARM_REACH * 0.11), 0, 1));
+      // Remembered for the ease, which needs it a frame before it can be
+      // measured. See _grips.
+      if (g.st) g.st.fit = fit;
+      const wPass = g.pass * fit;
+      if (wPass < 0.02) continue;
       solveTwoBone(
         sk,
         upper,
         L ? 'foreL' : 'foreR',
         L ? 'handL' : 'handR',
-        _t2, g.pole || null, w
+        _t2, g.pole || null, wPass
       );
-      const w2 = w;
-
       // Remember how closed this hand should be. Applied after the passes, not
       // inside them: a pose() in the middle of a pass changes the targets the
       // rest of the pass is solving against, and the whole point of three
       // passes is that they converge on one another.
       const key = g.role + (L ? 'L' : 'R');
-      this.curl[key] = Math.max(this.curl[key] || 0, w2);
+      this.curl[key] = Math.max(this.curl[key] || 0, wPass);
     }
   }
 }
@@ -942,14 +1174,21 @@ function collect(out, grips, w) {
         found.w = Math.min(1, found.w + w);
         continue;
       }
-      // Two different targets for one hand: the incoming one wins outright once
-      // it is more than half faded in. Blending two targets would put the hand
-      // somewhere neither pose ever asked for, which looks like a bug.
-      if (w > found.w) {
-        found.point = g.point;
-        found.self = g.self;
-        found.w = Math.max(found.w, w);
-      }
+      // Two different targets for one hand: the hand travels from the one to
+      // the other over the blend.
+      //
+      // The incoming target used to win outright the moment it was more than
+      // half faded in, on the argument that blending two targets puts the hand
+      // somewhere neither pose ever asked for. What it actually did was
+      // teleport: measured on BACK>RNC, at the midpoint of the blend the goal
+      // changed from the lapel to the neck and the hand moved **fifty-seven
+      // centimetres in one frame**. Every transition in the game had a jump
+      // like it, and a player reported the fight as "дёргаются".
+      //
+      // A hand that slides from a lapel to a neck over half a second is not
+      // somewhere neither pose asked for. It is a hand letting go of one thing
+      // and taking another, which is what the transition is.
+      if (w > found.w) { found.point = g.point; found.self = g.self; found.w = Math.max(found.w, w); }
       continue;
     }
     out.push({ ...g, w });

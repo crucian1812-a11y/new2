@@ -260,7 +260,7 @@ rows.sort((x, y) => y.ratio - x.ratio);
         : (list) => { realSolve(list); for (const k in rig.curl) rig.curl[k] = 0; };
       rig.effort.A = rig.effort.B = 0;
       rig.slack.A = rig.slack.B = 0;
-      rig.time = 0;
+      rig.rewind();
       rig.invalidate('MOUNT');
       rig.applyAt('MOUNT', 'MOUNT', 1, 0.016);
       const palm = rig.skel.A.world[BONE_INDEX.handL];

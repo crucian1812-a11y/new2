@@ -132,7 +132,7 @@ function measure(from, to) {
     const t = i / (STEPS - 1);
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
-    rig.time = 0;
+    rig.rewind();
     rig.applyAt(from, to, t, 0.016);
 
     for (const p of overlap.all(rig.skel.A, rig.skel.B)) {
@@ -287,7 +287,7 @@ function culprits(from, to) {
     const t = i / (STEPS - 1);
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
-    rig.time = 0;
+    rig.rewind();
     rig.applyAt(from, to, t, 0.016);
     for (const p of overlap.all(rig.skel.A, rig.skel.B)) {
       if (p.pen < ALLOW) continue;

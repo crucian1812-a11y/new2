@@ -112,7 +112,7 @@ for (const tr of BLENDS) {
     // measurement.
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
-    rig.time = 0;
+    rig.rewind();
     rig.applyAt(tr.from, tr.to, t, 0.016);
 
     const ov = overlap.measure(rig.skel.A, rig.skel.B);

@@ -32,6 +32,10 @@ const steps = [
   ['match simulation', 'sim-check.mjs', ['400']],
   ['the way out', 'escape-check.mjs', ['240']],
   ['how it flows', 'flow-check.mjs', ['40']],
+  // And whether the bodies shake. Everything above measures the plan — the
+  // poses, the path between them, whether the blend parameter jumps. None of it
+  // had ever looked at where a knee was on two consecutive frames.
+  ['shake', 'shake-check.mjs', ['12']],
   // Whether a person can win. Everything above this line measures the game
   // against itself, and the game against itself was balanced while the half a
   // human plays was impossible: the AI never reads the prompt on the screen,
