@@ -19,7 +19,36 @@ import { rand, randInt, pick } from './rng.js';
 
 export const MATCH_TIME = 300;
 
-const DENY_WINDOW = 0.44; // seconds the defender has to read and answer
+// How long the defender has to read an attack and answer it: until it lands,
+// less a hair.
+//
+// This was a flat 0.44 s for every transition in the game, and that single
+// number is why the game could not be played by a person. It went unnoticed
+// because everything that measured the defence measured it against the AI,
+// which does not read the prompt at all — it rolls its belt's `read` — so the
+// ladder looked balanced while the human half of it was impossible.
+//
+// Measured with a hand of ordinary lateness (tools/human-check.mjs), against a
+// white belt, plain sensible play:
+//
+//   320 ms hand — answers 65% of what can be answered, wins 63%
+//   450 ms hand — answers 21%,                          wins 23%
+//   600 ms hand — answers  1%,                          wins 15%
+//
+// 320 ms is an elite reaction to a cue you must also read and choose from. A
+// phone player watching the fighters rather than the ring is at 500–600, and
+// at 600 the defence was one per cent — the player scored 6.3 a match and gave
+// up 10.3, losing on the half of the game he was not allowed to play. It took
+// somebody losing twenty matches in a row to go and measure it.
+//
+// The fix is not a bigger constant, which would be the same mistake with a
+// nicer number. The window is the attack's own wind-up: you have until it
+// lands. Deny-carrying transitions run 0.5 to 1.05 s, so the window is 0.45 to
+// 0.95 — and a fast reversal still gives you less time than a takedown, which
+// is what makes it fast. Swept: a 500 ms hand goes 13% -> 70% against a white
+// belt, and past 0.9 s nothing changes, because the attempt has landed.
+const DENY_MARGIN = 0.9;
+const denyWindowFor = (tr) => tr.time * DENY_MARGIN;
 // How long the fight may go without getting anywhere before the referee says
 // something, and how often he says it after that.
 //
@@ -45,6 +74,27 @@ const STALL_AGAIN = 8;
 const DENY_READ = 70;
 // How long a press waits for the game to be ready for it. See input().
 const BUFFER_HOLD = 0.5;
+
+// How many presses the tape keeps whole. Everything else it records — a
+// position taken, an attack started, points landed — is bounded by the rules
+// and by the clock; a press is the one thing a player can do as fast as a
+// thumb moves, and a hand mashing at four a second writes twelve hundred of
+// them in a match. Past the cap they stop being recorded and start being
+// counted, so the debrief's numbers stay exact and the tape stays small.
+const PRESS_KEPT = 250;
+// And a ceiling on the rest, which the rules should already keep well under.
+// tools/tape-check.mjs reports the worst it has seen; if that ever approaches
+// this, something is writing to the tape that should not be.
+const TAPE_MAX = 4000;
+
+// Russian counts three ways and a debrief that gets it wrong reads like a
+// machine talking. One place, four arguments, `acc` for the accusative that
+// «ход» needs after a number in the middle of a sentence.
+const plural = (v, one, few, many, bare = false) => {
+  const a = v % 10, b = v % 100;
+  const w = a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 10 || b >= 20) ? few : many;
+  return bare ? w : `${v} ${w}`;
+};
 
 // The competition square is eight metres, so its edge is four from the middle.
 // A second and a bit outside it is a referee noticing rather than a referee
@@ -187,6 +237,13 @@ export class Match {
     this.onEvent = opts.onEvent || (() => {});
     this.stallTimer = 0;
     this.stalls = 0;
+    // A flat window, for tools that sweep it. Null means the real rule: each
+    // attack gives you its own wind-up.
+    this.denyWindow = opts.denyWindow ?? null;
+    // What actually happened, in order. See _tape.
+    this.tape = [];
+    this.pressN = 0;   // presses in total, kept or only counted
+    this.spill = {};   // the ones past PRESS_KEPT, by bucket
   }
 
   /* ------------------------------------------------------------ queries - */
@@ -254,7 +311,7 @@ export class Match {
     // otherwise the defence is impossible to perform under pressure.
     if (this.attempt && this.attempt.defender === i) {
       const r = this._tryDeny(i, dir);
-      if (r) return r;
+      if (r) { if (i === 0) this._tape('press', { dir, res: r }); return r; }
       // Nothing there to deny. Half of what comes at you has no answer at all —
       // measured at 52% of the frames somebody is attacking you, because only
       // some transitions carry a `deny` — and the flick used to die there in
@@ -263,7 +320,11 @@ export class Match {
       // the buffer below and becomes what the player plainly meant by it: the
       // thing to do the moment this is over.
     }
-    if (this.state === 'sub') return this._subInput(i, dir);
+    if (this.state === 'sub') {
+      const r = this._subInput(i, dir);
+      if (i === 0) this._tape('press', { dir, res: r === 'escape' ? 'escape' : r === 'escape-miss' ? 'escape-miss' : 'none' });
+      return r;
+    }
     if (this.state !== 'live') return null;
 
     // A press the game cannot use *yet* is remembered, not thrown away.
@@ -281,15 +342,26 @@ export class Match {
     // kind of lie. Late presses land; early ones expire.
     const blocked = this.attempt || this.cool[i] > 0;
     const tr = optionsFor(this.position, this.tagOf(i))[dir];
-    if (!tr) return null;
+    if (!tr) {
+      if (i === 0) this._tape('press', { dir, res: 'none', pos: this.position });
+      return null;
+    }
     if (blocked) {
       this.buffer = { i, dir, t: 0 };
+      if (i === 0) this._tape('press', { dir, res: 'queued', name: tr.name });
       return 'queued';
     }
     const me = this.f[i];
     if (me.stamina < tr.cost * 0.35) {
       this.emit(`${me.name}: нет сил`, 'warn');
+      if (i === 0) this._tape('press', { dir, res: 'nostam', name: tr.name });
       return null;
+    }
+    if (i === 0) {
+      this._tape('press', {
+        dir, res: 'go', name: tr.name, pos: this.position,
+        points: tr.points | 0, chance: +this.chanceOf(tr, i).toFixed(2),
+      });
     }
     return this._start(i, tr);
   }
@@ -322,11 +394,15 @@ export class Match {
     // choose between rather than two arrows that swap places every frame.
     this.deny = tr.deny
       ? {
-        dir: tr.deny, t: 0, window: DENY_WINDOW, by: this.other(i),
+        dir: tr.deny, t: 0, window: this.denyWindow ?? denyWindowFor(tr), by: this.other(i),
         decoy: pick(DIRS.filter((d) => d !== tr.deny)),
       }
       : null;
     this.emit(`${me.name}: ${tr.name}`, 'attempt');
+    // How many doors he is being asked to pick between — 1 if he can read it,
+    // 2 narrowed, 4 blind, 0 if this move has no answer at all. The whole of
+    // the defence, in one number, recorded where it is known.
+    if (i === 1) this._tape('threat', { name: tr.name, doors: (this.denyRead(0) || []).length });
     return tr;
   }
 
@@ -387,12 +463,10 @@ export class Match {
     if (!this.deny || !this.attempt || this.attempt.defender !== i) return null;
     // And only while there is still time to answer.
     //
-    // Measured at nought frames today: an attempt resolves exactly when its
-    // window closes, so the tail this guards against does not currently exist.
-    // It is here because those are two independent numbers — DENY_WINDOW and
-    // whatever `time` a transition carries — and the moment they disagree the
-    // ring would be showing a defence that _tryDeny has already stopped
-    // accepting. Cheap, and it is the ring's honesty that depends on it.
+    // The window is now a tenth of the attempt short of its landing, so this
+    // guards a real tail: the last tenth of every attack, where the prompt is
+    // gone and the flick would be a denial the game no longer accepts. It is
+    // the ring's honesty that depends on it, and flow-check counts it.
     if (this.deny.t > this.deny.window) return null;
     let doors = 0;
     // Underneath, you do not see him wind up.
@@ -592,7 +666,7 @@ export class Match {
         return;
       }
       this.stalls = 0;
-      this.hold = null;
+      this._dropHold(false);
       this.paid = [new Set(), new Set()];
       this.prevPosition = this.position;
       this.position = 'STANDING';
@@ -636,6 +710,7 @@ export class Match {
     // tell that there is a blend already in flight to pick up or to unwind.
 
     if (a.denied) {
+      this._tape('try', { by: a.by, name: tr.name, res: 'denied' });
       this.tally.denied++;
       if (tr.sub) this.tally.subDenied++;
       this._snapBack(a.by, 0.65);
@@ -651,6 +726,7 @@ export class Match {
     me.stamina = clamp(me.stamina - tr.cost * 0.55, 0, 100);
 
     if (rand() > p) {
+      this._tape('try', { by: a.by, name: tr.name, res: 'failed' });
       this.tally.failed++;
       if (tr.sub) this.tally.subFailed++;
       // A choke that misses is a choke the other man has turned into.
@@ -687,6 +763,7 @@ export class Match {
       return;
     }
 
+    this._tape('try', { by: a.by, name: tr.name, res: 'landed' });
     this.tally.landed++;
     if (tr.sub) this.tally.subLanded++;
     this.goTo(tr, a.by);
@@ -860,9 +937,11 @@ export class Match {
     for (let i = 0; i < 2; i++) if (!this.isDominant(i)) this.paid[i].clear();
 
     if (tr.points > 0 && !this.paid[by].has(tr.to)) {
+      this._dropHold();
       this.hold = { by, points: tr.points, t: 0, pos: tr.to, note: tr.note || tr.name };
+      this._tape('arrive', { by, pos: tr.to, points: tr.points, note: this.hold.note });
     } else {
-      this.hold = null;
+      this._dropHold();
     }
     this.emit(`${me.name}: ${tr.name}`, tr.big ? 'big' : 'move');
     this.onEvent({ kind: 'position', by, tr });
@@ -895,7 +974,7 @@ export class Match {
       run: 0,
       led: { creep: 0, taps: 0, escapes: 0, misses: 0, nTight: 0, nSlip: 0, nEsc: 0, nMiss: 0 },
     };
-    this.hold = null;
+    this._dropHold();
     this.emit(`${this.f[by].name}: ${tr.name}!`, 'sub');
     this.onEvent({ kind: 'submission', by, tr });
   }
@@ -1157,23 +1236,42 @@ export class Match {
 
   /* ------------------------------------------------------- score & clock */
 
+  // A pending three seconds, ended before it was up.
+  //
+  // There are four ways to lose one and three of them used to do it in
+  // silence: moving on to a position that does not pay, dropping into a
+  // submission, and the referee standing the pair up all overwrote the hold
+  // where only _score was meant to end it. Two things were wrong with that.
+  // The advantage the sheet gives for breaking a hold early was never awarded
+  // for those three, and the tape showed an arrival with no outcome — which is
+  // how this was found, by an audit that insisted every arrival ends somewhere.
+  _dropHold(award = true) {
+    const h = this.hold;
+    if (!h) return;
+    this.hold = null;
+    if (award) {
+      this.f[h.by].advantages += 1;
+      this.emit(`${this.f[h.by].name}: преимущество`, 'adv');
+    }
+    this._tape('drop', {
+      by: h.by, pos: h.pos, points: h.points, note: h.note, held: +h.t.toFixed(1),
+    });
+  }
+
   _score(dt) {
     if (!this.hold) return;
     const { by } = this.hold;
     // The clock runs while the other one is trying to get out — that is the
     // whole point of the three seconds. It only stops if they actually get out.
     if (!this.isDominant(by) || this.position !== this.hold.pos) {
-      // They gave it up before the three seconds were out. That is what an
-      // advantage is for.
-      this.f[by].advantages += 1;
-      this.emit(`${this.f[by].name}: преимущество`, 'adv');
-      this.hold = null;
+      this._dropHold();
       return;
     }
     this.hold.t += dt;
     if (this.hold.t >= POINTS_TO_HOLD) {
       this.paid[by].add(this.hold.pos);
       this.f[by].points += this.hold.points;
+      this._tape('paid', { by, pos: this.hold.pos, points: this.hold.points, note: this.hold.note });
       this.emit(`${this.f[by].name}: +${this.hold.points} (${this.hold.note})`, 'points');
       this.onEvent({ kind: 'points', by, points: this.hold.points });
       this.hold = null;
@@ -1291,6 +1389,7 @@ export class Match {
 
   _finish(w, by) {
     this.state = 'over';
+    this._tape('end', { winner: w, by });
     this.queued = null;
     this.winner = w;
     this.winBy = by;
@@ -1308,7 +1407,111 @@ export class Match {
 
   start() {
     this.state = 'live';
+    this.tape = [];
+    this.pressN = 0;
+    this.spill = {};
     this.emit('COMBATE', 'big');
+  }
+
+  /* ---------------------------------------------------------------- tape */
+
+  // What actually happened, in order, so a match can be read back after it.
+  //
+  // Written because a player who loses 14:0 cannot say why, and neither could
+  // I: the only way to watch somebody play was to ask them to film the screen
+  // with another phone. The scorebug says the result, the event feed scrolls
+  // away in four seconds, and between them nothing survives the final whistle.
+  // This survives it, and `debrief()` turns it into the two or three sentences
+  // that are worth reading.
+  //
+  // The player's side only, plus the other man's points: his presses are the
+  // AI's business and nobody is going to review those.
+  _tape(k, d) {
+    if (k === 'press') {
+      // A press that scores and a press that does not are different facts, so
+      // the spill keeps them apart: everything the debrief counts, it counts
+      // exactly, whether or not the record itself survived.
+      if (this.pressN++ >= PRESS_KEPT) {
+        const key = d.res === 'go' ? (d.points > 0 ? 'go+' : 'go0') : d.res;
+        this.spill[key] = (this.spill[key] || 0) + 1;
+        return;
+      }
+    } else if (this.tape.length >= TAPE_MAX) return;
+    this.tape.push({ k, t: +(this.limit - this.time).toFixed(2), ...d });
+  }
+
+  // The tape, read back as numbers and then as the two or three things that
+  // decided the match.
+  //
+  // Every line here is a claim about the tape and has to be true of it — that
+  // is what tools/tape-check.mjs tests, and it is the only reason a line like
+  // "you arrived four times and left early four times" is worth printing at
+  // all. A debrief that guesses is worse than no debrief: it teaches the wrong
+  // lesson with the authority of the game itself.
+  debrief() {
+    const t = this.tape;
+    const press = t.filter((r) => r.k === 'press');
+    const sp = this.spill;
+    const n = (res) => press.filter((r) => r.res === res).length + (sp[res] || 0);
+    const go = press.filter((r) => r.res === 'go');
+    const scoring = go.filter((r) => r.points > 0).length + (sp['go+'] || 0);
+    const zero = go.filter((r) => !r.points).length + (sp.go0 || 0);
+    const mine = (k) => t.filter((r) => r.k === k && r.by === 0);
+    const sum = (a) => a.reduce((x, r) => x + r.points, 0);
+    const drops = mine('drop');
+    const threats = t.filter((r) => r.k === 'threat');
+    // An attack with no `deny` cannot be answered by anybody, so counting it
+    // against the player's defence would be the game blaming him for its own
+    // rules. Half of what comes at you is like that.
+    const answerable = threats.filter((r) => r.doors > 0).length;
+
+    const d = {
+      presses: this.pressN,
+      go: scoring + zero,
+      scoring,
+      zero,
+      queued: n('queued'), none: n('none'), nostam: n('nostam'),
+      escape: n('escape'), escapeMiss: n('escape-miss'),
+      denyOk: n('deny'), denyMiss: n('deny-miss'),
+      threats: threats.length, answerable,
+      arrived: mine('arrive').length,
+      held: mine('paid').length,
+      dropped: drops.length, droppedPts: sum(drops),
+      mine: this.f[0].points, theirs: this.f[1].points,
+      lines: [],
+    };
+    // Where the other man's points came from, biggest first. The one thing on
+    // this screen that is about him, and the one a beaten player asks first.
+    const his = {};
+    for (const r of t) if (r.k === 'paid' && r.by === 1) his[r.note] = (his[r.note] || 0) + r.points;
+    d.theirFrom = Object.entries(his).sort((a, b) => b[1] - a[1]);
+
+    const L = d.lines;
+    if (d.go === 0) {
+      L.push('ни одного хода за бой: кольцо ждало свайпа');
+    } else if (d.scoring === 0) {
+      L.push(`${plural(d.go, 'ход', 'хода', 'ходов')} — и ни одного за очки. Очки там, где на кольце «+N»`);
+    } else if (d.zero >= d.scoring * 2) {
+      L.push(`${d.zero} ${plural(d.zero, 'ход', 'хода', 'ходов', true)} из ${d.go} ничего не стоили: вероятное — это отступление`);
+    }
+    if (d.dropped > 0) {
+      L.push(`${plural(d.dropped, 'раз', 'раза', 'раз')} ушёл из очковой позиции раньше трёх секунд: −${d.droppedPts}`);
+    }
+    if (answerable >= 3 && d.denyOk * 2 < answerable) {
+      L.push(`защита: ${d.denyOk} из ${answerable} — свайпай по стрелке в красном кольце`);
+    }
+    if (d.nostam >= 3) {
+      L.push(`${plural(d.nostam, 'раз', 'раза', 'раз')} не хватило сил на ход: дорогое бери сверху`);
+    }
+    if (L.length < 3 && d.theirFrom.length) {
+      L.push(`он взял: ${d.theirFrom.slice(0, 2).map(([k, v]) => `${k} +${v}`).join(', ')}`);
+    }
+    if (!L.length) {
+      L.push(d.mine > d.theirs ? 'чисто: позиция взята и удержана три секунды'
+        : 'по очкам ровно — решают три секунды удержания');
+    }
+    d.lines = L.slice(0, 3);
+    return d;
   }
 
   emit(text, kind) {
