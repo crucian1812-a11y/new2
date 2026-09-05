@@ -95,8 +95,10 @@ const TWIST = +(process.env.ARC_TWIST || 26);
 // How many colliding bones get to move. Six was enough for everything that has
 // come off the list so far.
 const CULPRITS = +(process.env.ARC_BONES || 6);
-// Where a fold starts costing. joint-check fails at 155.
+// Where a fold starts costing, and where it stops being negotiable.
+// joint-check fails at 155, and a blend over that line fails the battery.
 const FOLD_OK = 148;
+const FOLD_FAIL = 155;
 // How many lobes a correction is made of. See the note in rig.js.
 const LOBES = +(process.env.ARC_LOBES || 2);
 
@@ -187,8 +189,17 @@ function measure(from, to) {
     // axis in the search and it is the one they hinge about — so what is left
     // to charge is the fold itself. joint-check ships at 155 degrees; this
     // charges from 148 so the answer arrives with a little room rather than on
-    // the line, and it is a charge rather than a bound so the solver can still
-    // trade it against a limb inside a body.
+    // the line, and up to that line it is a charge rather than a bound, so the
+    // solver can still trade a few degrees against a limb inside a body.
+    //
+    // Past 155 it is not a trade. That was the whole charge for a while, at a
+    // weight that made ten degrees over cost four hundredths — less than a
+    // centimetre of overlap — and MOUNT>HALF_GUARD duly bought seven and a half
+    // degrees of somebody's elbow for it: 150.6 on the straight line, 158.1
+    // with the correction, and the battery red on a line the solver was allowed
+    // to cross. Above the ship line the charge is two orders of magnitude
+    // steeper, so an arc that folds an elbow past what an elbow does is not an
+    // answer whatever it fixes.
     for (const role of ['A', 'B']) {
       for (const [upper, mid, low] of CHAINS) {
         const a = fold(rig.skel[role], upper, mid, low);
@@ -196,6 +207,7 @@ function measure(from, to) {
           sum += (a - FOLD_OK) * (a - FOLD_OK) * 4e-4;
           if (a > deepestFold) deepestFold = a;
         }
+        if (a > FOLD_FAIL) sum += (a - FOLD_FAIL) * (a - FOLD_FAIL) * 0.05;
       }
     }
   }
@@ -250,6 +262,17 @@ for (const [from, to] of [
 // both times the only symptom was the worst moment in flight going from 19 cm
 // to 29 in the last line of the report.
 const solving = new Set(keys.filter((key) => !ONLY || ONLY.has(key)));
+// The whole graph, kept before `keys` is whittled down to what this run solves.
+// It has to be a separate list: the loop below splices the skipped blends out
+// of `keys`, and the write guard at the bottom asks `keys` which blends are
+// live. Under --only that made every unsolved blend look retired — the run
+// announced it was "dropping 54 arcs whose blend is no longer in the graph",
+// and the guard that refuses to write when somebody else's arc would be lost
+// went quiet for exactly those arcs. Nothing was actually lost, because the
+// arcs themselves are carried through untouched, but the one check standing
+// between a targeted run and the rest of the file was switched off by the run
+// being targeted.
+const ALL = new Set(keys);
 
 // What is already there, and what the straight line looks like without it.
 //
@@ -540,7 +563,20 @@ for (const key of keys) {
   // hand went on diving ten centimetres through the floor of a transition that
   // had just been re-solved to stop it. Worsen nothing anybody measures.
   const worseSink = after.sink > incoming[key].sink + 1e-9;
-  if (worseCost || worseDepth || worseLift || worseFold || worseSink) {
+  // And one exception, which is the point of the whole rule rather than a hole
+  // in it. The guard exists to stop a trade spending something the battery
+  // ships on — and an arc that is *already* over one of those lines is not
+  // something to protect, it is the failure itself. MOUNT>HALF_GUARD sat at
+  // 158 degrees of somebody's elbow, three past what joint-check ships, and
+  // every better answer was refused because it cost a centimetre of overlap:
+  // the guard was holding the red check in place. So when the arc in the file
+  // crosses a ship line and the answer does not, the answer wins — provided it
+  // crosses none of the others itself.
+  const SHIP_DEPTH = 0.22, SHIP_LIFT = 0.12, SHIP_SINK = 0.06;
+  const shippable = (m) => m.fold <= FOLD_FAIL && m.worst <= SHIP_DEPTH
+    && m.lift <= SHIP_LIFT && m.sink <= SHIP_SINK;
+  const rescue = !shippable(incoming[key]) && shippable(after);
+  if (!rescue && (worseCost || worseDepth || worseLift || worseFold || worseSink)) {
     if (shipped[key]) ARCS[key] = JSON.parse(JSON.stringify(shipped[key]));
     else delete ARCS[key];
     after = measure(from, to);
@@ -616,7 +652,7 @@ if (WRITE) {
   // reason surfaced. A key that is not in this run's list of live blends at all
   // is dropped and said out loud; a key that is live and merely not named is
   // still untouchable.
-  const live = new Set(keys);
+  const live = ALL;
   const orphans = [...WAS].filter((key) => !live.has(key));
   const lost = [...WAS].filter((key) =>
     live.has(key) && !solving.has(key) && !results.some((r) => r.key === key && r.arc));
