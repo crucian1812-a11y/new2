@@ -16,6 +16,12 @@ const withBrowser = process.argv.includes('--browser');
 const steps = [
   ['pose lint', 'pose-check.mjs', []],
   ['transition lint', 'blend-check.mjs', []],
+  // Whether the solver and the judge measure the same mat. blend-check reads
+  // the real baked skin; arc-solve cannot afford to and reads a fitted model
+  // of it. Two rulers is how this project lost a round to a nine-number table
+  // that was out by twelve centimetres, and nothing subtracted one from the
+  // other until this existed.
+  ['one mat, one ruler', 'ruler-check.mjs', []],
   // Whether the bodies themselves are possible. It was written, it was used to
   // find eighty-five joints outside human range, and it was never added here —
   // so when the measure inside it turned out to be reading a roll nothing
