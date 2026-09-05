@@ -630,8 +630,29 @@ for (const key of keys) {
   delete ARCS[key];
   const bare = measure(from, to);
   if (keep) ARCS[key] = keep;
-  const bareWins = bare.sum <= after.sum + 1e-9 && bare.worst <= after.worst + 1e-9 &&
-    bare.lift <= after.lift + 1e-9 && bare.fold <= after.fold + 1e-9;
+  //
+  // Judged on the four numbers the battery ships on, with a tolerance, and
+  // *not* on `sum`. Both of those were wrong and together they kept five arcs
+  // that buy nothing at all.
+  //
+  // `sum` is the weighted aggregate, and since the mat term entered it at a
+  // weight of twenty, a hair of sink is enough to make the arc's sum smaller
+  // than the bare one's — so `bare.sum <= after.sum` was false for any arc that
+  // moved the pair a fraction of a millimetre off the tatami, whatever else it
+  // did. And 1e-9 asks the empty arc to be no worse by a nanometre, which of
+  // two floating-point walks is noise rather than a fact.
+  //
+  // Two millimetres and half a degree instead: an arc has to buy something a
+  // person could see, or it is not worth what it costs to carry. What it costs
+  // is not free and nothing here can measure it — STANDING>STANDING_WORK
+  // corrected a blend from 0cm to 0cm and cost seven and a half teleports a
+  // minute, because it moved the pair in the one pose where the step planner
+  // picks a foot's landing spot. Audited across the file afterwards, five more
+  // arcs bought nothing on any of the four, and one of them put the pair
+  // deeper into the mat than no arc at all.
+  const E = 0.002, EDEG = 0.5;
+  const bareWins = bare.worst <= after.worst + E && bare.lift <= after.lift + E &&
+    bare.fold <= after.fold + EDEG && bare.sink <= after.sink + E;
   let dropped = false;
   if (keep && bareWins) {
     delete ARCS[key];

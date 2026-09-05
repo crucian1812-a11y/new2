@@ -22,6 +22,11 @@ const steps = [
   // that was out by twelve centimetres, and nothing subtracted one from the
   // other until this existed.
   ['one mat, one ruler', 'ruler-check.mjs', []],
+  // And whether every arc in that file is earning its place. An arc that
+  // changes nothing is invisible to blend-check — a blend it does not move
+  // is a blend that reads fine — and it is not free: STANDING>STANDING_WORK
+  // corrected 0cm to 0cm and cost seven and a half teleports a minute.
+  ['every arc pays', 'idle-check.mjs', []],
   // Whether the bodies themselves are possible. It was written, it was used to
   // find eighty-five joints outside human range, and it was never added here —
   // so when the measure inside it turned out to be reading a roll nothing
