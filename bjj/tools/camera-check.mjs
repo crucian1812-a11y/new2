@@ -15,6 +15,20 @@
 //             is a security camera; over one is a crop.
 //   срез      a joint outside the frame, and which one
 //   линза     a joint closer than the near plane — a body through the lens
+//   рефери    the third man between the lens and the fight. He is meant to be
+//             150 degrees round from the camera's own bearing and never in
+//             front of it, but he *walks* there at 1.3 m/s through a spring:
+//             every time the camera cuts he has to stroll round the fight, and
+//             on the way he is exactly where he must not be. He wears black,
+//             so when it happens the frame is a black rectangle. Nothing in
+//             this file knew he existed.
+//   внутри    the eye actually inside somebody, which is not the same question:
+//             the lens test projects bone origins, and a chest's skin reaches
+//             21 cm from the chest bone, so the camera can be a comfortable
+//             15 cm from every joint in the picture and still be standing
+//             inside the man. A player sent a screenshot of back control that
+//             is one solid black rectangle, and every check in this file passed
+//             on it. This one asks the capsules collide.js is built from.
 //
 //   node bjj/tools/camera-check.mjs             20 matches
 //   node bjj/tools/camera-check.mjs 40 --where  broken down by shot
@@ -24,7 +38,9 @@ import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
 import { AI } from '../src/game/ai.js';
 import { PairRig } from '../src/game/rig.js';
 import { Camera } from '../src/game/camera.js';
-import { BONES } from '../src/render/skeleton.js';
+import { BONES, BONE_INDEX } from '../src/render/skeleton.js';
+import { Overlap } from '../src/game/collide.js';
+import { Referee } from '../src/game/referee.js';
 import { POSES } from '../src/game/poses.js';
 import { m4, m4mul, m4perspective, m4lookAt } from '../src/core/m4.js';
 import { seedRandom } from '../src/game/rng.js';
@@ -34,6 +50,19 @@ const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[
 const N = +(args[0] > 0 ? args[0] : 20);
 const WHERE = args.includes('--where');
 const SPREAD = args.includes('--spread');
+// The same capsules collide.js is built from, for measuring how near the lens
+// gets to a body rather than to a bone.
+const CAPS = [
+  ['hips', 'spine', 0.190, 0.184], ['spine', 'chest', 0.186, 0.212],
+  ['chest', 'neck', 0.212, 0.112], ['neck', 'head', 0.066, 0.078],
+  ['head', 'headTop', 0.098, 0.086],
+  ['armL', 'foreL', 0.085, 0.076], ['foreL', 'handL', 0.078, 0.070],
+  ['armR', 'foreR', 0.085, 0.076], ['foreR', 'handR', 0.078, 0.070],
+  ['thighL', 'shinL', 0.122, 0.100], ['shinL', 'footL', 0.095, 0.075],
+  ['thighR', 'shinR', 0.122, 0.100], ['shinR', 'footR', 0.095, 0.075],
+];
+const inside = new Overlap();
+const referee = new Referee();
 const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : 20260904);
 // A phone in landscape, which is the only way this game runs. The second is a
 // small tablet, where the frame is squarer and the vertical is tighter still.
@@ -104,6 +133,53 @@ function play(level, s) {
     m4lookAt(view, cam.eye, cam.at, [0, 1, 0]);
     m4mul(vp, proj, view);
 
+    // The third man, driven exactly as main.js drives him.
+    referee.update(DT, m.state, POSES[m.position].ground, m.origin, cam.orbit);
+    {
+      const ex = cam.eye[0], ez = cam.eye[2];
+      const fx = focus[0], fz = focus[2];
+      const tox = fx - ex, toz = fz - ez;
+      const rx = referee.x - ex, rz = referee.z - ez;
+      const toLen = Math.hypot(tox, toz) || 1;
+      const rLen = Math.hypot(rx, rz) || 1;
+      // In front of the lens rather than beside it: nearer than the fight and
+      // within a quarter of the way across the picture from the middle of it.
+      const cos = (tox * rx + toz * rz) / (toLen * rLen);
+      const off = Math.acos(Math.max(-1, Math.min(1, cos)));
+      if (rLen < toLen && off < (cam.fov * ASPECT) / 4) s.refIn++;
+    }
+
+    // How close the lens is to the nearest body, measured to the surface and
+    // not to a joint. "Inside somebody" is the extreme of this and it turns out
+    // never to happen in an AI match; the complaint a player actually makes —
+    // "камера слишком близко подъезжает" — is the tail of this distribution,
+    // and until now there was no number for it.
+    {
+      let near = 9;
+      for (const role of ['A', 'B']) {
+        const sk = rig.skel[role];
+        for (const [a, b, r0, r1] of CAPS) {
+          const p = sk.world[BONE_INDEX[a]], q = sk.world[BONE_INDEX[b]];
+          const ax = p[12], ay = p[13], az = p[14];
+          const ex = q[12] - ax, ey = q[13] - ay, ez = q[14] - az;
+          const l2 = ex * ex + ey * ey + ez * ez;
+          const u = l2 > 1e-9
+            ? Math.max(0, Math.min(1, ((cam.eye[0] - ax) * ex + (cam.eye[1] - ay) * ey + (cam.eye[2] - az) * ez) / l2))
+            : 0;
+          const d = Math.hypot(cam.eye[0] - (ax + ex * u), cam.eye[1] - (ay + ey * u), cam.eye[2] - (az + ez * u))
+            - (r0 + (r1 - r0) * u);
+          if (d < near) near = d;
+        }
+      }
+      if (near < s.nearest) { s.nearest = near; s.nearestWhere = mode + ', ' + m.position; }
+      if (near < 0.35) s.tooClose++;
+    }
+
+    // Is the eye inside anybody? Same capsules the collision solver uses.
+    for (const role of ['A', 'B']) {
+      if (inside.contains(rig.skel[role], cam.eye).length) { s.inside++; break; }
+    }
+
     let minX = 9, maxX = -9, minY = 9, maxY = -9, out = 0, lens = 0, n = 0;
     let headsIn = 0;
     for (const role of ['A', 'B']) {
@@ -149,7 +225,7 @@ function play(level, s) {
 }
 
 const s = {
-  frames: 0, fill: 0, out: 0, lens: 0, cropped: 0, headOut: 0, tall: 0, small: 0,
+  frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', cropped: 0, headOut: 0, tall: 0, small: 0,
   fills: [], byBone: {}, modes: {}, worstFill: 0, worstAt: '',
 };
 const t0 = Date.now();
@@ -187,7 +263,13 @@ console.log(`     the pair fills ${((s.fill / s.frames) * 100).toFixed(0)}% of t
 console.log(`     something is out of frame ${pct(s.cropped)}% of the time, ` +
   `${((s.out / s.frames) * 100).toFixed(1)}% of joints on average\n`);
 
+console.log(`     the lens comes within ${(s.nearest * 100).toFixed(0)}cm of a body at its closest (${s.nearestWhere}),\n` +
+  `     and is inside 35cm of one on ${pct(s.tooClose)}% of frames\n`);
 check(s.lens === 0, 'no body ever comes through the lens', `${s.lens} frames`);
+check(+pct(s.refIn) < 1, 'the referee keeps out of the shot',
+  `he is in front of the lens on ${pct(s.refIn)}% of frames, ${s.refIn} of ${s.frames}`);
+check(+pct(s.inside) < 0.5, 'and the camera is never standing inside one',
+  `${pct(s.inside)}% of frames, ${s.inside} of ${s.frames}`);
 check(pct(s.headOut) < 5, 'both heads are in the picture',
   `a head is out of frame ${pct(s.headOut)}% of the time`);
 check(pct(s.tall) < 10, 'the pair fits in the frame',
