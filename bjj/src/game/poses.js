@@ -258,7 +258,7 @@ export const POSES = {
         hips: [-25.7, -30, 10.5], spine: [-7.1, -17.9, 47.3], chest: [-26.7, -19.4, 41.3], neck: [3.8, -12, 3.8], head: [-17.5, -6.7, 0],
         clavL: [4, 11.4, 10.3], armL: [-49.6, 19.4, -28.4], foreL: [-68.9, 0.8, -2.1],
         clavR: [-0.5, -11.9, 15.3], armR: [-32.2, 12.4, 37.8], foreR: [-32.3, 37.8, 29.6],
-        thighL: [-125.4, 10, 22.8], shinL: [59.6, 0, 0], footL: [8, -0.7, 0],
+        thighL: [-134.4, -14, -24.4], shinL: [59.6, 0, 0], footL: [8, -0.7, 0],
         thighR: [-34.4, -11, -50], shinR: [12.6, 7, -10.3], footR: [-21.5, -2.7, 10.7],
       },
     },
@@ -272,9 +272,19 @@ export const POSES = {
         thighR: [-20.7, -6, -10], shinR: [40.8, 0, -0.7], footR: [-16, 0, 0],
       },
     },
+    // What the position is, and it took a player's screenshot to notice that
+    // none of it was written down. The two lines here said the top man's hips
+    // are high and near, which a man lying across another man also satisfies —
+    // so the solver was free to leave his posting leg straight and abducted
+    // fifty degrees, and the position on screen was a starfish with the right
+    // label on it. Three sentences say the rest of it: the knee is on the
+    // belly, the other foot is on the mat, and the knee over that foot is up.
     hold: [
       { of: 'A.hips', above: 'B.chest', by: 0.34 },
       { of: 'A.hips', near: 'B.chest', within: 0.32 },
+      { of: 'A.shinL', near: 'B.chest', within: 0.24 },
+      { of: 'A.footR', below: 0.145 },
+      { of: 'A.shinR', above: 'A.footR', by: 0.20 },
     ],
     grips: [
       { role: 'A', hand: 'L', point: 'lapelR' },
@@ -1159,7 +1169,7 @@ export const POSES = {
         hips: [-32.1, -32.2, 16], spine: [2.5, -21.3, 45], chest: [-2.9, -8.2, 49],
         neck: [1.1, -9.7, 3.1], head: [-22, -6, 0], clavL: [-1.2, 9.9, 19.4],
         armL: [-66.2, 23.3, -24.6], foreL: [-71.8, 4.9, -1.3], clavR: [0.8, -11.8, 19.9],
-        armR: [-37, -9.9, 30.4], foreR: [-61.8, 17.1, 25], thighL: [-107.9, 15.3, 22.8],
+        armR: [-37, -9.9, 30.4], foreR: [-61.8, 17.1, 25], thighL: [-128.9, -31.2, -1.2],
         shinL: [45.8, 0, 0.8], footL: [8, 0, 0], thighR: [-40.9, -11.7, -54.2],
         shinR: [27, 12.9, -17.2], footR: [-18.6, 1.6, 6.2],
       },
@@ -1520,6 +1530,19 @@ for (const p of Object.values(POSES)) {
 // side — which, once the takedowns were included, is all of them except the
 // two that have no top at all: nobody is on top in the stance or the clinch,
 // so there is nothing to exchange.
+// A variant inherits what its position means.
+//
+// `hold` is read as POSES[id].hold and nothing else, so a variant that does not
+// write its own declared nothing at all — and twenty of the thirty-eight poses
+// are variants. They are the halves of the hold loops, which is where the fight
+// spends most of its time and where a player's screenshots come from, and every
+// one of them was free to drift into a different position with the right label
+// on it. They are the same position as their base by construction; if one ever
+// needs to say something different it writes its own and this leaves it alone.
+for (const p of Object.values(POSES)) {
+  if (!p.hold && p.variantOf && POSES[p.variantOf]) p.hold = POSES[p.variantOf].hold;
+}
+
 const MIRRORS = [
   'SIDE_CONTROL', 'MOUNT', 'BACK', 'CLOSED_GUARD',
   // The three the takedowns need. A double leg out of the stance puts the man
