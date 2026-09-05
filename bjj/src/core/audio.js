@@ -57,6 +57,11 @@ const SFX = {
 // thirty-seven second stereo loop is thirteen megabytes once decoded, and
 // three of those resident on a phone for the sake of an instant switch is a
 // bad trade for a switch that happens twice a match.
+// What the fight does to the music. The quiet end is a track under a mat with
+// nothing happening on it; the loud end is the same track with the lid off.
+const MUSIC_QUIET = 0.62, MUSIC_LOUD = 1.0;
+const TONE_QUIET = 900, TONE_LOUD = 16000;
+
 const MUSIC = {
   menu: 'music/01_menu_dojo_loop.ogg',
   match: 'music/02_match_grapple_loop.ogg',
@@ -108,7 +113,28 @@ export class Audio {
     this._hall();
     this.musicGain = this.ctx.createGain();
     this.musicGain.gain.value = this.musicVol;
-    this.musicGain.connect(this.master);
+    // The music listens to the fight.
+    //
+    // Three tracks, switched by state — menu, match, last minute — and inside a
+    // match the same loop played at the same level whether the two of them were
+    // tangled and heaving or lying still while the referee counted. A film
+    // scores the scene it is over; this scores nothing.
+    //
+    // So a second gain and a filter sit under the music, driven by the one
+    // number the sim already computes about how hard the fight is working. Not
+    // a switch: the loop never changes, it leans in and sits back. The mute and
+    // volume knobs are upstream of both and behave exactly as they did.
+    this.musicDrive = this.ctx.createGain();
+    this.musicDrive.gain.value = MUSIC_QUIET;
+    this.musicTone = this.ctx.createBiquadFilter();
+    this.musicTone.type = 'lowpass';
+    this.musicTone.frequency.value = TONE_QUIET;
+    this.musicTone.Q.value = 0.7;
+    this.musicGain.connect(this.musicTone).connect(this.musicDrive).connect(this.master);
+    // What was last asked for, so a measurement can read the intent rather
+    // than chase a ramp. See tools/sound-check.mjs.
+    this.driveWant = MUSIC_QUIET;
+    this.toneWant = TONE_QUIET;
     this._crowd();
     this._load();
   }
@@ -578,6 +604,26 @@ export class Audio {
     g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
     node.connect(g).connect(dest || this.master);
     return g;
+  }
+
+  // How hard the fight is working, 0 to 1, once a frame.
+  //
+  // The map is deliberately shallow at the bottom: a quiet moment is not
+  // silence, it is a track sitting back, and the difference between "nothing is
+  // happening" and "they are working" should be felt rather than noticed. The
+  // filter carries most of it — the brightness of a track is what the ear reads
+  // as effort, and a level change of the same size is heard as somebody turning
+  // a knob.
+  drive(x) {
+    if (!this.ctx || !this.musicDrive) return;
+    const k = Math.max(0, Math.min(1, x));
+    this.driveWant = MUSIC_QUIET + (MUSIC_LOUD - MUSIC_QUIET) * k;
+    this.toneWant = TONE_QUIET * Math.pow(TONE_LOUD / TONE_QUIET, k);
+    const t = this.ctx.currentTime;
+    // A second and a half of smoothing: the intensity itself moves fast — it
+    // spikes on every attempt — and a mix that followed it exactly would pump.
+    this.musicDrive.gain.setTargetAtTime(this.driveWant, t, 1.5);
+    this.musicTone.frequency.setTargetAtTime(this.toneWant, t, 1.5);
   }
 
   // ---------------------------------------------------------------- music
