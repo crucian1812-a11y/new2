@@ -118,18 +118,16 @@ centimetres is a work list.
 
 ## What remains, and why
 
-The three 20 cm thigh crossings (plus `MOUNT>KIMURA` at 19 cm) sit just under
-the 22 cm "plainly seen" line, so they do not block shipping, and no numeric
-search moves them. Each needs a dedicated waypoint pose authored against the
-rendered skeleton — the true middle of the movement:
+The four are at 7, 14, 17 and 20 cm and none of them blocks shipping. What is
+left is the same shape of work, one level down:
 
-- the *drop into guard* (top man's legs already between/outside, guard
-  player's legs folding as he lands), and
-- the *guard recovery from mount* (bottom man's legs coming inside as the top
-  man's hips lift).
-
-That is art work with visual feedback (the `smoke`/`shot` tools under a
-browser), not a blind search; the measurements above pin down exactly which
-limb must go around which, so the waypoint has a target to hit. Until then
-these three are the honest worst of the graph, and everything else is at or
-under 18 cm.
+- `MOUNT>CLOSED_GUARD_X` at 20 cm and `STANDING>OPEN_GUARD_X` at 17 are the two
+  the waypoints helped least. Both fail at the very ends now — t = 0.05 and
+  t = 0.97 — which is a different complaint from the one this study opened
+  with: not a limb sweeping through a body in mid-flight, but the first and
+  last frames of a movement disagreeing with the pose they start and end on.
+- `GUARD_RECOVER` has yet to win a route. Either a transition is found that
+  wants it, or it goes: an unused pose in the library is a pose nobody measures.
+- The remaining fourteen on the work list sit between 11 and 18 cm, and none of
+  them has been through `route-arc` since the filter was fixed. That is the
+  cheapest measured win available and it is a machine's work, not an author's.

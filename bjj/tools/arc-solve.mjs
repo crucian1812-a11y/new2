@@ -37,8 +37,12 @@
 //   node bjj/tools/arc-solve.mjs --prune --write          no search: drop the
 //                                                         arcs that make their
 //                                                         own blend worse
+//   node bjj/tools/arc-all.mjs                            all of it, four at a
+//                                                         time, in a quarter of
+//                                                         the wall clock
 
 import { writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { PairRig } from '../src/game/rig.js';
 import { ARCS, VIAS } from '../src/game/arcs.js';
 import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
@@ -56,6 +60,13 @@ const PRUNE = process.argv.includes('--prune');
 const ONLY = (() => {
   const i = process.argv.indexOf('--only');
   return i >= 0 && process.argv[i + 1] ? new Set(process.argv[i + 1].split(',')) : null;
+})();
+// Where the answer goes. Only arc-all.mjs passes this: it runs four of these at
+// once over quarters of the graph and stitches the four files back together,
+// because the machine has four cores and the graph takes three hours on one.
+const OUT = (() => {
+  const i = process.argv.indexOf('--out');
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : null;
 })();
 // See grid.mjs: this has to stay a refinement of what blend-check judges on.
 const STEPS = SOLVE_STEPS;
@@ -674,6 +685,7 @@ export const ARCS = {
 ${lines.join('\n')}
 };
 `;
-  writeFileSync(new URL('../src/game/arcs.js', import.meta.url), src);
-  console.log(`\nwrote ${lines.length} arcs into src/game/arcs.js`);
+  const dest = OUT || fileURLToPath(new URL('../src/game/arcs.js', import.meta.url));
+  writeFileSync(dest, src);
+  console.log(`\nwrote ${lines.length} arcs into ${OUT ? dest : 'src/game/arcs.js'}`);
 }

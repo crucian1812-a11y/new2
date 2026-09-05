@@ -24,6 +24,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
+import { decodeFighter } from '../src/render/asset.js';
+import { skinLite, skinInto } from './skin-lite.mjs';
 import { POSES } from '../src/game/poses.js';
 import { GRIP_POINTS } from '../src/render/body.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
@@ -44,13 +46,66 @@ const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 const rig = new PairRig();
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest', 'shinL', 'shinR'];
-// How far the skin hangs below each of those bones. The sole is measured on the
-// baked mesh (8.3 cm under the ankle bone); the rest are the capsule radii
-// collide.js gives them, which is the same shape the collision term uses.
-const SKIN_BELOW = {
-  headTop: 0.086, handL: 0.070, handR: 0.070, footL: 0.083, footR: 0.083,
-  hips: 0.190, chest: 0.212, shinL: 0.100, shinR: 0.100,
+
+// ------------------------------------------------------- the skin, in a search
+//
+// Where the floor is and what a limb is resting on are both questions about the
+// skin, and this used to answer them with a table of how far the skin hangs
+// below each bone — nine numbers, most of them capsule radii, one of them the
+// sole measured by hand. It was close enough to get the library onto the mat
+// and not close enough to say which shin is floating: weight-check reads eleven
+// thousand baked vertices and the table reads nine bones, and for a foot the
+// two disagree by five centimetres, which is larger than the thing being
+// measured.
+//
+// So the search reads the skin too. tools/skin-lite.mjs keeps the vertices that
+// can ever be the lowest one — four thousand of eleven thousand, exact on the
+// whole man and within two millimetres on any single bone — and they skin
+// through the same matrices the renderer uses.
+const loadMesh = (name) => {
+  const raw = readFileSync(new URL(`../assets/${name}`, import.meta.url));
+  return decodeFighter(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
 };
+const LITE = { A: skinLite(loadMesh('fighter.bin')), B: skinLite(loadMesh('fighter-b.bin')) };
+const MAXV = Math.max(LITE.A.pos.length, LITE.B.pos.length) / 3;
+const SKIN = {
+  A: { xyz: new Float64Array(MAXV * 3), who: new Uint16Array(MAXV), low: new Float64Array(26), lowV: new Int32Array(26), n: 0, lowest: 9 },
+  B: { xyz: new Float64Array(MAXV * 3), who: new Uint16Array(MAXV), low: new Float64Array(26), lowV: new Int32Array(26), n: 0, lowest: 9 },
+};
+// Either baked fighter can stand in either role and they differ by up to three
+// and a half centimetres where they touch the mat, so weight-check judges each
+// role on the one that sits *higher* — the one that would float. The solver
+// judges the same man, chosen once per pose rather than once per evaluation.
+const MESH_FOR = { A: 'A', B: 'B' };
+function pickMeshes(id) {
+  rig.invalidate(id);
+  rig.rewind();
+  rig.apply(id, id, 1, 0.016);
+  for (const role of ['A', 'B']) {
+    let best = -9, pick = 'A';
+    for (const mk of ['A', 'B']) {
+      const s = SKIN[role];
+      const n = skinInto(LITE[mk], rig.skel[role], s.xyz, s.who);
+      let lo = 9;
+      for (let v = 0; v < n; v++) if (s.xyz[v * 3 + 1] < lo) lo = s.xyz[v * 3 + 1];
+      if (lo > best) { best = lo; pick = mk; }
+    }
+    MESH_FOR[role] = pick;
+  }
+}
+function skinNow() {
+  for (const role of ['A', 'B']) {
+    const s = SKIN[role];
+    s.n = skinInto(LITE[MESH_FOR[role]], rig.skel[role], s.xyz, s.who);
+    s.low.fill(9); s.lowV.fill(-1); s.lowest = 9;
+    for (let v = 0; v < s.n; v++) {
+      const y = s.xyz[v * 3 + 1];
+      if (y < s.lowest) s.lowest = y;
+      const b = s.who[v];
+      if (y < s.low[b]) { s.low[b] = y; s.lowV[b] = v; }
+    }
+  }
+}
 
 // ---------------------------------------------------------------- the cost
 
@@ -93,14 +148,17 @@ const ROM_LIMIT = {
 function underMat() {
   let worst = 0, where = '';
   for (const role of ['A', 'B']) {
-    for (const b of READ) {
-      const m = rig.skel[role].world[BONE_INDEX[b]];
-      const under = MAT_Y - (m[13] - (SKIN_BELOW[b] || 0));
-      if (under > worst) { worst = under; where = `${role}.${b}`; }
+    const s = SKIN[role];
+    for (let b = 0; b < 26; b++) {
+      if (s.low[b] > 8) continue;
+      const under = MAT_Y - s.low[b];
+      if (under > worst) { worst = under; where = `${role}.${BONE_NAME[b]}`; }
     }
   }
   return { worst, where };
 }
+const BONE_NAME = [];
+for (const k in BONE_INDEX) BONE_NAME[BONE_INDEX[k]] = k;
 
 // ------------------------------------------------------------ standing up
 
@@ -122,6 +180,16 @@ const CAPS = [
   ['footR', 'toeR', 0.050, 0.034, 0.0145],
 ];
 
+// The base of support is the skin on the mat, not the capsules near it.
+//
+// This asked the capsules which of them reached the floor, and a capsule is
+// fatter than the man inside it — the hips carry a radius of nineteen
+// centimetres. So a torso a hand's breadth in the air counted as standing on
+// the mat, the hull of "what is touching" swelled to cover the whole pair, and
+// the term read zero where weight-check read twenty: the guillotine's pair
+// leans a fifth of a metre outside anything it stands on and this said it was
+// fine, every evaluation, for the whole round.
+const ON_MAT = 0.03;
 function balance(A, B) {
   const pts = [];
   let mx = 0, mz = 0, m = 0;
@@ -131,14 +199,12 @@ function balance(A, B) {
       mx += ((p[12] + q[12]) / 2) * w;
       mz += ((p[14] + q[14]) / 2) * w;
       m += w;
-      for (let i = 0; i < 5; i++) {
-        const t = i / 4;
-        const y = p[13] + (q[13] - p[13]) * t;
-        const r = r0 + (r1 - r0) * t;
-        if (y - r <= MAT_Y + 0.04) {
-          pts.push([p[12] + (q[12] - p[12]) * t, p[14] + (q[14] - p[14]) * t]);
-        }
-      }
+    }
+  }
+  for (const role of ['A', 'B']) {
+    const s = SKIN[role];
+    for (let v = 0; v < s.n; v++) {
+      if (s.xyz[v * 3 + 1] <= MAT_Y + ON_MAT) pts.push([s.xyz[v * 3], s.xyz[v * 3 + 2]]);
     }
   }
   if (pts.length < 3 || m <= 0) return 0;
@@ -171,11 +237,126 @@ function balance(A, B) {
   return inside ? 0 : best;
 }
 
+// A head nobody is holding looks at the fight.
+//
+// Not always true, which is why it is conditional: in a choke from behind the
+// head is being cranked and looking away is what is happening. The pose data
+// says which — a grip on the neck, the back of the head or the head is a head
+// under control — so this reads the rule off the poses instead of somebody
+// assigning a direction to each by taste.
+//
+// Measured with tools/weight-check.mjs before it existed: the man doing knee on
+// belly was looking 135 degrees away from the man he was kneeling on, the man
+// taking the back 122, side control 103. A head aimed at nothing is the
+// cheapest way to make a body look dead.
+const HEAD_POINTS = ['neck', 'headBack', 'head', 'chin'];
+function headHeld(id, role) {
+  for (const g of POSES[id].grips || []) {
+    if (g.role === role || g.self) continue;
+    if (HEAD_POINTS.includes(g.point)) return true;
+  }
+  return false;
+}
+const LOOK_OK = 75;   // degrees off the other man before it starts to cost
+function lookCost(id) {
+  let c = 0;
+  for (const role of ['A', 'B']) {
+    if (headHeld(id, role)) continue;
+    const sk = rig.skel[role];
+    const other = rig.skel[role === 'A' ? 'B' : 'A'];
+    const m = sk.world[BONE_INDEX.head];
+    const o = other.world[BONE_INDEX.chest];
+    const to = [o[12] - m[12], o[13] - m[13], o[14] - m[14]];
+    const l = Math.hypot(to[0], to[1], to[2]) || 1;
+    const d = (m[8] * to[0] + m[9] * to[1] + m[10] * to[2]) / l;
+    const deg = (Math.acos(Math.max(-1, Math.min(1, d))) * 180) / Math.PI;
+    if (deg > LOOK_OK) c += ((deg - LOOK_OK) / 45) * ((deg - LOOK_OK) / 45);
+  }
+  return c;
+}
+
+// A limb resting on nothing.
+//
+// Real bodies lie on something or are plainly lifted; the hand's breadth in
+// between is what reads as a mannequin frozen mid-step. Measured with
+// weight-check, the library had eighteen of them — a shin three centimetres
+// over the mat with no floor under it and no other man either.
+//
+// Two things were wrong with the first version of this, and weight-check had
+// both of them too. It measured capsules, which for a foot sit five centimetres
+// below the sole, so the solver called "already down" what the measurer called
+// "floating" and the count barely moved. And "nothing under it" meant "the
+// other man has no point lower than this", which is a fact about the other man:
+// a standing man's own feet are under his own shins, and every stance in the
+// library read as two floating limbs because nobody asked.
+//
+// Now it is the column under the limb's lowest skin point — six centimetres
+// wide, anything at least a centimetre lower, either man's skin, the limb's own
+// excepted. The same question weight-check asks, on the same vertices.
+// Solved past the line, not up to it. weight-check calls three centimetres
+// "resting on the mat", and a tent that falls to zero exactly there leaves the
+// search no reason to go further: after three rounds fifteen of the eighteen
+// limbs left were sitting at 3.0 to 3.3, parked on the boundary. The solver's
+// floor is a centimetre and a half, so what the measurer accepts has a
+// centimetre and a half of margin under it.
+const HOVER_LO = 0.015, HOVER_HI = 0.09;
+const HOVER_R = 0.06, HOVER_GAP = 0.01;
+const HOVER_SEEN = 0.03;   // where weight-check stops calling it resting
+const HOVER_BONES = ['thighL', 'thighR', 'shinL', 'shinR', 'footL', 'footR',
+  'foreL', 'foreR', 'handL', 'handR', 'hips'];
+const HOVER_IDX = HOVER_BONES.map((b) => BONE_INDEX[b]);
+function underneath(s, x, y, z, skip) {
+  const n = s.n, xyz = s.xyz, who = s.who;
+  for (let v = 0; v < n; v++) {
+    if (who[v] === skip) continue;
+    if (xyz[v * 3 + 1] > y - HOVER_GAP) continue;
+    const dx = xyz[v * 3] - x, dz = xyz[v * 3 + 2] - z;
+    if (dx * dx + dz * dz <= HOVER_R * HOVER_R) return true;
+  }
+  return false;
+}
+function hoverCost(count = false) {
+  let c = 0;
+  for (const [me, you] of [['A', 'B'], ['B', 'A']]) {
+    const s = SKIN[me], o = SKIN[you];
+    for (const b of HOVER_IDX) {
+      const low = s.low[b];
+      if (low > 8) continue;
+      const gap = low - MAT_Y;
+      if (gap <= HOVER_LO || gap > HOVER_HI) continue;
+      // The printed count is weight-check's question, not the solver's: it uses
+      // the line the measurer draws so the two numbers can be read together,
+      // while the cost keeps working below it for the margin.
+      if (count && gap <= HOVER_SEEN) continue;
+      const v = s.lowV[b];
+      const x = s.xyz[v * 3], y = s.xyz[v * 3 + 1], z = s.xyz[v * 3 + 2];
+      if (underneath(s, x, y, z, b) || underneath(o, x, y, z, -1)) continue;
+      // A tent, not a step. The first shape of this was largest at the bottom
+      // of the band and zero below it, so every gradient inside the band
+      // pointed *up*: a search could only ever find "put it down" by stepping
+      // over a cliff, and mostly it lifted instead. This falls to zero at both
+      // ends, so a limb three centimetres up is pushed down and a limb eight
+      // centimetres up is pushed clear, which is what the sentence says.
+      const d = Math.min(gap - HOVER_LO, HOVER_HI - gap);
+      c += count ? 1 : d * d;
+    }
+  }
+  return c;
+}
+
 function cost(id) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
-  rig.time = 0;
+  // The clock *and* the breath. The rig integrates its breathing phase rather
+  // than reading it off the clock, so zeroing the clock alone left the phase
+  // where the last evaluation had pushed it — and this evaluates a cost tens of
+  // thousands of times, sixteen milliseconds of breath each. The chest wandered
+  // through a full cycle every four hundred evaluations, which is a search
+  // chasing its own wobble: every other tool in the battery already called
+  // rewind() for exactly this reason and this one did not.
+  rig.rewind();
   rig.apply(id, id, 1, 0.016);
+  skinNow();
   const A = rig.skel.A, B = rig.skel.B;
 
   const pen = penetration(A, B);
@@ -218,13 +399,14 @@ function cost(id) {
   // rig._ground that hauled the ankle back out every frame and folded the knee
   // to do it.
   //
-  // The offsets are how far the skin reaches below each bone's own centre,
-  // taken from the capsules collide.js is built from and from the sole
-  // measurement for the feet.
-  for (const sk of [A, B]) {
-    for (const b of READ) {
-      const m = sk.world[BONE_INDEX[b]];
-      const under = MAT_Y - (m[13] - (SKIN_BELOW[b] || 0));
+  // It is the baked skin now rather than a table of offsets, bone by bone so
+  // that a search fixing one leg still sees the other one. See SKIN above for
+  // why nine hand-written numbers were not enough.
+  for (const role of ['A', 'B']) {
+    const s = SKIN[role];
+    for (let b = 0; b < 26; b++) {
+      if (s.low[b] > 8) continue;
+      const under = MAT_Y - s.low[b];
       if (under > 0) c += under * under * 200;
     }
   }
@@ -236,8 +418,19 @@ function cost(id) {
   // with tools/weight-check.mjs, the library had poses as much as 85 cm out —
   // a photograph of two people falling over, which is what "unnatural" means
   // when nobody can say why.
-  const out = balance(A, B);
-  if (out > 0.12) c += (out - 0.12) * (out - 0.12) * 30;
+  // Except for a waypoint, which is a moment of movement rather than a position
+  // anybody holds: the middle of falling into a guard is a pair whose weight is
+  // *supposed* to be outside its base, because that is what falling is.
+  if (!POSES[id].waypoint) {
+    const out = balance(A, B);
+    if (out > 0.12) c += (out - 0.12) * (out - 0.12) * 30;
+  }
+
+  // And a head that is looking at something.
+  c += lookCost(id) * 6;
+
+  // And nothing hanging in the air an inch off the mat.
+  c += hoverCost() * 80;
 
   // Still a grappling position and not two solos: the closest pair of read
   // points has to stay inside a forearm's length.
@@ -337,6 +530,30 @@ function deviation(u) {
   return d * 2.2e-5;
 }
 
+// The authored numbers of one pose, and putting them back.
+function snapshot(id) {
+  const P = POSES[id];
+  const out = {};
+  for (const role of ['A', 'B']) {
+    out[role] = { p: P[role].root.p.slice(), r: P[role].root.r.slice(), j: {} };
+    for (const b in P[role].j) out[role].j[b] = P[role].j[b].slice();
+  }
+  return out;
+}
+function restore(id, snap) {
+  const P = POSES[id];
+  for (const role of ['A', 'B']) {
+    for (let i = 0; i < 3; i++) {
+      P[role].root.p[i] = snap[role].p[i];
+      P[role].root.r[i] = snap[role].r[i];
+    }
+    for (const b in snap[role].j) {
+      for (let i = 0; i < 3; i++) P[role].j[b][i] = snap[role].j[b][i];
+    }
+  }
+  rig.invalidate(id);
+}
+
 function relax(id) {
   const u = unknowns(id);
   rig.invalidate(id);
@@ -372,17 +589,58 @@ function relax(id) {
 const ids = (ONLY.length ? ONLY : Object.keys(POSES));
 const changed = [];
 for (const id of ids) {
+  pickMeshes(id);
   const before = cost(id).pen;
   const matBefore = underMat();
+  const balBefore = balance(rig.skel.A, rig.skel.B);
+  const lookBefore = lookCost(id);
+  const hovBefore = hoverCost();
+  const hangBefore = hoverCost(true);
+  // What the pose was, so a search that trades can be refused.
+  //
+  // The sixth time this project learns the same sentence. arc-solve has a
+  // guard that says an answer may not be worse on any number anybody ships on;
+  // pose-relax had none, and the moment a balance term joined its cost it
+  // started paying for balance with overlap — turtle went from five
+  // centimetres of overlap to nine and from two centimetres of weight outside
+  // its base to twelve, and the total cost went down, which is exactly what a
+  // total is for and exactly why a total is not enough.
+  const undo = snapshot(id);
   relax(id);
-  const after = cost(id).pen;
-  const matAfter = underMat();
+  let after = cost(id).pen;
+  let matAfter = underMat();
+  let balAfter = balance(rig.skel.A, rig.skel.B);
+  let lookAfter = lookCost(id);
+  let hovAfter = hoverCost();
+  let kept = false;
+  // Half a centimetre of slack on each, and not because strictness is
+  // uncomfortable: with an exact comparison the guard threw away the rear naked
+  // choke's twenty-two centimetres of balance because its deepest overlap moved
+  // by two millimetres. A trade that pays a millimetre for a hand's breadth is
+  // the trade this solver exists to make; what the guard is for is the trade
+  // that pays a centimetre for a centimetre and calls it progress.
+  const SLACK = 0.005;
+  if (after.worst > before.worst + SLACK || matAfter.worst > matBefore.worst + SLACK
+      || balAfter > balBefore + 0.01 || lookAfter > lookBefore + 0.05
+      || hovAfter > hovBefore + 0.0002) {
+    restore(id, undo);
+    after = cost(id).pen;
+    matAfter = underMat();
+    balAfter = balance(rig.skel.A, rig.skel.B);
+    lookAfter = lookCost(id);
+    hovAfter = hoverCost();
+    kept = true;
+  }
+  const hangAfter = hoverCost(true);
   const mark = after.worst > 0.08 || matAfter.worst > 0.03 ? '!' : ' ';
   console.log(
     `${mark} ${id.padEnd(16)} overlap ${(before.worst * 100).toFixed(0).padStart(3)} -> ` +
     `${(after.worst * 100).toFixed(0).padStart(3)}cm   under the mat ` +
     `${(matBefore.worst * 100).toFixed(0).padStart(3)} -> ${(matAfter.worst * 100).toFixed(0).padStart(3)}cm ` +
-    `${matAfter.worst > 0.03 ? matAfter.where : ''} ${after.worst > 0.05 ? after.where : ''}`
+    `weight out ${(balBefore * 100).toFixed(0).padStart(3)} -> ${(balAfter * 100).toFixed(0).padStart(3)}cm  ` +
+    `hangs ${String(hangBefore).padStart(2)} -> ${String(hangAfter).padStart(2)}  ` +
+    `${kept ? ' (kept what it had)' : ''}` +
+    `${matAfter.worst > 0.03 ? ' ' + matAfter.where : ''}${after.worst > 0.05 ? ' ' + after.where : ''}`
   );
   changed.push(id);
 }

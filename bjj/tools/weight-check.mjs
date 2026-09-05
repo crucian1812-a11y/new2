@@ -75,6 +75,9 @@ const MASS = {
 const FLOOR = 0.05;
 const ON_MAT = 0.03;       // within three centimetres of it is resting on it
 const SAMPLES = 9;
+const CELL = 0.06;        // the column under a limb, a hand's breadth wide
+const UNDER_R = 0.06;
+const UNDER_GAP = 0.01;   // and anything a centimetre lower is under it
 
 const rig = new PairRig();
 const highest = (sk) => {
@@ -107,6 +110,8 @@ function skinOf(mesh, sk) {
   const n = P.length / 3;
   const pts = [];
   const low = new Float64Array(26).fill(9);
+  const lowPt = [];
+  const grid = new Map();
   let lowest = 9;
   for (let v = 0; v < n; v++) {
     let x = 0, y = 0, z = 0;
@@ -122,9 +127,33 @@ function skinOf(mesh, sk) {
     if (y < lowest) lowest = y;
     if (y <= FLOOR + ON_MAT) pts.push([x, z]);
     const b = bone[v * 2];
-    if (y < low[b]) low[b] = y;
+    if (y < low[b]) { low[b] = y; lowPt[b] = [x, y, z]; }
+    const key = (Math.floor(x / CELL) + 64) * 4096 + Math.floor(z / CELL) + 64;
+    let cell = grid.get(key);
+    if (!cell) grid.set(key, cell = []);
+    cell.push(x, y, z, b);
   }
-  return { pts, lowest, low };
+  return { pts, lowest, low, lowPt, grid };
+}
+
+// Is anything directly beneath this point? Every skinned vertex of one man is
+// in a column index a hand's breadth wide; this asks whether any of them, other
+// than the limb's own skin, sits at least a centimetre lower inside that column.
+function underneath(man, p, skip) {
+  const cx = Math.floor(p[0] / CELL), cz = Math.floor(p[2] / CELL);
+  for (let i = -1; i <= 1; i++) {
+    for (let j = -1; j <= 1; j++) {
+      const cell = man.grid.get((cx + i + 64) * 4096 + cz + j + 64);
+      if (!cell) continue;
+      for (let k = 0; k < cell.length; k += 4) {
+        if (cell[k + 3] === skip) continue;
+        if (cell[k + 1] > p[1] - UNDER_GAP) continue;
+        const dx = cell[k] - p[0], dz = cell[k + 2] - p[2];
+        if (dx * dx + dz * dz <= UNDER_R * UNDER_R) return true;
+      }
+    }
+  }
+  return false;
 }
 
 // Where his weight is.
@@ -186,18 +215,52 @@ function outside(h, c) {
 // A limb neither resting nor plainly lifted: its skin gets to within a hand's
 // breadth of the mat and stops. Real bodies rest on something or are clearly
 // off the ground; the inch in between is what reads as a mannequin.
+//
+// This one stays a work list rather than becoming a line, and honestly so: some
+// of what it names is right. A foot lifted in mount is a foot, not an error.
+//
+// It was wrong twice over before, and both halves were about the wrong ruler.
+// "Nothing under it" meant "the other man has no point lower than this", which
+// is a fact about the other man and not about this limb: a standing man's own
+// feet are under his own shins, and nobody asked, so every stance in the library
+// read as two floating limbs. It is now the column beneath the limb's lowest
+// point — any skin at all, either man's, the limb's own excepted.
+//
+// And the solver used to answer a different question from this one, on capsules
+// rather than skin, five centimetres apart at a foot. It reads the same skin now
+// (tools/skin-lite.mjs), so the number this prints is the number pose-relax is
+// pushing down.
 const HOVER_BONES = ['handL', 'handR', 'foreL', 'foreR', 'footL', 'footR',
   'shinL', 'shinR', 'thighL', 'thighR', 'hips'];
 function hovering(mine, other) {
   const out = [];
   for (const b of HOVER_BONES) {
-    const low = mine.low[BONE_INDEX[b]];
+    const i = BONE_INDEX[b];
+    const low = mine.low[i];
     if (low > 8 || low <= FLOOR + ON_MAT || low > FLOOR + 0.09) continue;
-    // Nothing of the other man under it? Then it is resting on nothing.
-    if (other.lowest < low - 0.02) continue;
+    const p = mine.lowPt[i];
+    if (!p) continue;
+    if (underneath(mine, p, i) || underneath(other, p, -1)) continue;
     out.push({ bone: b, gap: low - FLOOR });
   }
   return out;
+}
+
+// Whether the other man has hold of his head.
+//
+// "Look at the fight" is not always the truth: in a choke from behind the head
+// is being cranked, and looking away is what is actually happening. The pose
+// data already says which — a grip on the neck, the back of the head or the
+// head itself is a head under control — so the rule reads itself off the poses
+// rather than being assigned by hand, pose by pose, by somebody's taste.
+const HEAD_POINTS = ['neck', 'headBack', 'head', 'chin'];
+function headHeld(id, role) {
+  for (const g of POSES[id].grips || []) {
+    if (g.role === role) continue;          // his own hand on his own head is his
+    if (g.self) continue;
+    if (HEAD_POINTS.includes(g.point)) return true;
+  }
+  return false;
 }
 
 // Where he is looking, against where the other man is. The head bone's local
@@ -239,6 +302,7 @@ for (const id of ids) {
     matA: fa.pts.length, matB: fb.pts.length,
     hoverA: hovering(fa, fb), hoverB: hovering(fb, fa),
     gazeA: gaze(A, B), gazeB: gaze(B, A),
+    heldA: headHeld(id, 'A'), heldB: headHeld(id, 'B'),
   });
 }
 
@@ -286,14 +350,22 @@ check(above < 0.03, 'and every pose touches it',
 // And three work lists, reported rather than ruled on. Each is real and each
 // needs authoring rather than a solver: where a man's weight is, whether a limb
 // is resting on anything, and where he is looking.
-const worstPair = rows.reduce((a, b) => (b.pair > a.pair ? b : a));
-const worstGaze = rows.reduce((a, b) => (Math.max(b.gazeA, b.gazeB) > Math.max(a.gazeA, a.gazeB) ? b : a));
+// Waypoints are left out of this one. A waypoint is the middle of a movement,
+// and the middle of falling into a guard is a pair whose weight is *supposed*
+// to be outside its base — that is what falling is. GUARD_ENTRY reads 65 cm out
+// and is right to.
+const held = rows.filter((r) => !POSES[r.id].waypoint);
+const worstPair = held.reduce((a, b) => (b.pair > a.pair ? b : a));
+// Only the heads nobody is holding: the rest are looking away because they are
+// being made to.
+const freeGaze = (r) => Math.max(r.heldA ? 0 : r.gazeA, r.heldB ? 0 : r.gazeB);
+const worstGaze = rows.reduce((a, b) => (freeGaze(b) > freeGaze(a) ? b : a));
 const hoverN = rows.reduce((n, r) => n + r.hoverA.length + r.hoverB.length, 0);
 const lowest = rows.reduce((m, r) => Math.min(m, r.lowA, r.lowB), 9);
 console.log(`\n     the pair's weight is worst outside its base in ${worstPair.id}, ` +
   `by ${(worstPair.pair * 100).toFixed(0)}cm`);
-console.log(`     the worst look-away is ${worstGaze.id}, ` +
-  `${Math.max(worstGaze.gazeA, worstGaze.gazeB).toFixed(0)}°`);
+console.log(`     the worst look-away by a head nobody is holding is ${worstGaze.id}, ` +
+  `${freeGaze(worstGaze).toFixed(0)}°`);
 console.log(`     ${hoverN} limbs float; the lowest surface in the library sits ` +
   `${((lowest - FLOOR) * 100).toFixed(1)}cm from the mat\n`);
 console.log(fail ? `${fail} check(s) failed` : 'the poses hold themselves up');
