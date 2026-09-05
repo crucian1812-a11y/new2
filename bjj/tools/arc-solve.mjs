@@ -91,6 +91,17 @@ const LIMIT = +(process.env.ARC_LIMIT || 0.16);
 const BEND = +(process.env.ARC_BEND || 34);
 // How far a fighter may be turned away from the straight blend, in degrees.
 const TWIST = +(process.env.ARC_TWIST || 26);
+// How much the search pays for the size of its own correction.
+//
+// It was a flat 0.7 for as long as the mat term was a blanket allowance. Once
+// the mat term learned about legs it started charging under-squared at a
+// weight of twenty, and a clean mat became worth almost any amount of motion:
+// the whole graph re-solved 48% bigger, and shake-check — which nothing in
+// this cost has ever been able to see — went from 1.7 teleports a minute to
+// 9.6 with the foot clamp switched off, five and a half times louder for the
+// same fight. The solver does not know what a fast joint is; this is the only
+// place it can be told, so it is a knob and not a constant.
+const SIZE = +(process.env.ARC_SIZE || 0.7);
 // How many colliding bones get to move. Six was enough for everything that has
 // come off the list so far.
 const CULPRITS = +(process.env.ARC_BONES || 6);
@@ -498,7 +509,7 @@ for (const key of keys) {
   const cost = () => {
     const m = measure(from, to);
     const over = Math.max(0, m.worst - ALLOW);
-    return m.sum + over * over * 40 + size() * 0.7;
+    return m.sum + over * over * 40 + size() * SIZE;
   };
 
   for (let round = 0; round < 3; round++) {
