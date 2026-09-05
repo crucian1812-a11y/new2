@@ -201,6 +201,29 @@ const { result, fallback } = await page.evaluate(async () => {
       ['the gi of a throw', () => a.cloth(0.9)],
     ]) ladder[name] = await level(fn);
 
+    // Whose room is it? The same event, scored by you and scored against you.
+    //
+    // Energy over the whole window, not a peak. "The hall went quiet" is a
+    // claim about a second and a half of room, and a peak reads the gul it
+    // had before it ducked: with the peak the two came out 1.8-2.7 dB apart
+    // and the reading wandered by a decibel between runs, which is the probe
+    // and not the mix. Energy is the quantity the claim is actually about.
+    const roomOver = async (fn, ms) => {
+      let best = 0;
+      for (let k = 0; k < 3; k++) {
+        await new Promise((r) => setTimeout(r, 400));   // let the last one settle
+        energy = 0;
+        fn();
+        await new Promise((r) => setTimeout(r, ms));
+        best = Math.max(best, energy);
+      }
+      return best;
+    };
+    const mineScore = await roomOver(() => a.score(true, false), 1400);
+    const theirScore = await roomOver(() => a.score(false, false), 1400);
+    const mineSub = await roomOver(() => a.score(true, true), 2400);
+    const theirSub = await roomOver(() => a.score(false, true), 2400);
+
     // Does a sound know where it is?
     //
     // The listener is put where the ground shot puts it — three metres back,
@@ -294,6 +317,7 @@ const { result, fallback } = await page.evaluate(async () => {
 
     const out = {
       loaded: a.loaded, samples: Object.keys(a.sfx).length, events, ladder, room, music, muted,
+      mineScore, theirScore, mineSub, theirSub,
       left, right, near, far, breathFresh, breathSpent, hallWet, hallDry, calm, hard,
     };
     // Close it, or the second half of this test runs beside a context that is
@@ -401,6 +425,17 @@ if (result.ladder) {
   // footstep, because a step went out at the same 0.9 a body hitting the mat
   // did, and a man lowering himself into guard was fourteen decibels *under*
   // a step because his gain was force squared with no floor.
+  // Energy is power, so ten log ten — the peaks above are amplitudes and take
+  // twenty. Mixing the two is how a three-decibel line becomes a six.
+  const side = (mine, theirs) => (mine > 0 && theirs > 0 ? 10 * Math.log10(mine / theirs) : 0);
+  const onPoints = side(result.mineScore, result.theirScore);
+  const onSub = side(result.mineSub, result.theirSub);
+  console.log(`    the room over a second and a half: your two points ${onPoints.toFixed(1)} dB over his, ` +
+    `your submission ${onSub.toFixed(1)} dB over his`);
+  for (const [ok, msg] of [
+    [onPoints >= 3, `the room is on your side   ${onPoints.toFixed(1)} dB louder for your points than his (line 3)`],
+    [onSub >= 3, `and stands up for your finish   ${onSub.toFixed(1)} dB louder than for his (line 3)`],
+  ]) { console.log(`${ok ? ' ' : '!'} ${msg}`); if (!ok) problems++; }
   for (const [ok, msg] of [
     [spread >= 10, `a throw is louder than a footstep   ${spread.toFixed(1)} dB over it (line 10)`],
     [overSit >= 4, `and a body meeting the mat is too   a man sitting down is ${overSit.toFixed(1)} dB over a step (line 4)`],
