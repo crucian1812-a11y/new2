@@ -50,6 +50,10 @@ const VMAX = 1.3;
 // because in side control a leg reaches most of the way there on its own; the
 // distance he stands at is what he has to keep while moving too.
 const KEEP_OUT = DIST;
+// How wide the sector he may not stand in, either side of the camera's own
+// bearing. Forty degrees is the lens plus a shoulder: he can be at the edge of
+// the picture, he cannot be in the middle of it. See the clamp in update().
+const BLOCKS = (40 * Math.PI) / 180;
 // The two radii of the walking dead zone (see above).
 const ENGAGE = 0.5;
 const RELEASE = 0.2;
@@ -307,6 +311,35 @@ export class Referee {
       this.x = origin[0] + (r > 1e-4 ? rx * push : KEEP_OUT);
       this.z = origin[2] + (r > 1e-4 ? rz * push : 0);
     }
+    // And never in the wedge between the lens and the fight.
+    //
+    // The note at the top of this file says it in as many words — "the one
+    // thing he must never be is between the two of them and the lens" — and
+    // until now nothing enforced it. Standing still he is fine: his target is
+    // 150 degrees round from the camera's own bearing. Walking is the problem.
+    // A cut sends that target most of the way round the mat, he takes seconds
+    // to get there, and the way round passes the camera. A player photographed
+    // exactly that: the referee crossing the lens with his back to it, a black
+    // shape over the whole right of the frame, and the fight behind him.
+    //
+    // He is already pinned to a circle around the pair by KEEP_OUT, so the rule
+    // is one angular clamp: stay out of the sector the camera looks through. He
+    // slides to whichever edge of it is nearer, which keeps him walking rather
+    // than teleporting, and outside the sector — almost always — it costs
+    // nothing at all.
+    {
+      const a = Math.atan2(this.x - origin[0], this.z - origin[2]);
+      let off = a - camBearing;
+      while (off > Math.PI) off -= 2 * Math.PI;
+      while (off < -Math.PI) off += 2 * Math.PI;
+      if (Math.abs(off) < BLOCKS) {
+        const edge = camBearing + (off >= 0 ? BLOCKS : -BLOCKS);
+        const rr = Math.hypot(this.x - origin[0], this.z - origin[2]) || KEEP_OUT;
+        this.x = origin[0] + Math.sin(edge) * rr;
+        this.z = origin[2] + Math.cos(edge) * rr;
+      }
+    }
+
     // The step planner takes the body's velocity straight from the spring; a
     // step is the body moving, not the radial shove back out of the fight.
     const want = Math.atan2(origin[0] - this.x, origin[2] - this.z);

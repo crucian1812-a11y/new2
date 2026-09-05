@@ -147,6 +147,14 @@ function play(level, s) {
       const cos = (tox * rx + toz * rz) / (toLen * rLen);
       const off = Math.acos(Math.max(-1, Math.min(1, cos)));
       if (rLen < toLen && off < (cam.fov * ASPECT) / 4) s.refIn++;
+      if (rLen < s.refNear) s.refNear = rLen;
+      s.halfLens = (cam.fov * ASPECT) / 2;
+      const ow = Math.hypot(m.origin[0], m.origin[2]);
+      if (ow > s.walk) s.walk = ow;
+      // How much of the lens he covers: his own half-width at his distance.
+      const cover = Math.atan2(0.35, Math.max(0.2, rLen));
+      if (off < cover && rLen < toLen + 0.5) s.refCover++;
+      if (off < s.refOff) { s.refOff = off; s.refOffAt = `${rLen.toFixed(1)}m vs ${toLen.toFixed(1)}m`; }
     }
 
     // How close the lens is to the nearest body, measured to the surface and
@@ -225,7 +233,7 @@ function play(level, s) {
 }
 
 const s = {
-  frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', cropped: 0, headOut: 0, tall: 0, small: 0,
+  frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', refNear: 9, refOff: 9, refOffAt: '', halfLens: 0, walk: 0, refCover: 0, cropped: 0, headOut: 0, tall: 0, small: 0,
   fills: [], byBone: {}, modes: {}, worstFill: 0, worstAt: '',
 };
 const t0 = Date.now();
@@ -266,6 +274,10 @@ console.log(`     something is out of frame ${pct(s.cropped)}% of the time, ` +
 console.log(`     the lens comes within ${(s.nearest * 100).toFixed(0)}cm of a body at its closest (${s.nearestWhere}),\n` +
   `     and is inside 35cm of one on ${pct(s.tooClose)}% of frames\n`);
 check(s.lens === 0, 'no body ever comes through the lens', `${s.lens} frames`);
+console.log(`     the referee gets ${s.refNear.toFixed(1)}m from the lens at his closest, and ` +
+  `${(s.refOff * 180 / Math.PI).toFixed(0)} degrees off its axis (${s.refOffAt}); ` +
+  `half the lens is ${(s.halfLens * 180 / Math.PI).toFixed(0)} degrees;\n` +
+  `     the pair walks ${s.walk.toFixed(1)}m from the middle at most, and he covers the lens on ${pct(s.refCover)}% of frames\n`);
 check(+pct(s.refIn) < 1, 'the referee keeps out of the shot',
   `he is in front of the lens on ${pct(s.refIn)}% of frames, ${s.refIn} of ${s.frames}`);
 check(+pct(s.inside) < 0.5, 'and the camera is never standing inside one',
