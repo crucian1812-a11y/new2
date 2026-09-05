@@ -304,8 +304,8 @@ export const POSES = {
         hips: [47.5, 27.1, -4.5], spine: [3.1, 31.8, -38], chest: [43.8, -22.2, -21.4], neck: [22.6, 2.3, 0.1], head: [-10.6, 5.4, 1.6],
         clavL: [14.5, -13.9, -19.3], armL: [-97.6, 13.1, -24.4], foreL: [-82.5, 5.6, 1.6],
         clavR: [23.7, 7.9, 39.2], armR: [-82.1, -4.4, 39], foreR: [-109.5, 12.1, 10.8],
-        thighL: [-3.9, 12.3, 77.8], shinL: [97.3, 0, 0], footL: [18, 1.5, 0],
-        thighR: [3, -14.3, -1], shinR: [98, 0, 0.8], footR: [17.3, 0, 0.8],
+        thighL: [-45.1, 12.3, 80.1], shinL: [56.8, 50.3, -24], footL: [18, 1.5, 0],
+        thighR: [-21, -29.3, -4], shinR: [74, -23.2, 0.8], footR: [17.3, 0, 0.8],
       },
     },
     B: {
@@ -322,6 +322,31 @@ export const POSES = {
       { of: 'A.hips', above: 'B.hips', by: 0.17 },
       { of: 'A.hips', near: 'B.hips', within: 0.17 },
       { straddle: 'B.chest', with: ['A.shinL', 'A.shinR'], by: 0.13 },
+      // And both of his insteps are on the mat, which nothing said. The
+      // straddle is satisfied just as well by a man kneeling in mid-air, and
+      // that is what the library had: the whole top man resting on nobody but
+      // the man he is sitting on, his lowest point 21 cm up and his ankles
+      // *above* his knees — 78 and 59 against 50 and 26. A player photographed
+      // it and called it a hanging pose, which is exactly what it was.
+      //
+      // The number is read off the library rather than invented: every pose
+      // whose top man rests on the mat puts his ankles at 12 to 14 cm — that is
+      // where this rig's sole sits on the floor: the sole is 8.3 cm under the ankle
+      // bone and the mat is at 5, so 13.5 is the instep actually down.
+      // There was a second variant of this position, MOUNT_WORK2, and it went
+      // when the mount was put back on the mat. The straight line to it ran the
+      // top man's right arm through the bottom man's right forearm — 5.5 cm of
+      // overlap at one end, 6 at the other and 13 in the middle bare, 11 with
+      // the best correction the solver could find, against an allowance of 8.5.
+      // Five things were measured and none of them moved it: a wider arc, four
+      // lobes, shortening the variant's departure (the line dips *deeper* at
+      // half way, so a shorter path is a worse one), rederiving the variant from
+      // the moved base, and routing the loop through the other variant. A
+      // variant you cannot reach without hurting both men more than either end
+      // does is not a variant. The cost is measured and it is two points of
+      // self-repetition on the mount: 85% to 87%.
+      { of: 'A.footL', below: 0.135 },
+      { of: 'A.footR', below: 0.135 },
     ],
     // The man underneath frames on the near hip and fights the far sleeve. Both
     // hips was the authored intent and only one of them is inside his arm: the far
@@ -530,13 +555,13 @@ export const POSES = {
     label: 'TRIANGLE CHOKE',
     points: 0, top: 'B', ground: true, submission: 'choke', from: 'CLOSED_GUARD', invert: true,
     A: {
-      root: { p: [0.053, 0.53, -0.253], r: [30, 0, 0] },
+      root: { p: [0.046, 0.53, -0.26], r: [30, 0, 0] },
       j: {
         hips: [12.6, 13.5, -5.2], spine: [-1, 10.5, 5.3], chest: [2.5, 16.5, 25.6], neck: [20.6, 7.6, -6.6], head: [-19.4, -2.1, 0],
         clavL: [1.5, -2.4, 44.6], armL: [-163.4, 0.8, -55], foreL: [-49.5, -11.1, -26.2],
         clavR: [-7.8, 19.6, -23.2], armR: [-91.9, -34.1, 34.5], foreR: [-56.3, 10.7, 12.1],
-        thighL: [4.9, 29.9, 7.8], shinL: [97.6, 0, 6.8], footL: [20, 0.8, -0.7],
-        thighR: [7.3, -7.1, -12.9], shinR: [96.8, 0.8, -0.7], footR: [20.8, 0.8, 0.8],
+        thighL: [-5.6, 74.2, -9.4], shinL: [81.1, 0, 6.8], footL: [20, 0.8, -0.7],
+        thighR: [-16.7, 16.9, -12.9], shinR: [72.8, 3.1, -0.7], footR: [20.8, 0.8, 0.8],
       },
     },
     B: {
@@ -557,6 +582,12 @@ export const POSES = {
       { of: 'B.shinL', near: 'A.neck', within: 0.28 },
       { of: 'B.footL', below: 0.5 },
       { of: 'B.footR', below: 0.5 },
+      // The man being choked is on his knees, and his insteps are on the mat.
+      // Without this he held himself up on nothing but the legs around his
+      // neck — lowest point 17 cm above the tatami. Same number as mount: the
+      // sole is 8.3 cm under the ankle bone and the mat is at 5.
+      { of: 'A.footL', below: 0.135 },
+      { of: 'A.footR', below: 0.135 },
     ],
     grips: [
       { role: 'B', hand: 'L', point: 'wristL' },
@@ -995,9 +1026,9 @@ export const POSES = {
         hips: [60.9, 10.5, -12], spine: [-21.7, 32, -32.4], chest: [44, -14.6, -7.8],
         neck: [24, -3, -1.5], head: [-5.5, 0, 0], clavL: [7, -19.2, -14.1],
         armL: [-80.3, 4.1, -31.9], foreL: [-83.3, 16.2, 4.1], clavR: [24.5, -7.5, 31.4],
-        armR: [-82, -5.2, 33.8], foreR: [-116.1, 18.3, 7.8], thighL: [-10.6, 21.3, 88.1],
-        shinL: [103, 1.5, 0], footL: [20.3, 0.8, 0], thighR: [-9.7, -4.4, -0.8],
-        shinR: [103, 0, 0], footR: [18, 0, 0],
+        armR: [-82, -5.2, 33.8], foreR: [-116.1, 18.3, 7.8], thighL: [-48.1, 12.3, 88.1],
+        shinL: [98.5, 43.5, -36], footL: [20.3, 0.8, 0], thighR: [-21.7, -28.4, -1.5],
+        shinR: [79, -24, 24], footR: [18, 0, 0],
       },
     },
     B: {
@@ -1256,8 +1287,8 @@ export const POSES = {
         hips: [2, 18, -21.7], spine: [-9.2, 10.5, 30], chest: [0.8, 20.3, 19.6],
         neck: [11.8, 0.8, -14.2], head: [-11.5, -3.7, 0], clavL: [-1.2, 0.6, 42.8],
         armL: [-166.9, -1.4, -70.2], foreL: [-49.5, -0.6, -13.4], clavR: [-10.1, 30.9, -26.8],
-        armR: [-79.6, -34, 30.8], foreR: [-47.3, 12.8, 12.9], thighL: [13.9, 37.4, 22.1],
-        shinL: [96, 0, 0], footL: [20, 0.8, 0.8], thighR: [1.9, -19, -20.3],
+        armR: [-79.6, -34, 30.8], foreR: [-47.3, 12.8, 12.9], thighL: [-19.8, 107.9, 33.4],
+        shinL: [106.5, 0, 0], footL: [20, 0.8, 0.8], thighR: [-20.6, -19, -18],
         shinR: [96.8, 1.5, 0.8], footR: [21.6, -0.7, 2.3],
       },
     },
@@ -1434,34 +1465,6 @@ export const POSES = {
     },
   }),
 
-  MOUNT_WORK2: P('MOUNT_WORK2', {
-    // A уводит одну ногу в обвив и садится на бедро; B ставит раму
-    // и подбирает колено, отбирая полугард.
-    name: 'Маунт — обвив против креветки',
-    variantOf: 'MOUNT',
-    A: {
-      root: { p: [-0.028, 0.537, 0.108], r: [0, 0, 0] },
-      j: {
-        hips: [29.1, 24, 4.3], spine: [8.7, 38.4, -28.6], chest: [44.5, -12.6, -24.5],
-        neck: [27, -4.5, -1.5], head: [-4, -1.5, 1.5], clavL: [4.7, -23, -38.9],
-        armL: [-88.8, 13.1, -26.7], foreL: [-96, 4.8, -5.9], clavR: [0.4, -3.4, 43.6],
-        armR: [-103.3, -9.7, 26.3], foreR: [-79.5, -11.6, 2.6], thighL: [-12.6, 29.6, 77.4],
-        shinL: [115.3, 0.8, 1.5], footL: [19.6, 0.8, 0], thighR: [24.1, -27.7, -7.2],
-        shinR: [83.8, -2.2, -2.2], footR: [18.8, -3.7, 0.8],
-      },
-    },
-    B: {
-      root: { p: [0.055, 0.259, 0.255], r: [-90, 180, 0] },
-      j: {
-        hips: [22, -22.5, -3], spine: [12.8, 13.3, -5.2], chest: [19.1, 13.8, 4.6],
-        neck: [4.1, 5.3, 4.5], head: [7.5, 6, 0], clavL: [4.6, -41.8, 13.7],
-        armL: [-143.5, 44.9, 10.2], foreL: [-101.8, 23.5, 11.4], clavR: [7.7, 10.7, -42.1],
-        armR: [-139.7, 4.9, 9.6], foreR: [-98.5, -11.7, -8.1], thighL: [-36, -10.4, -8.6],
-        shinL: [48.7, -2.2, -2.2], footL: [-10.1, 5.4, -4.3], thighR: [-21.1, -5.9, -1.6],
-        shinR: [29.1, -0.7, 0], footR: [-14, 0, 0],
-      },
-    },
-  }),
 
   SIDE_CONTROL_WORK2: P('SIDE_CONTROL_WORK2', {
     // A обходит ногами к голове; B встаёт на мост и вкручивается внутрь,
