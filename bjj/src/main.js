@@ -706,6 +706,9 @@ function frame(now) {
   // player reading the coach is not racing, so the bell never rings mid-step.
   if (tut && !tut.done) match.time = MATCH_TIME;
   clockSound();
+  // The music leans in with the fight. `intensity` is the sim's own number for
+  // how hard they are working; a submission is its own kind of loud.
+  audio.drive(Math.min(1, match.intensity + (match.state === 'sub' ? 0.35 : 0)));
   footsteps(dt);
   rig.origin[0] = match.origin[0];
   rig.origin[2] = match.origin[2];

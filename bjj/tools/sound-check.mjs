@@ -253,13 +253,26 @@ const { result, fallback } = await page.evaluate(async () => {
       music = await level(() => {}, 800);
     }
 
+    // Does the music lean in with the fight?
+    //
+    // Asked of what the game schedules, not of the output, for the reason this
+    // file already gives about the breath: the drive is a slow lean — a second
+    // and a half of smoothing on a track that is thirty decibels down — and a
+    // burst probe cannot separate it from its own floor. The game either asks
+    // for a louder, brighter track when the pair is working or it does not.
+    a.drive(0);
+    const calm = { gain: a.driveWant, tone: a.toneWant };
+    a.drive(1);
+    const hard = { gain: a.driveWant, tone: a.toneWant };
+    a.drive(0);
+
     a.setMuted(true);
     const muted = await level(() => a.bell(), 300, true, 2);
     a.setMuted(false);
 
     const out = {
       loaded: a.loaded, samples: Object.keys(a.sfx).length, events, room, music, muted,
-      left, right, near, far, breathFresh, breathSpent, hallWet, hallDry,
+      left, right, near, far, breathFresh, breathSpent, hallWet, hallDry, calm, hard,
     };
     // Close it, or the second half of this test runs beside a context that is
     // still mixing a crowd — and two live contexts in one headless tab is how
@@ -411,6 +424,18 @@ const under = result.breathSpent.heard < result.room * 1.2;
 if (!under) problems++;
 console.log(`${under ? ' ' : '!'} and sits under the room             ` +
   `${db(result.breathSpent.heard)} against a room at ${db(result.room)}`);
+
+// The music follows the fight. A track that plays at one level through a stall
+// and a scramble alike is scoring nothing; what the ear reads as effort is
+// mostly brightness, so the filter carries more of it than the fader does.
+const leans = result.hard.gain > result.calm.gain * 1.2;
+if (!leans) problems++;
+console.log(`${leans ? ' ' : '!'} the music leans in                 ` +
+  `${result.calm.gain.toFixed(2)} -> ${result.hard.gain.toFixed(2)} of the fader`);
+const opens = result.hard.tone > result.calm.tone * 4;
+if (!opens) problems++;
+console.log(`${opens ? ' ' : '!'} and opens up                       ` +
+  `${(result.calm.tone / 1000).toFixed(1)} -> ${(result.hard.tone / 1000).toFixed(1)} kHz`);
 
 // The hall rings. After the tap's own sample has gone, the reverb keeps the
 // room alive; with the send off, the same window is silence. The ratio is the
