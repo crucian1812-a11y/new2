@@ -709,6 +709,187 @@ if (!NOGI) {
 }
 
 const pos = new Float64Array(P);
+
+// Re-weight the fingers onto the two finger bones this rig actually has.
+//
+// Mixamo gives a hand fifteen bones; ours has two, and FOLD adds the source's
+// weights up onto them. Adding them up is right for how much a vertex belongs
+// to the hand and wrong for which bone swings it. handRTip's bind frame is the
+// *middle* finger's third phalanx, so an index or a pinky fingertip, folded
+// onto it, ends up rotating about a joint two or three centimetres from its
+// own. The bind pose is unaffected — every transform is identity there — and
+// the moment the hand closes those vertices leave on the wrong arc.
+//
+// What that looks like is splinters coming off the knuckles, which is how a
+// player reported it. What it measures as is an edge: 112 edges past twice
+// their bind length with the hand gripping, the worst 6.2x, the longest 43mm
+// on a hand nine centimetres across. It is not the thinner's doing — the
+// full-resolution bake is worse, 9.9x — and it is not the wrists, which never
+// fold past 38 degrees.
+//
+// So the weights are recomputed from our own chain instead of inherited from
+// theirs: a vertex is placed along handL -> fingL -> handLTip and blended
+// linearly between the two joints it falls between. Only vertices that already
+// carry some finger weight are touched, which is what keeps the thumb on the
+// palm — FOLD puts it there and it must not curl with the fingers.
+for (const side of ['L', 'R']) {
+  const chain = ['hand' + side, 'fing' + side, 'hand' + side + 'Tip'].map((n) => BONE_INDEX[n]);
+  if (chain.some((i) => i === undefined)) continue;
+  const head = chain.map((i) => [ourBind[i][12], ourBind[i][13], ourBind[i][14]]);
+  // Distance of each joint along the chain's own axis, and that axis.
+  const ax = [head[2][0] - head[0][0], head[2][1] - head[0][1], head[2][2] - head[0][2]];
+  const L = Math.hypot(ax[0], ax[1], ax[2]) || 1;
+  ax[0] /= L; ax[1] /= L; ax[2] /= L;
+  const at = head.map((h) => (h[0] - head[0][0]) * ax[0] + (h[1] - head[0][1]) * ax[1] + (h[2] - head[0][2]) * ax[2]);
+  let touched = 0;
+  for (let v = 0; v < P.length / 3; v++) {
+    let fingerish = 0;
+    for (let k = 0; k < 2; k++)
+      if (BONE[v * 2 + k] === chain[1] || BONE[v * 2 + k] === chain[2]) fingerish += WT[v * 2 + k];
+    const s = (P[v * 3] - head[0][0]) * ax[0] + (P[v * 3 + 1] - head[0][1]) * ax[1] +
+              (P[v * 3 + 2] - head[0][2]) * ax[2];
+    // The palm past the knuckle line comes too, or it is the palm that tears.
+    //
+    // Re-weighting only the vertices FOLD already called finger left every
+    // palm vertex beside them pinned at full hand weight, and a knuckle bend
+    // pulled the two apart exactly as before: 6.2x became 4.6x and the worst
+    // edge simply moved from finger-to-tip over to palm-to-finger. What has to
+    // be smooth is the whole crossing, so anything past 55% of the way to the
+    // knuckle joins the blend whether FOLD called it a finger or not.
+    //
+    // The thumb is the one thing that must not: it is off the chain's axis by
+    // its own length, and a thumb that curls with the fingers is a fist. It is
+    // kept out by distance from the axis rather than by name, because FOLD is
+    // the only thing that knows it is a thumb and it has already thrown that
+    // away.
+    let off = 0;
+    { const dx = P[v * 3] - (head[0][0] + ax[0] * s), dy = P[v * 3 + 1] - (head[0][1] + ax[1] * s),
+        dz = P[v * 3 + 2] - (head[0][2] + ax[2] * s);
+      off = Math.hypot(dx, dy, dz); }
+    // And it has to already be part of this hand. In the A-pose the hands hang
+    // beside the thighs, so a test on distance from the hand's axis alone
+    // reaches straight into the trousers: it caught them, and a leg weighted
+    // to a knuckle tore a half-metre edge across the model — 55.9x, which is
+    // the measure earning its place twice in one afternoon.
+    const ownsIt = BONE[v * 2] === chain[0] || BONE[v * 2] === chain[1] || BONE[v * 2] === chain[2] ||
+                   BONE[v * 2 + 1] === chain[0] || BONE[v * 2 + 1] === chain[1] || BONE[v * 2 + 1] === chain[2];
+    if (!ownsIt || fingerish <= 0.01) continue;   // palm and thumb keep what FOLD gave them
+    // Half and half *at* the joint, not all-of-one on either side of it.
+    //
+    // A ramp that runs from the wrist to the knuckle hands a vertex sitting on
+    // the knuckle line the whole of the finger bone, while the palm vertex
+    // beside it still has the whole of the hand — which is the same cliff one
+    // millimetre further along, and it measured that way: the worst edge moved
+    // from finger-to-tip to palm-to-finger and barely shrank. A crease is a
+    // band centred on the joint, so each band reaches fifty-fifty exactly
+    // where the bone does. Bringing the palm into the blend instead was tried
+    // and is worse — 8.3x against 4.6 — because a knuckle pad belongs to the
+    // hand and pulling it onto the finger only moves the tear again.
+    const w1 = 0.4 * Math.min(at[1] - at[0], at[2] - at[1]);
+    const w2 = 0.4 * (at[2] - at[1]);
+    const band = (x, c, w) => Math.min(1, Math.max(0, (x - (c - w)) / (2 * w)));
+    const f1 = band(s, at[1], w1);
+    const f2 = band(s, at[2], w2);
+    const w = [1 - f1, f1 * (1 - f2), f1 * f2];
+    // Two bones a vertex is all this format carries, so keep the two heaviest.
+    const order = [0, 1, 2].sort((i, j) => w[j] - w[i]);
+    const sum = w[order[0]] + w[order[1]] || 1;
+    BONE[v * 2] = chain[order[0]]; WT[v * 2] = w[order[0]] / sum;
+    BONE[v * 2 + 1] = chain[order[1]]; WT[v * 2 + 1] = w[order[1]] / sum;
+    touched++;
+  }
+  if (touched) console.log(`re-weighted ${touched} finger vertices onto hand${side}/fing${side}/hand${side}Tip`);
+}
+
+// No vertex belongs to a limb and its twin at once.
+//
+// The characters' trousers are one surface across the crotch, and the weights
+// go with it: vertices sitting between the legs carry both thighs — 0.84 of
+// the left and 0.16 of the right — so they travel to the average of two legs
+// that are about to go opposite ways. In BACK that drew a five-millimetre edge
+// out to a hundred and forty-one, which is the whole thigh's width of trouser
+// hanging in the gap.
+//
+// The minor share goes to the pair's common parent rather than to the bigger
+// twin: the crotch of a pair of trousers belongs to the hips, and handing it
+// wholly to one leg would make it follow that leg instead of staying put.
+// Cutting the triangles that span the two legs (below) is the other half of
+// the same fault and neither half is enough alone — a cut still leaves
+// two-thigh vertices, and a re-weight still leaves a surface joining them.
+const TWIN_PARENT = [
+  [['thighL', 'thighR'], 'hips'], [['shinL', 'shinR'], 'hips'], [['footL', 'footR'], 'hips'],
+  [['armL', 'armR'], 'chest'], [['foreL', 'foreR'], 'chest'], [['handL', 'handR'], 'chest'],
+];
+let straddlers = 0;
+for (let v = 0; v < P.length / 3; v++) {
+  for (const [[an, bn], pn] of TWIN_PARENT) {
+    const a = BONE_INDEX[an], b = BONE_INDEX[bn], pa = BONE_INDEX[pn];
+    if (a === undefined || b === undefined || pa === undefined) continue;
+    const k0 = BONE[v * 2], k1 = BONE[v * 2 + 1];
+    const onBoth = (k0 === a && k1 === b) || (k0 === b && k1 === a);
+    if (!onBoth) continue;
+    // Keep the heavier twin where it is; the lighter one becomes the parent.
+    if (WT[v * 2] >= WT[v * 2 + 1]) BONE[v * 2 + 1] = pa;
+    else BONE[v * 2] = pa;
+    straddlers++;
+    break;
+  }
+}
+if (straddlers) console.log(`re-parented ${straddlers} vertices that straddled a limb and its twin`);
+
+// Unsew the legs.
+//
+// The source characters stand in an A-pose with the inner thighs touching, and
+// their trousers are one surface across the gap: 39 triangles have one corner
+// driven by the left thigh and another by the right. In bind they are three
+// millimetres wide and invisible. Spread the legs — which is most of this
+// sport — and each one is stretched into a sail: measured on BACK_WORK, one of
+// them reaches 118 square centimetres, a sheet wider than a hand strung
+// between the knees. It survives decimation untouched because a seam is not
+// something the thinner is allowed to move, and it was in the full-resolution
+// bake too, so it is the character's own topology and not anything this file
+// did to it.
+//
+// A triangle that spans a left limb and its right twin is never right on a
+// grappler: those two bones are meant to move independently and any surface
+// joining them will be torn by the first guard. So they are cut here rather
+// than solved anywhere downstream.
+const TWINS = [['thighL', 'thighR'], ['shinL', 'shinR'], ['footL', 'footR'],
+               ['handL', 'handR'], ['foreL', 'foreR'], ['armL', 'armR']];
+// A fifth of a vertex is enough to call it that side's.
+//
+// At "more than half" a vertex sitting thighL 0.5 / hips 0.5 belonged to
+// neither leg, so the triangle joining it to its mirror across the crotch was
+// not cut and went on tearing: 26.9x became 19.7x and stayed there. What
+// matters is not who owns the vertex but whether the triangle will be pulled
+// in two directions, and a fifth is enough to pull.
+const sideOf = (v, a, b) => {
+  let wa = 0, wb = 0;
+  for (let k = 0; k < 2; k++) {
+    if (BONE[v * 2 + k] === a) wa += WT[v * 2 + k];
+    if (BONE[v * 2 + k] === b) wb += WT[v * 2 + k];
+  }
+  if (wa < 0.2 && wb < 0.2) return 0;
+  return wa >= wb ? 1 : 2;
+};
+const kept = [];
+let cutTris = 0;
+for (let t = 0; t < IDX.length; t += 3) {
+  let bridges = false;
+  for (const [an, bn] of TWINS) {
+    const a = BONE_INDEX[an], b = BONE_INDEX[bn];
+    if (a === undefined || b === undefined) continue;
+    let mask = 0;
+    for (let k = 0; k < 3; k++) mask |= sideOf(IDX[t + k], a, b);
+    if (mask === 3) { bridges = true; break; }
+  }
+  if (bridges) { cutTris++; continue; }
+  kept.push(IDX[t], IDX[t + 1], IDX[t + 2]);
+}
+if (cutTris) console.log(`unsewed the legs: cut ${cutTris} triangle(s) joining a limb to its twin`);
+IDX.length = 0;
+for (const v of kept) IDX.push(v);
+
 const idx = Uint32Array.from(IDX);
 console.log(`\nmerged ${pos.length / 3} verts  ${idx.length / 3} tris`);
 if (pos.length / 3 > 65535) throw new Error('too many vertices for a 16-bit index buffer');

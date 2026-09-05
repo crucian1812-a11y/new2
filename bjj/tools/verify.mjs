@@ -27,6 +27,10 @@ const steps = [
   // is a blend that reads fine — and it is not free: STANDING>STANDING_WORK
   // corrected 0cm to 0cm and cost seven and a half teleports a minute.
   ['every arc pays', 'idle-check.mjs', []],
+  // And whether the surface itself is being pulled apart. Nothing else here
+  // asks: a torn triangle is in the right place, so pose-check and
+  // blend-check both read it as fine, and a player sees splinters.
+  ['the skin holds', 'skin-check.mjs', ['--grip']],
   // Whether the bodies themselves are possible. It was written, it was used to
   // find eighty-five joints outside human range, and it was never added here —
   // so when the measure inside it turned out to be reading a roll nothing
