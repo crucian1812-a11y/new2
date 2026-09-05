@@ -362,6 +362,27 @@ const freeGaze = (r) => Math.max(r.heldA ? 0 : r.gazeA, r.heldB ? 0 : r.gazeB);
 const worstGaze = rows.reduce((a, b) => (freeGaze(b) > freeGaze(a) ? b : a));
 const hoverN = rows.reduce((n, r) => n + r.hoverA.length + r.hoverB.length, 0);
 const lowest = rows.reduce((m, r) => Math.min(m, r.lowA, r.lowB), 9);
+// Nobody in a ground position holds himself up on the other man alone.
+//
+// A man on the floor rests on the floor. In mount both of the top man's knees
+// are down beside the hips he is sitting on; in a triangle the man being choked
+// is on his knees. The pair's own weight test cannot see this — it hulls what
+// *either* of them touches, so one man planted for two passes — and the hover
+// rule cannot either, because it forgives anything over nine centimetres as
+// "plainly lifted". A player photographed a mount where the top man's lowest
+// point was 21 cm up and his ankles were higher than his knees, and every
+// number in this file was green on it.
+const air = rows.filter((r) => POSES[r.id].ground && (r.matA === 0 || r.matB === 0));
+if (air.length) {
+  console.log(`     ${air.length} pose(s) where a man on the ground touches only the other man:`);
+  for (const r of air) {
+    const who = r.matA === 0 ? 'A' : 'B';
+    const low = r.matA === 0 ? r.lowA : r.lowB;
+    console.log(`       ${r.id.padEnd(16)} ${who}, lowest point ${(low * 100).toFixed(0)}cm up`);
+  }
+} else {
+  console.log('     everybody on the ground is on the ground');
+}
 console.log(`\n     the pair's weight is worst outside its base in ${worstPair.id}, ` +
   `by ${(worstPair.pair * 100).toFixed(0)}cm`);
 console.log(`     the worst look-away by a head nobody is holding is ${worstGaze.id}, ` +
