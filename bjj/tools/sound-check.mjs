@@ -179,6 +179,28 @@ const { result, fallback } = await page.evaluate(async () => {
     // The swell is the room getting louder, so it is measured with the room on.
     events.swell = await level(() => a.swell(0.9, 1.4), 900, false);
 
+    // The ladder: what a match actually sounds like.
+    //
+    // Everything above is fired at full force, which is the right question for
+    // "is this audible at all" and the wrong one for "does a slam sound like a
+    // slam". The game does not call these at 1: a step goes out at 0.5-0.8, a
+    // grip at 0.5, and a landing at (speed/4.2) squared, clamped to 0.18. So
+    // this fires them the way main.js does and reads the spread.
+    // Let the crowd swell above decay first. It is measured with the room on
+    // and it rings for a second and a half; the first rung of the ladder was
+    // catching its tail and reported a footstep at -7.7 dBFS after its gain
+    // had been cut by thirteen decibels — the one number in the ladder that
+    // did not move when it should have.
+    await new Promise((r) => setTimeout(r, 2500));
+    const ladder = {};
+    for (const [name, fn] of [
+      ['a step on tatami', () => a.step(0.65)],
+      ['a grip taken', () => a.cloth(0.5)],
+      ['a man sitting down', () => a.thud(0.18)],
+      ['a hard throw', () => a.thud(1)],
+      ['the gi of a throw', () => a.cloth(0.9)],
+    ]) ladder[name] = await level(fn);
+
     // Does a sound know where it is?
     //
     // The listener is put where the ground shot puts it — three metres back,
@@ -219,7 +241,7 @@ const { result, fallback } = await page.evaluate(async () => {
         await new Promise((r) => setTimeout(r, 700));
       }
       a.crowdGain.gain.value = before;
-      return { heard: peak, want };
+        return { heard: peak, want };
     };
     const breathFresh = await breathLoud(0.1, 0);
     const breathSpent = await breathLoud(0.9, 1);
@@ -271,7 +293,7 @@ const { result, fallback } = await page.evaluate(async () => {
     a.setMuted(false);
 
     const out = {
-      loaded: a.loaded, samples: Object.keys(a.sfx).length, events, room, music, muted,
+      loaded: a.loaded, samples: Object.keys(a.sfx).length, events, ladder, room, music, muted,
       left, right, near, far, breathFresh, breathSpent, hallWet, hallDry, calm, hard,
     };
     // Close it, or the second half of this test runs beside a context that is
@@ -365,6 +387,29 @@ for (const [name, peak] of Object.entries(result.events)) {
     (silent ? '   silent' : quiet ? '   lost under the crowd' : hot ? '   clips against everything else' : ''));
 }
 
+if (result.ladder) {
+  const L = result.ladder;
+  const q = L['a step on tatami'], loud = L['a hard throw'], sit = L['a man sitting down'];
+  console.log('\n  what a match sounds like, at the force the game asks for:');
+  for (const [k, v] of Object.entries(L)) console.log(`    ${k.padEnd(20)} ${db(v).padStart(6)} dBFS`);
+  const rel = (x, y) => (x > 0 && y > 0 ? 20 * Math.log10(x / y) : 0);
+  const spread = rel(loud, q), overSit = rel(sit, q), overRoom = rel(q, result.room);
+  console.log(`    a throw is ${spread.toFixed(1)} dB over a step; a man sitting down is ` +
+    `${overSit.toFixed(1)} dB over one; a step is ${overRoom.toFixed(1)} dB over the room\n`);
+  // Three claims about the mix, and every one of them was false before it was
+  // measured. Everything in the match used to come out within a decibel of a
+  // footstep, because a step went out at the same 0.9 a body hitting the mat
+  // did, and a man lowering himself into guard was fourteen decibels *under*
+  // a step because his gain was force squared with no floor.
+  for (const [ok, msg] of [
+    [spread >= 10, `a throw is louder than a footstep   ${spread.toFixed(1)} dB over it (line 10)`],
+    [overSit >= 4, `and a body meeting the mat is too   a man sitting down is ${overSit.toFixed(1)} dB over a step (line 4)`],
+    [overRoom >= 8, `but a step is still clear of the crowd   ${overRoom.toFixed(1)} dB over the room (line 8)`],
+  ]) {
+    console.log(`${ok ? ' ' : '!'} ${msg}`);
+    if (!ok) problems++;
+  }
+}
 console.log(`  the room on its own       ${db(result.room).padStart(6)} dBFS`);
 if (result.room <= HEARD) { console.log('! the crowd bed is silent'); problems++; }
 

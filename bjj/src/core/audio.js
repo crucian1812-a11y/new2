@@ -421,7 +421,15 @@ export class Audio {
     if (!this.ctx || this.muted) return;
     const heavy = force > 0.75;
     const name = this._pick(...(heavy ? ['slamHeavy', 'impact1'] : ['slamLight', 'impact2']));
-    if (name && this._play(name, 0.9 * force, 0.03, at)) return;
+    // A floor under the gain, not under the force.
+    //
+    // `force` is (speed / 4.2) squared, so a man lowering himself into guard
+    // arrives at 0.18 and went out at a gain of 0.16 — measured at -20.7 dBFS,
+    // which is fourteen decibels *below* a footstep. A body meeting the mat is
+    // never quieter than a foot sliding on it. The square is right for how a
+    // throw grows; it is wrong all the way down, because the quietest landing
+    // still has a man's weight behind it.
+    if (name && this._play(name, 0.9 * (0.35 + 0.65 * force), 0.03, at)) return;
     // Low sine drop plus a noise slap; the ratio between the two is the
     // difference between a mat and a boxing ring.
     const t = this._at();
@@ -441,7 +449,7 @@ export class Audio {
   cloth(force = 1, at = null) {
     if (!this.ctx || this.muted) return;
     const name = this._pick('cloth1', 'cloth2', 'cloth3');
-    if (name && this._play(name, 0.95 * force, 0.03, at)) return;
+    if (name && this._play(name, 0.62 * force, 0.03, at)) return;
     // Measured, not guessed: at 2.6 kHz and a peak of 0.1 the synthesised gi
     // slap came out at -57 dBFS against a room at -32, which is not quiet, it
     // is inaudible. A gi has body as well as hiss.
@@ -450,9 +458,14 @@ export class Audio {
   }
 
   // A foot moving on tatami. The pack has this and the synth never did.
+  // It was at 0.9, the same factor as a body hitting the mat, and it measured
+  // that way: a hard throw came out 0.5 dB over a footstep — every sound in
+  // the match was a footstep. It is the quietest thing a fighter does and it
+  // is mixed like it now, still clear of the crowd bed, which sound-check
+  // guards separately.
   step(force = 0.6, at = null) {
     const name = this._pick('step1', 'step2');
-    if (name) this._play(name, 0.9 * force, 0.04, at);
+    if (name) this._play(name, 0.28 * force, 0.04, at);
   }
 
   whistle(at = null) {
