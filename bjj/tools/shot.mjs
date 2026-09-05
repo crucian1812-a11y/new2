@@ -1,5 +1,8 @@
 // Screenshot driver. Usage:
 //   node bjj/tools/shot.mjs out.png [--w 900 --h 420 --wait 2500 --pose MOUNT --scene]
+//   --clip x,y,w,h   just that rectangle of the page, at the same device scale,
+//                    which is how you look closely at a hand rather than
+//                    squinting at a whole match.
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 // Playwright lives wherever the machine put it; a global install is normal on
@@ -14,6 +17,7 @@ const PORT = +flag('port', 8099);
 const POSE = flag('pose', null);
 const PLAY = +flag('play', 0);   // seconds of a real match before the shutter
 const PATH = flag('path', '/bjj/index.html');
+const CLIP = flag('clip', null);
 
 const browser = await chromium.launch({
   // The sandbox ships a browser; CHROME_PATH points at it when the npm copy
@@ -52,7 +56,9 @@ if (PLAY) {
 }
 
 const stats = await page.evaluate(() => window.__stats || null);
-await page.screenshot({ path: out });
+await page.screenshot({ path: out, clip: CLIP
+  ? (([x, y, w, h]) => ({ x: +x, y: +y, width: +w, height: +h }))(CLIP.split(','))
+  : undefined });
 console.log(JSON.stringify(stats));
 if (logs.length) console.log(logs.slice(0, 12).join('\n'));
 await browser.close();
