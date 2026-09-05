@@ -98,13 +98,15 @@ async function look(pose) {
     // switches nothing, so whatever it reports is the instrument's own floor,
     // and it should be zero.
     r.grabbed = null;
-    r.want = ['contact', 'folds', 'face', 'eyes', 'ao', 'ctrl', 'all'];
+    r.want = ['contact', 'folds', 'face', 'eyes', 'ao', 'press', 'ctrl', 'all'];
     for (let i = 0; i < 300 && !(r.grabbed && r.grabbed.shots); i++) await wait(30);
     const on = r.grabbed;
     if (!on || !on.shots || !on.shots.ctrl) return { error: 'no frame came back' };
     const off = on.shots.contact, flatFrame = on.shots.folds;
     const flatFace = on.shots.face, ctrl = on.shots.ctrl, blind = on.shots.eyes;
     const noAO = on.shots.ao;
+    // The contact term itself, painted by the shader (see u_tool.w == 2).
+    const press = on.shots.press;
 
     const { w, h, shaded, id, mat } = on;
     const lum = (px, k) => 0.2126 * px[k] + 0.7152 * px[k + 1] + 0.0722 * px[k + 2];
@@ -132,6 +134,24 @@ async function look(pose) {
       skinPx[k] = mat[i] === 0 || mat[i] === 6 || mat[i] === 7 || mat[i] === 8 ? 1 : 0;
     }
 
+    // Who is actually against the other man, asked of the shader rather than
+    // of the picture.
+    //
+    // This used to be B's silhouette grown by two percent of the frame, which
+    // is a claim about the image and not about the bodies. In side control the
+    // two agree. In mount they are opposites: what touches is hidden behind
+    // the man doing the touching, and what is far away on screen is directly
+    // above him in space. The check reported mount at 0.9x — the away pixels
+    // darker than the near ones — and that shape cannot come from a falloff.
+    //
+    // Now the renderer paints contactAO into a pass of its own, and a pixel is
+    // "against him" when that term is under a half, which is the same number
+    // the shading uses.
+    const pressed = new Uint8Array(w * h);
+    if (press) for (let i = 0, k = 0; i < press.length; i += 4, k++) pressed[k] = press[i] < 128 ? 1 : 0;
+
+    // Kept for the report: how much of this is hidden from the camera, which
+    // is the thing that made the screen-space version wrong.
     // Where the other man is near, in screen space: B's mask grown by a
     // handful of pixels, in two one-dimensional passes.
     const R = Math.max(4, Math.round(h * 0.02));
@@ -259,7 +279,8 @@ async function look(pose) {
       vals.push(L[k]);
       const i = k * 4;
       if (shaded[i] > 250 && shaded[i + 1] > 250 && shaded[i + 2] > 250) clipped++;
-      if (nearB[k]) { dNear += L0[k] - L[k]; nNear++; } else { dFar += L0[k] - L[k]; nFar++; }
+      const isNear = press ? pressed[k] : nearB[k];
+      if (isNear) { dNear += L0[k] - L[k]; nNear++; } else { dFar += L0[k] - L[k]; nFar++; }
       const nb = [k + 1, k - 1, k + w, k - w];
       if (nb.every((j) => j >= 0 && j < who.length && who[j] === 1)) {
         flatN++;

@@ -447,6 +447,22 @@ uniform vec4 u_patchCell[3];
 // two thirds hair says nothing about either. It lives in u_tool.w — see there.
 
 void main() {
+  // w == 2: paint the contact term itself, so a tool can ask which pixels are
+  // *in three dimensions* against the other man.
+  //
+  // look-check used to answer that in screen space — the other fighter's mask
+  // grown by two percent of the frame — and screen adjacency is not the
+  // question the shader answers. Side by side the two agree; in mount they do
+  // not agree at all, because what actually touches there is the top man's
+  // shins against the bottom man's ribs and his own body hides them, while his
+  // back and his head are nowhere near him on screen and ten centimetres from
+  // him in space. The check duly reported the pixels away from the opponent as
+  // darker than the ones next to him — a ratio below one, which no falloff
+  // can produce and no amount of tuning was going to fix.
+  if (u_ident > 1.5) {
+    outColor = vec4(vec3(contactAO(v_world)), 1.0);
+    return;
+  }
   if (u_ident > 0.5) {
     outColor = vec4(v_mat / 255.0, 0.0, 0.0, 1.0);
     return;
@@ -1322,7 +1338,8 @@ export class Renderer {
     if (Array.isArray(this.want)) {
       const list = this.want.slice();
       const keep = { contactAO: this.contactAO, folds: this.folds,
-        faceRelief: this.faceRelief, eyes: this.eyes, bakedAO: this.bakedAO };
+        faceRelief: this.faceRelief, eyes: this.eyes, bakedAO: this.bakedAO,
+        pressPass: this.pressPass };
       const shots = {};
       this._grabbing = true;
       for (let i = 0; i < list.length; i++) {
@@ -1332,6 +1349,10 @@ export class Renderer {
         this.faceRelief = v !== 'face';
         this.eyes = v !== 'eyes';
         this.bakedAO = v !== 'ao';
+        // 'press' is not a switch turned off but a different picture: the
+        // contact term painted as grey, so a tool can separate "against him"
+        // from "near him on screen".
+        this.pressPass = v === 'press';
         // The last pass carries the mask, so the identity buffer belongs to a
         // frame with everything switched on.
         this.want = i === list.length - 1;
@@ -1515,7 +1536,7 @@ export class Renderer {
         this.faceRelief === false ? 0 : 1,
         this.eyes === false ? 0 : 1,
         this.bakedAO === false ? 0 : 1,
-        0);
+        this.pressPass ? 2 : 0);
       gl.uniform4fv(this.progSkin.u.u_occA, this.occA);
       gl.uniform4fv(this.progSkin.u.u_occB, this.occB);
       gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
