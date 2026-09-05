@@ -71,6 +71,51 @@ existing ones is the right middle for these three.
   with the widened solver, leaving the work list. It was the deepest of the
   transitions a player actually drives on purpose, and it is gone.
 
+## What was done about it, in the round after
+
+Two waypoints, and a bug in the tool that was supposed to find them.
+
+**The bug first, because it explains why the study concluded what it did.**
+`route-arc` and `via-pick` both threw away any route that let the pair's nearest
+points get more than thirty centimetres apart — a sound rule between two
+tangles, and nonsense for a transition out of the stance, where the pair
+*begins* a metre and a third apart. So every candidate route for the four blends
+that come out of standing was rejected before it was measured, and the straight
+line, which was exempt from the test, won by walkover. That is why "every pose
+in the library as a waypoint" came back with nothing: it never tried one. The
+rule is relative now — a route may not pull them apart more than the movement
+does on its own.
+
+**The waypoints.** GUARD_ENTRY (the middle of falling into a guard) and
+GUARD_RECOVER (the middle of getting one back from under a mount) are not typed
+by hand: `tools/waypoint-from.mjs` lifts the pair out of the blend at the moment
+before the crossing and prints it as a pose, and `pose-relax` then pushes the
+limbs out of each other while keeping the rest. The shape the movement already
+had, minus the collision. Each carries the sentence the straight line cannot
+say, as an intent constraint:
+
+    { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.10 }
+
+— the man going underneath has a knee **either side** of the other man's hips,
+rather than both on one side with the thighs interleaved.
+
+| transition | was | now | via |
+| --- | --- | --- | --- |
+| STANDING>CLOSED_GUARD_X | 20 cm | **7 cm** | SIDE_ENTRY@late+A |
+| CLINCH>CLOSED_GUARD_X   | 20 cm | **14 cm** | GUARD_ENTRY@late |
+| STANDING>OPEN_GUARD_X   | 21 cm | **17 cm** | SIDE_ENTRY@late+A |
+| MOUNT>CLOSED_GUARD_X    | 21 cm | **20 cm** | GUARD_ENTRY@early |
+
+The worst moment in the whole graph is 20 cm, down from 22, and nothing is too
+deep to ship. Two of the four are won by a pose that already existed and could
+not be tried; two by GUARD_ENTRY. GUARD_RECOVER has not won a route yet — it is
+in the library, measured and clean, and if it never wins one it should go.
+
+MOUNT>CLOSED_GUARD_X is routed through GUARD_ENTRY@early rather than
+@early+A, which is two centimetres deeper: the deeper of the two is the one that
+keeps an elbow inside 155 degrees, and joint-check is a line while twenty
+centimetres is a work list.
+
 ## What remains, and why
 
 The three 20 cm thigh crossings (plus `MOUNT>KIMURA` at 19 cm) sit just under

@@ -123,7 +123,9 @@ for (const key of keys) {
   // added afterwards.
   const arc = ARCS[key];
   delete ARCS[key];
-  const straight = walk(from, to).worst;
+  const straightWalk = walk(from, to);
+  const straight = straightWalk.worst;
+  const together = Math.max(TOGETHER, straightWalk.apart + 0.05);
   if (straight < TRIGGER) { if (arc) ARCS[key] = arc; continue; }
 
   let best = null, bestWorst = straight;
@@ -138,7 +140,14 @@ for (const key of keys) {
                       '@mid+B', '@early+B', '@late+B']) {
       VIAS[key] = p + at;
       const m = walk(from, to);
-      if (m.apart > TOGETHER) continue;   // they came apart on the way
+      // A route may not pull them apart more than the movement does on its own.
+      //
+      // This was an absolute thirty centimetres, which is right between two
+      // tangles and wrong for every transition out of the stance — the pair
+      // *begins* a metre and a third apart there, so every candidate route was
+      // thrown away and the straight line, which was exempt from the test, won
+      // by walkover. Four blends sat at twenty centimetres for that reason.
+      if (m.apart > together) continue;   // they came apart on the way
       // Strictly the best, and the margin applied once at the end. Applied
       // between candidates it hid better routes behind worse ones: whichever
       // came first held the lead until something beat it by two centimetres,

@@ -62,7 +62,7 @@ function walk(from, to) {
   for (let i = 1; i < STEPS - 1; i++) {
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
-    rig.time = 0;
+    rig.rewind();
     rig.applyAt(from, to, i / (STEPS - 1), 0.016);
     const ov = overlap.measure(rig.skel.A, rig.skel.B);
     if (ov.deepest > worst) worst = ov.deepest;
@@ -137,17 +137,33 @@ for (const key of ONLY) {
   // Shortlist on the straight line, then measure the shortlist properly.
   const ranked = [];
   const keep = VIAS[key];
+  // How far the movement itself already takes them apart.
+  //
+  // The test used to be absolute — thirty centimetres between the nearest
+  // points of the two men, or the route is throwing them apart — and that is
+  // right for a transition between two tangles and wrong for every transition
+  // that starts in the stance, where the pair *begins* a metre and a third
+  // apart. Measured: it rejected every candidate route for the blends that
+  // come out of standing, so route-arc had nothing to compare and reported
+  // "the straight line" without trying a single alternative. The straight line
+  // was exempt from the test, which is what hid it.
+  //
+  // So the rule is what it always meant: a route may not pull them apart more
+  // than the movement does on its own.
+  delete VIAS[key];
+  const straight = walk(from, to);
+  const together = Math.max(TOGETHER, straight.apart + 0.05);
   for (const p of poses) {
     if (p === from || p === to) continue;
     for (const at of TIMINGS) {
       VIAS[key] = p + at;
       const m = walk(from, to);
-      if (m.apart > TOGETHER) continue;
+      if (m.apart > together) continue;
       ranked.push({ route: p + at, pre: m.worst });
     }
   }
   delete VIAS[key];
-  ranked.push({ route: null, pre: walk(from, to).worst });
+  ranked.push({ route: null, pre: straight.worst });
   if (keep) VIAS[key] = keep; else delete VIAS[key];
   ranked.sort((a, b) => a.pre - b.pre);
 

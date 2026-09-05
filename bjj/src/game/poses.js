@@ -767,6 +767,114 @@ export const POSES = {
     ],
   }),
 
+  // The middle of falling into a guard.
+  //
+  // Four transitions end in a guard and all four fail in the same place and the
+  // same way: at nine tenths of the way there, with a thigh inside a thigh, 20
+  // to 21 cm deep. docs/POSE-STUDY.md pinned it down — during the drop one man
+  // is already on the mat and the other is still standing, and their knees end
+  // up in the *same two lateral bands*: measured on STANDING>OPEN_GUARD_X at
+  // t=0.85, A's knees sat at x = -0.32 and +0.21 and B's at -0.33 and +0.24.
+  // The straight line then takes each thigh to its destination by the shortest
+  // path, which is through the other man's.
+  //
+  // No search fixes that: arc-solve, the single-limb lobe sweep, route-arc over
+  // every pose in the library and a first hand-typed GUARD_ENTRY all came back
+  // at 18.5 to 20 cm, because a nudge cannot route a limb around a body. What
+  // was missing is a pose in which the legs are already round the right way,
+  // and the blend goes through it.
+  //
+  // Lifted out of the blend itself (tools/waypoint-from.mjs) at the moment
+  // before the crossing and then relaxed, so it is the shape the movement
+  // already had, minus the collision.
+  GUARD_ENTRY: P('GUARD_ENTRY', {
+    name: 'Падение в гард',
+    label: 'OPEN GUARD',
+    points: 0, top: 'B', ground: true, waypoint: true,
+    A: {
+      root: { p: [0.091, 0.385, 0.018], r: [-67.6, 111.9, 48.7] },
+      j: {
+        hips: [14.2, 0.9, 12.9], spine: [0.3, -3.2, -9.5], chest: [1.5, 5.1, -1.9],
+        neck: [-24.4, 0, 0], head: [15.3, 0, 0], clavL: [-8.8, -19, 7.4],
+        armL: [-80.3, 20.4, -18.8], foreL: [-78.2, -4.4, -3.7], handL: [-1.8, 0, 0],
+        clavR: [-12.2, 10.9, -6.1], armR: [-72.3, -21.2, 28.2], foreR: [-80.2, -4.4, -3.7],
+        handR: [-1.8, 0, 0], thighL: [-77.5, -160.1, -159.8], shinL: [30.3, -5.6, 4.2],
+        footL: [-22.2, -1.2, 0.1], thighR: [-86.8, -164.9, 152.8], shinR: [29.6, 5.7, 1.8],
+        footR: [-21.5, 1.4, 0.8],
+      },
+    },
+    B: {
+      root: { p: [-0.05, 0.644, -0.379], r: [0, 27, 0] },
+      j: {
+        hips: [8.8, -0.4, -16.8], spine: [18.4, -13.1, -11.3], chest: [12.6, -1.3, -2.8],
+        neck: [3.6, 0, 0], clavL: [5.5, -9.1, 27.1], armL: [-84.4, 16.7, -10.9],
+        foreL: [-45.2, -6.1, 9.4], handL: [-1.8, 0, 0], clavR: [-9.8, 31.1, -18.3],
+        armR: [-76.1, -4.5, 27.7], foreR: [-48.5, 6, 0.2], handR: [-1.8, 0, 0],
+        thighL: [-16.6, 7, 9.9], shinL: [76.7, 0, 0], footL: [11.8, -1.2, -0.3],
+        thighR: [-33, -10.4, -11.7], shinR: [57.1, 4.5, -6], footR: [-21.5, 1.5, 0.1],
+      },
+    },
+    hold: [
+      // The whole point of the pose, and the thing the straight line gets
+      // wrong: the man going to his back has a knee either side of the other
+      // man's hips. Not both on one side, which is what a blend does when it
+      // takes each thigh to its destination by the shortest path and sweeps
+      // them through each other on the way.
+      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.10 },
+      // He is under him and they are together: this is a guard being entered,
+      // not two men falling side by side.
+      { of: 'B.chest', above: 'A.chest', by: 0.15 },
+      { of: 'B.chest', near: 'A.chest', within: 0.6 },
+    ],
+  }),
+
+  // The middle of getting a guard back from underneath mount.
+  //
+  // The other half of the same problem GUARD_ENTRY solves. Falling into a guard
+  // from the feet and recovering one from under a mount are different shapes —
+  // one man is descending in the first and rising in the second — and the study
+  // in docs/POSE-STUDY.md said so before either existed. Sampled from the blend
+  // at the moment before the thighs cross, then relaxed.
+  GUARD_RECOVER: P('GUARD_RECOVER', {
+    name: 'Возврат гарда',
+    label: 'CLOSED GUARD',
+    points: 0, top: 'B', ground: true, waypoint: true,
+    A: {
+      root: { p: [-0.024, 0.277, -0.031], r: [-74.8, 82.3, 82.3] },
+      j: {
+        hips: [12.4, 17.8, 19.3], spine: [11.4, 24.5, 19.3], chest: [9.9, 6.3, -26.6],
+        neck: [-14.9, 0.8, 0.8], head: [13, -0.5, -0.5], clavL: [5.8, -2.4, -5.5],
+        armL: [-89.8, -3.4, 0], foreL: [-60.7, 1.1, 1], clavR: [-28.1, 18.8, -7.2],
+        armR: [-75.6, 148.4, -164], foreR: [-82.3, 19.8, 17.5], thighL: [-50.1, 9.3, 26.4],
+        shinL: [45.1, 176.8, 170.7], footL: [-6.6, 0.2, 0], thighR: [-66.4, -156.6, 171.9],
+        shinR: [28.5, 170.3, -162.4], footR: [-6.7, -0.6, 0],
+      },
+    },
+    B: {
+      root: { p: [-0.024, 0.528, -0.311], r: [-2, 15.1, 15.1] },
+      j: {
+        hips: [10.9, -23.4, 23.5], spine: [28.6, 15.8, 3.3], chest: [18.5, -3, 10.2],
+        neck: [5.7, 0, 0.4], head: [-5.4, 0.7, 0.4], clavL: [29.4, -10.4, -21.1],
+        armL: [-28.2, 9.9, 38.9], foreL: [-51.1, -6.8, -31.3], clavR: [-19.1, 35.5, -1.6],
+        armR: [-86.6, -82.9, 92.2], foreR: [-53.3, 9.9, 18.1], thighL: [7.3, 5.6, 10.7],
+        shinL: [86.2, 0.8, 0.7], footL: [19.5, 0, 0], thighR: [25, -13.9, -22.9],
+        shinR: [85.3, 0, 0], footR: [19.4, 0, -0.6],
+      },
+    },
+    hold: [
+      // The same sentence as GUARD_ENTRY and for the same reason: the man
+      // going underneath has a knee either side of the other man's hips. That
+      // is what recovering a guard *is*, and it is the one thing a straight
+      // line between mount and a guard cannot do — it takes each thigh the
+      // short way and sweeps them through each other at nine tenths.
+      { straddle: 'B.hips', with: ['A.shinL', 'A.shinR'], by: 0.10 },
+      // Hips already clear of the mat and the chests apart: this is the moment
+      // the bottom man has made room, not the moment he is still flat.
+      { of: 'B.chest', above: 'A.chest', by: 0.12 },
+      { of: 'B.chest', near: 'A.chest', within: 0.6 },
+    ],
+  }),
+
 
   /* ------------------------------------------------- the same, working - */
   //

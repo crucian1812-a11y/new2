@@ -102,6 +102,75 @@ function underMat() {
   return { worst, where };
 }
 
+// ------------------------------------------------------------ standing up
+
+// The capsules, as collide.js has them, and the segment masses a body is made
+// of (Winter). The pair is one system: it may lean on itself as much as it
+// likes, but its weight together has to be over the ground it touches, or it
+// is a photograph of two people falling.
+const CAPS = [
+  ['hips', 'spine', 0.190, 0.184, 0.142], ['spine', 'chest', 0.186, 0.212, 0.139],
+  ['chest', 'neck', 0.212, 0.112, 0.216], ['neck', 'head', 0.066, 0.078, 0.020],
+  ['head', 'headTop', 0.098, 0.086, 0.061],
+  ['armL', 'foreL', 0.085, 0.076, 0.028], ['foreL', 'handL', 0.078, 0.070, 0.016],
+  ['handL', 'fingL', 0.042, 0.038, 0.006],
+  ['armR', 'foreR', 0.085, 0.076, 0.028], ['foreR', 'handR', 0.078, 0.070, 0.016],
+  ['handR', 'fingR', 0.042, 0.038, 0.006],
+  ['thighL', 'shinL', 0.122, 0.100, 0.100], ['shinL', 'footL', 0.095, 0.075, 0.0465],
+  ['footL', 'toeL', 0.050, 0.034, 0.0145],
+  ['thighR', 'shinR', 0.122, 0.100, 0.100], ['shinR', 'footR', 0.095, 0.075, 0.0465],
+  ['footR', 'toeR', 0.050, 0.034, 0.0145],
+];
+
+function balance(A, B) {
+  const pts = [];
+  let mx = 0, mz = 0, m = 0;
+  for (const sk of [A, B]) {
+    for (const [a, b, r0, r1, w] of CAPS) {
+      const p = sk.world[BONE_INDEX[a]], q = sk.world[BONE_INDEX[b]];
+      mx += ((p[12] + q[12]) / 2) * w;
+      mz += ((p[14] + q[14]) / 2) * w;
+      m += w;
+      for (let i = 0; i < 5; i++) {
+        const t = i / 4;
+        const y = p[13] + (q[13] - p[13]) * t;
+        const r = r0 + (r1 - r0) * t;
+        if (y - r <= MAT_Y + 0.04) {
+          pts.push([p[12] + (q[12] - p[12]) * t, p[14] + (q[14] - p[14]) * t]);
+        }
+      }
+    }
+  }
+  if (pts.length < 3 || m <= 0) return 0;
+  const c = [mx / m, mz / m];
+  // Convex hull of what is on the mat, then how far outside it the weight is.
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  lower.pop(); upper.pop();
+  const h = lower.concat(upper);
+  if (h.length < 3) return 0;
+  let inside = true, best = 9;
+  for (let i = 0; i < h.length; i++) {
+    const a = h[i], b = h[(i + 1) % h.length];
+    const ex = b[0] - a[0], ez = b[1] - a[1];
+    if (ex * (c[1] - a[1]) - ez * (c[0] - a[0]) < 0) inside = false;
+    const l2 = ex * ex + ez * ez;
+    const t = l2 > 1e-9 ? Math.max(0, Math.min(1, ((c[0] - a[0]) * ex + (c[1] - a[1]) * ez) / l2)) : 0;
+    best = Math.min(best, Math.hypot(a[0] + ex * t - c[0], a[1] + ez * t - c[1]));
+  }
+  return inside ? 0 : best;
+}
+
 function cost(id) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
@@ -159,6 +228,16 @@ function cost(id) {
       if (under > 0) c += under * under * 200;
     }
   }
+
+  // And the weight over the ground.
+  //
+  // A pair is one system and it may lean on itself as much as it likes, but the
+  // two of them together have to be over what they are standing on. Measured
+  // with tools/weight-check.mjs, the library had poses as much as 85 cm out —
+  // a photograph of two people falling over, which is what "unnatural" means
+  // when nobody can say why.
+  const out = balance(A, B);
+  if (out > 0.12) c += (out - 0.12) * (out - 0.12) * 30;
 
   // Still a grappling position and not two solos: the closest pair of read
   // points has to stay inside a forearm's length.
