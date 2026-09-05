@@ -370,15 +370,26 @@ uniform float u_folds;
 // And the same for the face. The features there are drawn into the albedo, so
 // the honest question is whether they do anything to the light, and the only
 // way to ask it is the same frame with them shaping the surface and without.
-uniform float u_face;
-// And one for the eyes, which is the only switch in here that turns an asset
-// off rather than an effect: with it down the eyeballs are shaded as though
-// they were the skin around them, which is exactly what a character baked
-// without an eye material looks like. That makes "what are the eyes worth on
-// this head" a number instead of an opinion.
-uniform float u_eyes;
-// And for what the baker measured on the mesh.
-uniform float u_ao;
+// ...and the eyes, which is the only switch in here that turns an asset off
+// rather than an effect: with it down the eyeballs are shaded as though they
+// were the skin around them, which is exactly what a character baked without
+// an eye material looks like. That makes "what are the eyes worth on this
+// head" a number instead of an opinion. And what the baker measured on the
+// mesh. And the identity pass, which paints each fighter and each material
+// into a channel so look-check can mask a face without segmenting it.
+//
+// All four in one vec4, which is what they cost: four separate floats are four
+// uniform loads a frame, and frame-check's budget is 110. It read 105 when the
+// switches were written and the note then said "if the budget is ever hit,
+// they fold into one vec4". It was hit — 111 — so they have.
+//
+//   x  face relief      y  eyes as their own material
+//   z  the baked AO     w  the identity pass
+uniform vec4 u_tool;
+#define u_face u_tool.x
+#define u_eyes u_tool.y
+#define u_ao   u_tool.z
+#define u_ident u_tool.w
 
 // How much of the sky a point can still see, given those capsules. One minus
 // the product rather than a sum: two limbs pressing on the same patch of cloth
@@ -414,8 +425,7 @@ uniform vec4 u_patchCell[3];
 // Tooling: draw which material each pixel is instead of what it looks like.
 // A mask by fighter is not enough to say anything about a face — most of a
 // head on screen is hair, and averaging a face number over a head disc that is
-// two thirds hair says nothing about either.
-uniform float u_ident;
+// two thirds hair says nothing about either. It lives in u_tool.w — see there.
 
 void main() {
   if (u_ident > 0.5) {
@@ -1481,9 +1491,12 @@ export class Renderer {
       gl.uniform1fv(this.progSkin.u.u_bend, this.bend);
       gl.uniform1f(this.progSkin.u.u_contact, this.contactAO === false ? 0 : 1);
       gl.uniform1f(this.progSkin.u.u_folds, this.folds === false ? 0 : 1);
-      gl.uniform1f(this.progSkin.u.u_face, this.faceRelief === false ? 0 : 1);
-      gl.uniform1f(this.progSkin.u.u_eyes, this.eyes === false ? 0 : 1);
-      gl.uniform1f(this.progSkin.u.u_ao, this.bakedAO === false ? 0 : 1);
+      // The four tool switches, one load instead of four. See u_tool.
+      gl.uniform4f(this.progSkin.u.u_tool,
+        this.faceRelief === false ? 0 : 1,
+        this.eyes === false ? 0 : 1,
+        this.bakedAO === false ? 0 : 1,
+        0);
       gl.uniform4fv(this.progSkin.u.u_occA, this.occA);
       gl.uniform4fv(this.progSkin.u.u_occB, this.occB);
       gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
@@ -1617,7 +1630,14 @@ export class Renderer {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.useProgram(this.progSkin.p);
       gl.uniformMatrix4fv(this.progSkin.u.u_viewProj, false, this.viewProj);
-      gl.uniform1f(this.progSkin.u.u_ident, 1);
+      // The identity pass is the same four switches with w up. The other three
+      // are held at what the lit pass used, because this run has to shade the
+      // same materials it just shaded.
+      gl.uniform4f(this.progSkin.u.u_tool,
+        this.faceRelief === false ? 0 : 1,
+        this.eyes === false ? 0 : 1,
+        this.bakedAO === false ? 0 : 1,
+        1);
       for (const f of fighters) {
         gl.uniformMatrix4fv(this.progSkin.u.u_bones, false, f.skeleton.skin);
         for (const part of f.gpu.parts) {
@@ -1625,7 +1645,11 @@ export class Renderer {
           gl.drawElements(gl.TRIANGLES, part.count, part.type, 0);
         }
       }
-      gl.uniform1f(this.progSkin.u.u_ident, 0);
+      gl.uniform4f(this.progSkin.u.u_tool,
+        this.faceRelief === false ? 0 : 1,
+        this.eyes === false ? 0 : 1,
+        this.bakedAO === false ? 0 : 1,
+        0);
       const mat = this._readback();
       gl.disable(gl.DEPTH_TEST);
       this.grabbed = { w, h, shaded, id, mat };
