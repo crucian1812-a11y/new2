@@ -18,6 +18,9 @@ import { PairRig } from '../src/game/rig.js';
 import { POSES, HOLD_LOOPS } from '../src/game/poses.js';
 import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
+import { readFileSync } from 'node:fs';
+import { decodeFighter } from '../src/render/asset.js';
+import { skinLite, skinInto } from './skin-lite.mjs';
 import { Overlap } from '../src/game/collide.js';
 import { JUDGE_STEPS } from './grid.mjs';
 
@@ -68,6 +71,14 @@ const FAIL = 0.22;
 // not to would be asking the wrong question. What this measures is what the
 // correction *added* on top — the same shape as the correction itself, zero at
 // both ends.
+// Through the mat, on the skin: where it goes on the work list and where it
+// stops being shippable. The first number is judgement — a body pressing into
+// foam is not a body through the floor — and the second is written after the
+// measurement rather than before it, the way shake-check's was: it sits just
+// above where the library stands the day the measure was written, so it can
+// only ever come down. It opened with a third of the graph on the list.
+const SUNK_LIMIT = 0.06;
+const SUNK_FAIL = 0.32;
 const LIFT_LIMIT = 0.06;
 const LIFT_FAIL = 0.12;
 
@@ -78,6 +89,40 @@ const rig = new PairRig();
 rig.live = false;
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest'];
+// Through the mat, measured on the skin rather than on a list of bones.
+//
+// This used to ask seven bones whether any of them was more than seven and a
+// half centimetres below the mat — a blanket allowance standing in for "how far
+// the skin hangs below a bone", and a list with no knee in it. The knee is the
+// shin bone's own origin and it is what half this sport puts on the floor, and
+// its skin hangs to the ankle, so the one part most likely to be through the
+// tatami was the one part the measure could not see. Measured properly: a third
+// of the graph puts skin more than six centimetres under, and the worst of them
+// buries a whole shin — 29 cm at the middle of OPEN_GUARD>SIDE_CONTROL.
+//
+// It reads tools/skin-lite.mjs, the same subset pose-relax solves against:
+// eighty-one blends at thirty-three samples is affordable on four thousand
+// vertices and is not on eleven thousand.
+const loadMesh = (name) => {
+  const raw = readFileSync(new URL(`../assets/${name}`, import.meta.url));
+  return decodeFighter(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.length));
+};
+const LITE = { A: skinLite(loadMesh('fighter.bin')), B: skinLite(loadMesh('fighter-b.bin')) };
+const MAXV = Math.max(LITE.A.pos.length, LITE.B.pos.length) / 3;
+const _xyz = new Float64Array(MAXV * 3), _who = new Uint16Array(MAXV);
+// Either baked man can be in either role and they differ by three and a half
+// centimetres at the point that touches the mat, so this judges the one that
+// sits *higher* — the same rule weight-check and seat-solve use.
+function skinUnder(sk) {
+  let best = -9;
+  for (const mk of ['A', 'B']) {
+    const n = skinInto(LITE[mk], sk, _xyz, _who);
+    let lo = 9;
+    for (let v = 0; v < n; v++) if (_xyz[v * 3 + 1] < lo) lo = _xyz[v * 3 + 1];
+    if (lo > best) best = lo;
+  }
+  return MAT_Y - best;
+}
 // What can be the lowest thing on a grappler. Not the same list as READ: the
 // top of the head is never the part touching the mat, and the knees — which
 // are the shin bones' own origins — carry half the positions in this game.
@@ -120,11 +165,8 @@ for (const tr of BLENDS) {
     if (i === 0 || i === STEPS - 1) ends = Math.max(ends, ov.deepest);
 
     for (const role of ['A', 'B']) {
-      for (const b of READ) {
-        const m = rig.skel[role].world[BONE_INDEX[b]];
-        const under = MAT_Y - 0.075 - m[13];
-        if (under > sunk) { sunk = under; sunkAt = t; sunkWho = `${role}.${b}`; }
-      }
+      const under = skinUnder(rig.skel[role]);
+      if (under > sunk) { sunk = under; sunkAt = t; sunkWho = role; }
     }
     let lo = Infinity;
     for (const role of ['A', 'B']) {
@@ -156,17 +198,17 @@ for (const r of rows) {
   // anything the two poses do not already have.
   const limit = r.kind === 'hold' ? r.ends + 0.02 : LIMIT;
   const fail = r.kind === 'hold' ? r.ends + 0.03 : FAIL;
-  const flag = r.worst > limit || r.sunk > 0.04 || r.lift > LIFT_LIMIT;
+  const flag = r.worst > limit || r.sunk > SUNK_LIMIT || r.lift > LIFT_LIMIT;
   const bucket = r.kind === 'hold' ? 'hold' : 'move';
   if (flag) bad[bucket]++;
-  if (r.worst > fail || r.sunk > 0.06 || r.lift > LIFT_FAIL) fails[bucket]++;
+  if (r.worst > fail || r.sunk > SUNK_FAIL || r.lift > LIFT_FAIL) fails[bucket]++;
   if (!ALL && !flag) continue;
   const line =
     `${flag ? '!' : ' '} ${r.key.padEnd(28)} worst ${(r.worst * 100).toFixed(0).padStart(3)}cm ` +
     `at t=${r.at.toFixed(2)}`;
   console.log(line);
   if (r.worst > limit) console.log(`      · ${r.where}`);
-  if (r.sunk > 0.04) {
+  if (r.sunk > SUNK_LIMIT) {
     console.log(`      · ${r.sunkWho} ${(r.sunk * 100).toFixed(0)}cm under the mat at t=${r.sunkAt.toFixed(2)}`);
   }
   if (r.lift > LIFT_LIMIT) {
@@ -191,6 +233,12 @@ console.log(
 console.log(
   `${rows.length - holds.length} transitions, worst moment ${(worstOverall * 100).toFixed(0)}cm — ` +
   verdict(rows.length - holds.length, fails.move, bad.move)
+);
+const worstSunk = rows.reduce((m, r) => Math.max(m, r.sunk), 0);
+const inMat = rows.filter((r) => r.sunk > SUNK_LIMIT).length;
+console.log(
+  `through the mat: worst ${(worstSunk * 100).toFixed(0)}cm of skin, ${inMat} of ${rows.length} blends over ` +
+  `${(SUNK_LIMIT * 100).toFixed(0)}cm`
 );
 const worstLift = rows.reduce((m, r) => Math.max(m, r.lift), 0);
 const offMat = rows.filter((r) => r.lift > LIFT_LIMIT).length;

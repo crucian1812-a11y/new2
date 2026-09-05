@@ -349,6 +349,24 @@ function culprits(from, to) {
       count.set('A.' + m[1], (count.get('A.' + m[1]) || 0) + p.pen);
       count.set('B.' + m[2], (count.get('B.' + m[2]) || 0) + p.pen);
     }
+    // And whatever is through the mat, which nothing above can see.
+    //
+    // A limb through the floor is not inside anybody, so it never appeared in
+    // this list — and the cost has charged for it since the mat term was
+    // written. The search was being billed for something it had no knob to
+    // turn. Measured on OPEN_GUARD>SIDE_CONTROL: the blend swings B's right leg
+    // straight down, the ankle 54 cm under the mat at t=0.75 and the knee 13,
+    // the foot clamp hauls the ankle back to the sole line and the two-bone
+    // solve puts the knee at minus 27 to reach it — a quarter of a metre of leg
+    // in the tatami, on a third of the graph, and neither the solver nor
+    // blend-check had a name for it.
+    for (const role of ['A', 'B']) {
+      for (const b of READ) {
+        const m = rig.skel[role].world[BONE_INDEX[b]];
+        const under = MAT_Y - (m[13] - (SKIN_BELOW[b] || 0));
+        if (under > 0) count.set(role + '.' + b, (count.get(role + '.' + b) || 0) + under);
+      }
+    }
   }
   const ranked = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, CULPRITS);
   const out = [];
