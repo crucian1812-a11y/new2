@@ -18,9 +18,11 @@
 //   node bjj/tools/arc-all.mjs --write    and write src/game/arcs.js
 //   node bjj/tools/arc-all.mjs --jobs 2   fewer children (default: the cores)
 //   node bjj/tools/arc-all.mjs --only A>B,C>D --write   just those
+//   node bjj/tools/arc-all.mjs --merge /tmp/arc-all-XXXX --write
+//                                        stitch a run whose parent died
 
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { cpus } from 'node:os';
@@ -36,6 +38,21 @@ const ONLY = (() => {
 const JOBS = (() => {
   const i = process.argv.indexOf('--jobs');
   return Math.max(1, i >= 0 && process.argv[i + 1] ? +process.argv[i + 1] : cpus().length);
+})();
+// Stitch the shards of a run whose parent is gone, instead of solving.
+//
+// The children are spawned and then only waited on, so a parent that dies —
+// a timeout around the whole thing, a closed terminal — orphans four solvers
+// that keep going and keep writing. An hour of searching survives in that
+// directory and there was no way to pick it up: the merge lived inside the
+// same process that had just been killed.
+//
+// The shards are recomputed rather than remembered, so this must be given the
+// same --jobs and --only the dead run had; with a different --jobs the round
+// robin deals the transitions differently and shard i is not the same shard.
+const MERGE = (() => {
+  const i = process.argv.indexOf('--merge');
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : null;
 })();
 
 // The same list arc-solve builds, in the same order, so a shard names keys the
@@ -60,14 +77,18 @@ const shards = Array.from({ length: JOBS }, () => []);
 solvingKeys.forEach((k, i) => shards[i % JOBS].push(k));
 
 const here = fileURLToPath(new URL('.', import.meta.url));
-const dir = mkdtempSync(join(tmpdir(), 'arc-all-'));
+const dir = MERGE || mkdtempSync(join(tmpdir(), 'arc-all-'));
 const solver = join(here, 'arc-solve.mjs');
 const target = join(here, '..', 'src', 'game', 'arcs.js');
 
-console.log(`${solvingKeys.length} transitions, ${JOBS} at a time\n`);
+console.log(MERGE
+  ? `stitching ${solvingKeys.length} transitions from ${dir}\n`
+  : `${solvingKeys.length} transitions, ${JOBS} at a time\n`);
 const t0 = Date.now();
 
-const runs = shards.filter((s2) => s2.length).map((shard, i) => new Promise((done, fail) => {
+const runs = shards.filter((s2) => s2.length).map((shard, i) => MERGE
+  ? Promise.resolve({ shard, out: join(dir, `arcs-${i}.js`), log: '' })
+  : new Promise((done, fail) => {
   const out = join(dir, `arcs-${i}.js`);
   const args = [solver, '--only', shard.join(','), '--write', '--out', out];
   const child = spawn(process.execPath, args, { env: process.env });
@@ -79,9 +100,18 @@ const runs = shards.filter((s2) => s2.length).map((shard, i) => new Promise((don
     if (code !== 0) return fail(new Error(`shard ${i} exited ${code}\n${log}`));
     done({ shard, out, log });
   });
-}));
+  }));
 
 const results = await Promise.all(runs);
+if (MERGE) {
+  const missing = results.filter((r) => !existsSync(r.out));
+  if (missing.length) {
+    console.error(`${missing.length} of ${results.length} shards never finished writing:`);
+    for (const m of missing) console.error(`  ${m.out} — ${m.shard.length} transitions still unsolved`);
+    console.error('their arcs stay as they were; re-solve them with --only');
+    process.exit(1);
+  }
+}
 if (!results.length) {
   console.log('nothing to solve — --only matched no transition');
   rmSync(dir, { recursive: true, force: true });
@@ -130,4 +160,6 @@ if (WRITE) {
 } else {
   console.log('nothing written (pass --write)');
 }
-rmSync(dir, { recursive: true, force: true });
+// A merged run keeps its directory: it was not this process that made it, and
+// the shards are the only copy of an hour's work until the file is checked.
+if (!MERGE) rmSync(dir, { recursive: true, force: true });
