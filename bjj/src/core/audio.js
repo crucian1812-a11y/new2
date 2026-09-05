@@ -336,6 +336,42 @@ export class Audio {
     if (amount >= 0.5) this._play(amount >= 0.75 ? 'cheerBig' : 'cheerSmall', 0.45 * amount);
   }
 
+  // The room has a side, and it is yours.
+  //
+  // Every swell in the game was the same swell: two points to you and two
+  // points to the man on top of you both brought the hall to its feet, because
+  // the event carries who scored and nothing read it. A crowd that cheers
+  // equally for both is not a crowd, it is weather — and this hall is the
+  // player's own club, whose name is painted on the mat.
+  //
+  // So a score of yours is the room coming up, and a score against you is the
+  // room going quiet: the same event, a fifth of the lift and no cheer sample
+  // at all, because a murmur is what a hall does when the wrong man scores.
+  // `mine` is the only argument that matters; `big` separates a submission
+  // from two points.
+  //
+  // Measured by sound-check, which fires both and compares them — otherwise
+  // this is a claim about taste rather than about the output.
+  score(mine, big = false) {
+    if (mine) { this.swell(big ? 0.9 : 0.55, big ? 2.6 : 1.4); return; }
+    // And it goes *quiet*, which is not the same as cheering less.
+    //
+    // The first cut of this gave his score a smaller swell, and a smaller
+    // swell still raises the room: measured, the hall came out 2.4-3.8 dB
+    // apart between his points and yours, which is inside the run-to-run
+    // noise of the probe. A hall whose man is being scored on does not cheer
+    // quietly, it stops — so the bed ducks below its own resting level and
+    // comes back, and there is no cheer sample at all.
+    if (!this.ctx || this.muted) return;
+    const g = this.crowdGain.gain;
+    const t = this.ctx.currentTime;
+    const dur = big ? 2.2 : 1.3;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(big ? 0.03 : 0.045, t + 0.22);
+    g.linearRampToValueAtTime(0.1, t + dur);
+  }
+
   // ------------------------------------------------------------- the place
 
   // Where the ear is. The camera orbits the pair and pushes in on intensity,

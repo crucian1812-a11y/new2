@@ -327,15 +327,19 @@ function onMatchEvent(e) {
     if (e.tr.big) camera.cut(e.tr.dir === 'left' ? -1 : 1);
     crowd.level = Math.max(crowd.level, e.tr.big ? 0.85 : 0.5);
   } else if (e.kind === 'points') {
+    // Whose points. The room is the player's club, and it does not cheer for
+    // the man scoring on him — see audio.score.
+    const mine = e.by === 0;
     referee.gesture('call', 1.1);
     audio.confirm();
-    audio.swell(0.4, 1.2);
-    crowd.level = 1;
+    audio.score(mine, false);
+    crowd.level = mine ? 1 : 0.35;
   } else if (e.kind === 'submission') {
+    const mine = e.by === 0;
     camera.cut(Math.random() < 0.5 ? -1 : 1);
     audio.lock(between());
-    audio.swell(0.8, 2.4);
-    crowd.level = 1;
+    audio.score(mine, true);
+    crowd.level = mine ? 1 : 0.4;
   } else if (e.kind === 'recall') {
     // He stops them and waves them back to the middle. The whistle is his
     // 'stop', held long enough to cover the walk.
