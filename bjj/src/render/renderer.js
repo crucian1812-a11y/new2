@@ -404,10 +404,29 @@ float contactAO(vec3 p) {
     vec3 ap = p - a;
     float t = clamp(dot(ap, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
     float d = length(ap - ab * t) - mix(ra, u_occB[i].w, t);
-    // 20 cm of reach: past that a body is near, not on you. Squared, because
-    // the linear falloff spread a thin grey over everything instead of a dark
-    // crease where the two of them actually meet.
-    float f = smoothstep(0.0, 0.20, d);
+    // Thirteen centimetres of reach, and the number is the whole point.
+    //
+    // It was twenty, and at twenty there is no "away" left: two people wrapped
+    // around each other put almost every patch of skin within twenty
+    // centimetres of one of the other man's twelve capsules, so the term
+    // darkened the whole body evenly and stopped being contact at all.
+    // look-check measured exactly that — 4.1 levels on the pixels next to the
+    // other body against 3.7 on the pixels far from it, a ratio of 1.1 where
+    // the check wants 1.5.
+    //
+    // Swept: at 8cm side control reads 3.5x and mount collapses, at 13cm side
+    // control reads 2.5x, at 20cm nothing reads at all. Thirteen is where the
+    // gradient comes back without the effect disappearing.
+    //
+    // It was also quietly eating the baked occlusion. The two multiply, so a
+    // contact term that darkens everything crushes the contrast the baker
+    // measured into the mesh: the sockets-and-jaw check went from failing at
+    // 37% to passing at 42% on this number alone, with nothing about the head
+    // touched.
+    //
+    // Squared, because the linear falloff spread a thin grey over everything
+    // instead of a dark crease where the two of them actually meet.
+    float f = smoothstep(0.0, 0.13, d);
     o *= f * f;
   }
   return o;
