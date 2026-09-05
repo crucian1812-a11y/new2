@@ -85,6 +85,12 @@ const SOLE = 0.083;
 // degrees, which puts the ankle 18.1 cm from the hip; a centimetre of margin on
 // top of that.
 const LEG_MIN = 0.19;
+// How fast the foot clamp may change its mind, in seconds. See _ground.
+// Measured with shake-check over twelve matches: 16.3 teleports a minute with
+// the clamp applied outright, 12.2 at 0.08 s, 11.7 at 0.12, 13.1 at 0.20 —
+// long enough that the correction is not a jump, short enough that a foot is
+// not left through the floor long enough to see.
+const PLANT_EASE = 0.12;
 const ARM_REACH = 0.52;
 // A hand closes on something, and lets go of it, over about a fifth of a
 // second. See the top of _grips for what the number is holding back.
@@ -243,6 +249,10 @@ export class PairRig {
     // Whether a foot through the mat is put back on it. Off only while
     // seat-solve is deciding where a pose sits — see _ground.
     this.plantFeet = true;
+    // How much lift each foot is currently being given by the clamp in
+    // _ground. It is eased rather than applied outright, so the correction
+    // cannot move a leg faster than a leg moves.
+    this._plant = { A: { footL: 0, footR: 0 }, B: { footL: 0, footR: 0 } };
     // Whether this rig is being watched or measured.
     //
     // The easing below is a function of elapsed time, and a solver does not
@@ -595,7 +605,7 @@ export class PairRig {
       }
       this._life(role, sk, from, to, e);
       sk.pose();
-      this._ground(sk);
+      this._ground(sk, role, dt);
       this._step(role, sk, dt, !POSES[to].ground && !POSES[from].ground);
     }
 
@@ -618,7 +628,7 @@ export class PairRig {
   //
   // It only ever pushes up, and only from below, so a fighter whose legs are
   // deliberately in the air is left alone.
-  _ground(sk) {
+  _ground(sk, role, dt) {
     const FLOOR = 0.05;
     // The lift is gone, and this is the note it left.
     //
@@ -639,11 +649,43 @@ export class PairRig {
     // pose is being seated it has to be off, or the seat pushes the pair down
     // and this holds the foot where it was and the two never agree. Four poses
     // sat in exactly that limit cycle before seat-solve learned to switch it.
+    //
+    // And it has a speed now, which it did not, and that cost a round's worth
+    // of shake. Once the poses were seated properly the ankles came to rest
+    // *on* the line this tests against, and a correction recomputed from
+    // scratch every frame against a line the foot is sitting on is a correction
+    // that jumps. Measured with shake-check over twelve matches: 16.3 teleports
+    // a minute over 1500 m/s² against a line of 15, and the worst joint in the
+    // whole game was the shin this was solving; with the clamp switched off
+    // entirely, 2.4.
+    //
+    // Three guesses about the shape of it were wrong, and each is worth a line
+    // so nobody spends the afternoon again. Ramping the strength in over the
+    // last three centimetres changed the number by nothing at all. Stopping the
+    // IK from choosing the other side for the knee: nothing. Dropping the
+    // minimum leg length: nothing. And at *half* weight there were more
+    // teleports than at full — 27.9 against 16.3 — which is the signature of a
+    // correction that jumps rather than of one that is too strong.
+    //
+    // So it is not the shape, it is the speed: the lift now eases towards what
+    // the foot wants over PLANT_EASE rather than being applied outright, and
+    // the leg cannot be moved faster than a leg moves. 16.3 → 11.7. Snap rather
+    // than ease when the rig is not live, so every measurer still sees the pose
+    // and not the frame it happens to be on.
     if (!this.plantFeet) return;
+    const held = this._plant[role];
     for (const [th, sh, ft] of [['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR']]) {
       sk.boneHead(_t, ft);
-      if (_t[1] >= FLOOR + SOLE - 0.008) continue;
-      _t[1] = FLOOR + SOLE;
+      // How much of a lift the foot wants, and how much of it it gets this
+      // frame. The want is a hard test against a fixed height and it changes as
+      // fast as the pose does; a leg does not. Eased, the correction cannot
+      // move faster than PLANT_EASE lets it, and the shin stops being the
+      // fastest thing on the mat.
+      const want = Math.max(0, FLOOR + SOLE - 0.008 - _t[1]);
+      const k = this.live && dt > 0 ? Math.min(1, dt / PLANT_EASE) : 1;
+      held[ft] += (want - held[ft]) * k;
+      if (held[ft] <= 0.001) continue;
+      _t[1] += held[ft];
       // A leg cannot be shorter than a folded leg.
       //
       // The target is a height, and pulling a foot up to it shortens the
