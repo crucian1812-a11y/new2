@@ -801,6 +801,68 @@ for (const side of ['L', 'R']) {
   if (touched) console.log(`re-weighted ${touched} finger vertices onto hand${side}/fing${side}/hand${side}Tip`);
 }
 
+// Find the eyeballs by their shape, for a character that welded them in.
+//
+// `classify` names a part by the bones that move it, and that works when the
+// eyes arrive as their own submesh with eye clusters on them — fighter A's do,
+// and they get material 7. Ch31's are two spheres merged into the body with no
+// bones of their own, so nothing recognised them: the opponent shipped with no
+// eye material at all, and look-check duly reported his eyes as worth 0.0
+// levels because there was nothing to switch off.
+//
+// Bones cannot answer this, so shape does. An eyeball is a small closed piece
+// of surface inside the head with a twin the same size mirrored across the
+// centreline at the same height — which is a description of an eye and of
+// nothing else on a person. Measured on the two characters: A's sit at 155.2
+// and 155.3cm, 3.0cm either side of the middle, 3.5cm across; B's at 155.6cm,
+// 2.7cm either side, 2.5cm across.
+{
+  const n = P.length / 3;
+  const par = new Int32Array(n);
+  for (let i = 0; i < n; i++) par[i] = i;
+  const find = (a) => { while (par[a] !== a) { par[a] = par[par[a]]; a = par[a]; } return a; };
+  for (let t = 0; t < IDX.length; t += 3) {
+    const a = find(IDX[t]), b = find(IDX[t + 1]), c = find(IDX[t + 2]);
+    if (a !== b) par[a] = b;
+    const b2 = find(IDX[t + 1]), c2 = find(IDX[t + 2]);
+    if (b2 !== c2) par[b2] = c2;
+  }
+  const comp = new Map();
+  for (let v = 0; v < n; v++) {
+    const c = find(v);
+    let a = comp.get(c);
+    if (!a) { a = { vs: [], lo: [1e9, 1e9, 1e9], hi: [-1e9, -1e9, -1e9] }; comp.set(c, a); }
+    a.vs.push(v);
+    for (let k = 0; k < 3; k++) {
+      a.lo[k] = Math.min(a.lo[k], P[v * 3 + k]);
+      a.hi[k] = Math.max(a.hi[k], P[v * 3 + k]);
+    }
+  }
+  const headY = ourBind[BONE_INDEX.head] ? ourBind[BONE_INDEX.head][13] : 1.45;
+  const cand = [];
+  for (const a of comp.values()) {
+    const d = [0, 1, 2].map((k) => a.hi[k] - a.lo[k]);
+    const mid = [0, 1, 2].map((k) => (a.hi[k] + a.lo[k]) / 2);
+    const big = Math.max(...d), small = Math.min(...d);
+    // A hundred vertices, which is the clause that separates an eye from a
+    // scrap of cheek. Both characters model an eyeball at 449 vertices; the
+    // fragments the face breaks into are a dozen.
+    if (a.vs.length < 100 || big > 0.05 || small < big * 0.6) continue;   // small, round and a real piece
+    if (mid[1] < headY - 0.02) continue;                                  // inside the head
+    if (Math.abs(mid[0]) < 0.005 || Math.abs(mid[0]) > 0.06) continue;    // off the centreline, not far
+    cand.push({ a, mid, big });
+  }
+  // And it must have a twin: same height, same size, the other side.
+  let eyeVerts = 0;
+  for (const c of cand) {
+    const twin = cand.find((o) => o !== c && o.mid[0] * c.mid[0] < 0 &&
+      Math.abs(o.mid[1] - c.mid[1]) < 0.01 && Math.abs(o.big - c.big) < 0.01);
+    if (!twin) continue;
+    for (const v of c.a.vs) { if (MAT[v] !== 7) { MAT[v] = 7; eyeVerts++; } }
+  }
+  if (eyeVerts) console.log(`eyes: found ${eyeVerts} welded eyeball verts by shape and gave them their own material`);
+}
+
 // No vertex belongs to a limb and its twin at once.
 //
 // The characters' trousers are one surface across the crotch, and the weights
