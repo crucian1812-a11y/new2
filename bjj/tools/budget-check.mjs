@@ -79,7 +79,7 @@ function load(name) {
   const verts = {};
   for (const g of Object.keys(GROUPS)) verts[g] = 0;
   for (let v = 0; v < n; v++) {
-    const g = GROUP_OF[m.bone[v * 2]];
+    const g = GROUP_OF[m.bone[v * 4]];
     if (g) verts[g]++;
   }
   // The group a triangle belongs to is the group of its first vertex, the same
@@ -88,7 +88,7 @@ function load(name) {
   const tri = new Uint8Array(m.count / 3);
   const gi = Object.keys(GROUPS);
   for (let t = 0; t < m.count / 3; t++) {
-    const g = GROUP_OF[m.bone[m.idx[t * 3] * 2]];
+    const g = GROUP_OF[m.bone[m.idx[t * 3] * 4]];
     tri[t] = g ? gi.indexOf(g) + 1 : 0;
   }
   return { m, n, verts, tri, name };
@@ -98,10 +98,10 @@ function load(name) {
 function skin(mesh, skel, v, out) {
   const { pos, bone, wt } = mesh;
   let x = 0, y = 0, z = 0;
-  for (let k = 0; k < 2; k++) {
-    const w = wt[v * 2 + k];
+  for (let k = 0; k < 4; k++) {
+    const w = wt[v * 4 + k];
     if (w <= 0) continue;
-    const s = skel.skin.subarray(bone[v * 2 + k] * 16, bone[v * 2 + k] * 16 + 16);
+    const s = skel.skin.subarray(bone[v * 4 + k] * 16, bone[v * 4 + k] * 16 + 16);
     const px = pos[v * 3], py = pos[v * 3 + 1], pz = pos[v * 3 + 2];
     x += w * (s[0] * px + s[4] * py + s[8] * pz + s[12]);
     y += w * (s[1] * px + s[5] * py + s[9] * pz + s[13]);
@@ -254,7 +254,7 @@ rows.sort((x, y) => y.ratio - x.ratio);
   for (const [who, fighter] of [['you', you], ['opp', opp]]) {
     const { m } = fighter;
     const verts = [];
-    for (let v = 0; v < m.pos.length / 3; v++) if (HAND.includes(m.bone[v * 2])) verts.push(v);
+    for (let v = 0; v < m.pos.length / 3; v++) if (HAND.includes(m.bone[v * 4])) verts.push(v);
     const grab = (curl) => {
       rig._solveGrips = curl ? realSolve
         : (list) => { realSolve(list); for (const k in rig.curl) rig.curl[k] = 0; };

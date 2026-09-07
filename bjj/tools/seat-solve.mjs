@@ -52,10 +52,10 @@ function skinY(mesh, sk) {
   const ys = new Float64Array(n);
   for (let v = 0; v < n; v++) {
     let y = 0;
-    for (let k = 0; k < 2; k++) {
-      const w = wt[v * 2 + k];
+    for (let k = 0; k < 4; k++) {
+      const w = wt[v * 4 + k];
       if (w <= 0) continue;
-      const s = sk.skin.subarray(bone[v * 2 + k] * 16, bone[v * 2 + k] * 16 + 16);
+      const s = sk.skin.subarray(bone[v * 4 + k] * 16, bone[v * 4 + k] * 16 + 16);
       y += w * (s[1] * pos[v * 3] + s[5] * pos[v * 3 + 1] + s[9] * pos[v * 3 + 2] + s[13]);
     }
     ys[v] = y;

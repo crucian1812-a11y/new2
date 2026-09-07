@@ -115,10 +115,10 @@ function skinOf(mesh, sk) {
   let lowest = 9;
   for (let v = 0; v < n; v++) {
     let x = 0, y = 0, z = 0;
-    for (let k = 0; k < 2; k++) {
-      const w = wt[v * 2 + k];
+    for (let k = 0; k < 4; k++) {
+      const w = wt[v * 4 + k];
       if (w <= 0) continue;
-      const s = sk.skin.subarray(bone[v * 2 + k] * 16, bone[v * 2 + k] * 16 + 16);
+      const s = sk.skin.subarray(bone[v * 4 + k] * 16, bone[v * 4 + k] * 16 + 16);
       const px = P[v * 3], py = P[v * 3 + 1], pz = P[v * 3 + 2];
       x += w * (s[0] * px + s[4] * py + s[8] * pz + s[12]);
       y += w * (s[1] * px + s[5] * py + s[9] * pz + s[13]);
@@ -126,7 +126,7 @@ function skinOf(mesh, sk) {
     }
     if (y < lowest) lowest = y;
     if (y <= FLOOR + ON_MAT) pts.push([x, z]);
-    const b = bone[v * 2];
+    const b = bone[v * 4];
     if (y < low[b]) { low[b] = y; lowPt[b] = [x, y, z]; }
     const key = (Math.floor(x / CELL) + 64) * 4096 + Math.floor(z / CELL) + 64;
     let cell = grid.get(key);

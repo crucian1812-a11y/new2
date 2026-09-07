@@ -321,6 +321,10 @@ function classify(mesh, clusters) {
 }
 
 const P = [], NRM = [], BONE = [], WT = [], MAT = [], IDX = [];
+// Vertex index -> the four bones and weights the file will carry. The two the
+// baker itself works in stay where they are; this is read once, at the end,
+// and only for vertices no later pass has re-weighted.
+const ACC4 = new Map();
 let base = 0;
 const parts = [];
 
@@ -354,7 +358,14 @@ for (const mesh of parsed.meshes) {
     { let tot = 0; for (const e of pairs) tot += e[1];
       const kept = (pairs[0] ? pairs[0][1] : 0) + (pairs[1] ? pairs[1][1] : 0);
       __drop.push(tot > 0 ? 1 - kept / tot : 0);
-      if (pairs.length > 2 && pairs[2][1] / (tot || 1) > 0.05) __n3++; }
+      if (pairs.length > 2 && pairs[2][1] / (tot || 1) > 0.05) __n3++;
+      // The four the shipped file carries. Kept beside the two the passes
+      // below work in, because those passes are written against two and there
+      // is no reason to teach every one of them a wider vertex.
+      const four = pairs.slice(0, 4);
+      let t4 = 0; for (const e of four) t4 += e[1];
+      ACC4.set(P.length / 3, [0, 1, 2, 3].map((i) => four[i]
+        ? [four[i][0], four[i][1] / (t4 || 1)] : [pairs[0] ? pairs[0][0] : BONE_INDEX.hips, 0])); }
     let b0 = pairs[0] ? pairs[0][0] : BONE_INDEX.hips;
     let b1 = pairs[1] ? pairs[1][0] : b0;
     let w0 = pairs[0] ? pairs[0][1] : 1;
@@ -478,6 +489,7 @@ function inflate(want, thickness, mat) {
            pos0(v, 2) + NRM0[v * 3 + 2] * thickness);
     BONE.push(BONE[v * 2], BONE[v * 2 + 1]);
     WT.push(WT[v * 2], WT[v * 2 + 1]);
+    if (ACC4.has(v)) ACC4.set(P.length / 3 - 1, ACC4.get(v));
     MAT.push(mat);
     outer.set(v, n);
     return n;
@@ -512,6 +524,7 @@ function inflate(want, thickness, mat) {
            pos0(v, 2) + NRM0[v * 3 + 2] * 0.002);
     BONE.push(BONE[v * 2], BONE[v * 2 + 1]);
     WT.push(WT[v * 2], WT[v * 2 + 1]);
+    if (ACC4.has(v)) ACC4.set(P.length / 3 - 1, ACC4.get(v));
     MAT.push(mat);
     inner.set(v, n);
     return n;
@@ -1521,14 +1534,17 @@ function encode(P, N, UV, bone, wt, mat, ao, idx) {
   for (let i = 0; i < UV.length; i++) uvMax = Math.max(uvMax, Math.abs(UV[i]));
 
   const HEAD = 48;
-  const buf = Buffer.alloc(HEAD + n * 18 + idx.length * 2 + 8);
+  const buf = Buffer.alloc(HEAD + n * 22 + idx.length * 2 + 8);
   let o = 0;
   buf.write('BJJF', o); o += 4;
   // Version 2 added a byte of baked ambient occlusion per vertex, on the end.
   // Version 3 fills the two spare bytes after it with the bone count: this file
   // is a list of bone indices and it has to say what it indexes into. See the
   // note in asset.js about the hand that came out as a spike.
-  buf.writeUInt16LE(3, o); o += 2;
+  // Version 4 carries four bones a vertex instead of two — four indices and
+  // three weights, the fourth being what is left. See asset.js for what the
+  // cut to two was costing at a shoulder and a waist.
+  buf.writeUInt16LE(4, o); o += 2;
   buf.writeUInt16LE(BONE_COUNT, o); o += 2;
   buf.writeUInt32LE(n, o); o += 4;
   buf.writeUInt32LE(idx.length, o); o += 4;
@@ -1543,8 +1559,10 @@ function encode(P, N, UV, bone, wt, mat, ao, idx) {
   for (let i = 0; i < n * 2; i++) {
     buf.writeInt16LE(Math.round((UV[i] / uvMax) * 32767), o); o += 2;
   }
-  for (let i = 0; i < n * 2; i++) { buf.writeUInt8(bone[i], o); o += 1; }
-  for (let i = 0; i < n; i++) { buf.writeUInt8(Math.round(wt[i * 2] * 255), o); o += 1; }
+  for (let i = 0; i < n * 4; i++) { buf.writeUInt8(bone[i], o); o += 1; }
+  for (let i = 0; i < n; i++) for (let k = 0; k < 3; k++) {
+    buf.writeUInt8(Math.max(0, Math.min(255, Math.round(wt[i * 4 + k] * 255))), o); o += 1;
+  }
   for (let i = 0; i < n; i++) { buf.writeUInt8(mat[i], o); o += 1; }
   for (let i = 0; i < n; i++) { buf.writeUInt8(Math.round(Math.min(1, Math.max(0, ao[i])) * 255), o); o += 1; }
   for (let i = 0; i < idx.length; i++) { buf.writeUInt16LE(idx[i], o); o += 2; }
@@ -1594,16 +1612,47 @@ function keepWeights(mesh) {
   const byIndex = [];
   for (const name in KEEP) if (BONE_INDEX[name] !== undefined) byIndex[BONE_INDEX[name]] = KEEP[name];
   for (let v = 0; v < n; v++) {
-    // The heavier of the two bones the vertex rides, so a vertex half on a hand
-    // is protected like a hand rather than averaged into the forearm.
-    const a = byIndex[mesh.bone[v * 2]] ?? 1;
-    const b = mesh.wt[v * 2 + 1] > 0 ? byIndex[mesh.bone[v * 2 + 1]] ?? 1 : a;
-    w[v] = Math.max(a, b);
+    // The most protected of the bones the vertex rides, so a vertex half on a
+    // hand is protected like a hand rather than averaged into the forearm.
+    let best = 0;
+    for (let k = 0; k < 4; k++) {
+      if (k > 0 && !(mesh.wt[v * 4 + k] > 0)) continue;
+      best = Math.max(best, byIndex[mesh.bone[v * 4 + k]] ?? 1);
+    }
+    w[v] = best;
   }
   return w;
 }
 
-let FINAL = { pos, nrm: N, uv: UV, bone: BONE, wt: WT, mat: MAT, ao: null, idx: Array.from(idx) };
+// The vertex the file carries: four bones, from the table taken at retarget
+// time — but only where nothing has re-weighted the vertex since. The finger
+// pass, the twin re-parenting and the crotch smoothing all write two bones
+// deliberately, and a table older than they are would put back exactly what
+// they were written to remove. Matched by the names of the two heaviest bones
+// rather than by their weights: the table is normalised over four and BONE/WT
+// over two, so an untouched vertex reads 0.50 in one and 0.62 in the other and
+// every vertex would look rewritten.
+const NV = pos.length / 3;
+const BONE4 = new Array(NV * 4), WT4 = new Array(NV * 4);
+let kept4 = 0;
+for (let v = 0; v < NV; v++) {
+  const b0 = BONE[v * 2], b1 = WT[v * 2 + 1] > 0 ? BONE[v * 2 + 1] : b0;
+  const four = ACC4.get(v);
+  const same = four && ((four[0][0] === b0 && four[1][0] === b1) ||
+                        (four[0][0] === b1 && four[1][0] === b0));
+  if (same) {
+    kept4++;
+    for (let k = 0; k < 4; k++) { BONE4[v * 4 + k] = four[k][0]; WT4[v * 4 + k] = four[k][1]; }
+  } else {
+    BONE4[v * 4] = b0; WT4[v * 4] = WT[v * 2];
+    BONE4[v * 4 + 1] = b1; WT4[v * 4 + 1] = WT[v * 2 + 1];
+    BONE4[v * 4 + 2] = b0; WT4[v * 4 + 2] = 0;
+    BONE4[v * 4 + 3] = b0; WT4[v * 4 + 3] = 0;
+  }
+}
+console.log(`four bones a vertex on ${kept4} of ${NV}; the rest carry the two a later pass wrote`);
+
+let FINAL = { pos, nrm: N, uv: UV, bone: BONE4, wt: WT4, mat: MAT, ao: null, idx: Array.from(idx) };
 if (TRIS > 0 && idx.length / 3 > TRIS) {
   const t0 = Date.now();
   const before = { pos, idx: Array.from(idx) };

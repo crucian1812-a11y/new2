@@ -55,8 +55,8 @@ const out = [];
 const P = new Float64Array(n * 3);
 const N = new Float64Array(n * 3);
 for (let v = 0; v < n; v++) {
-  const b0 = mesh.bone[v * 2] * 16, b1 = mesh.bone[v * 2 + 1] * 16;
-  const w0 = mesh.wt[v * 2], w1 = mesh.wt[v * 2 + 1];
+  const b0 = mesh.bone[v * 4] * 16, b1 = mesh.bone[v * 4 + 1] * 16;
+  const w0 = mesh.wt[v * 4], w1 = mesh.wt[v * 4 + 1];
   const m = new Float64Array(16);
   for (let k = 0; k < 16; k++) m[k] = skin[b0 + k] * w0 + skin[b1 + k] * w1;
   const x = mesh.pos[v * 3], y = mesh.pos[v * 3 + 1], z = mesh.pos[v * 3 + 2];

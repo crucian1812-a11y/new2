@@ -31,7 +31,11 @@ export function skinLite(mesh, D = 200) {
   // everywhere else.
   const groups = new Map();
   for (let v = 0; v < n; v++) {
-    const key = (bone[v * 2] * 64 + bone[v * 2 + 1]) * 16 + Math.min(15, (wt[v * 2] * 16) | 0);
+    // Four bones now, so four indices and three weight buckets: a group is
+    // vertices that share the same linear map, and the map has four terms.
+    let key = 0;
+    for (let k = 0; k < 4; k++) key = key * 64 + bone[v * 4 + k];
+    for (let k = 0; k < 3; k++) key = key * 16 + Math.min(15, (wt[v * 4 + k] * 16) | 0);
     let g = groups.get(key);
     if (!g) groups.set(key, g = []);
     g.push(v);
@@ -50,13 +54,12 @@ export function skinLite(mesh, D = 200) {
   const list = [...keep].sort((a, b) => a - b);
   const out = {
     pos: new Float32Array(list.length * 3),
-    bone: new Uint16Array(list.length * 2),
-    wt: new Float32Array(list.length * 2),
+    bone: new Uint16Array(list.length * 4),
+    wt: new Float32Array(list.length * 4),
   };
   list.forEach((v, i) => {
     out.pos[i * 3] = P[v * 3]; out.pos[i * 3 + 1] = P[v * 3 + 1]; out.pos[i * 3 + 2] = P[v * 3 + 2];
-    out.bone[i * 2] = bone[v * 2]; out.bone[i * 2 + 1] = bone[v * 2 + 1];
-    out.wt[i * 2] = wt[v * 2]; out.wt[i * 2 + 1] = wt[v * 2 + 1];
+    for (let k = 0; k < 4; k++) { out.bone[i * 4 + k] = bone[v * 4 + k]; out.wt[i * 4 + k] = wt[v * 4 + k]; }
   });
   return out;
 }
@@ -80,17 +83,17 @@ export function skinInto(lite, sk, xyz, who) {
   const n = P.length / 3;
   for (let v = 0; v < n; v++) {
     let x = 0, y = 0, z = 0;
-    for (let k = 0; k < 2; k++) {
-      const w = wt[v * 2 + k];
+    for (let k = 0; k < 4; k++) {
+      const w = wt[v * 4 + k];
       if (w <= 0) continue;
-      const s = sk.skin.subarray(bone[v * 2 + k] * 16, bone[v * 2 + k] * 16 + 16);
+      const s = sk.skin.subarray(bone[v * 4 + k] * 16, bone[v * 4 + k] * 16 + 16);
       const px = P[v * 3], py = P[v * 3 + 1], pz = P[v * 3 + 2];
       x += w * (s[0] * px + s[4] * py + s[8] * pz + s[12]);
       y += w * (s[1] * px + s[5] * py + s[9] * pz + s[13]);
       z += w * (s[2] * px + s[6] * py + s[10] * pz + s[14]);
     }
     xyz[v * 3] = x; xyz[v * 3 + 1] = y; xyz[v * 3 + 2] = z;
-    who[v] = bone[v * 2];
+    who[v] = bone[v * 4];
   }
   return n;
 }

@@ -6,9 +6,21 @@
 // which it got.
 //
 // Quantised on purpose: positions to 16 bits inside the mesh's own bounding
-// box, normals to bytes, one weight byte per vertex because the second weight
-// is whatever is left. That is about a third of the size of the float version
-// and the difference is invisible on a 1.7 m body at arm's length.
+// box, normals to bytes, three weight bytes per vertex because the fourth
+// weight is whatever is left. That is about a third of the size of the float
+// version and the difference is invisible on a 1.7 m body at arm's length.
+//
+// Four bones a vertex from version 4. Two was the format for a long time, and
+// the comment in the baker said the third bone "is always under a couple of
+// per cent". It is not: measured on the finished mesh, fighter A's first
+// submesh loses 7.1% of its weight to the cut on average and 22.9% at the
+// ninetieth, and 814 of its 2183 vertices carry a third bone over 5%. What
+// that costs is a shoulder and a waist. An edge whose two ends both sit mostly
+// on the spine, one leaning on the chest and the other on the hips, has the
+// leaning thrown away from each end and the two are dragged apart by every
+// bend — twenty-two centimetres of jacket standing off a shoulder in turtle.
+// Skinning the whole pose library both ways, four bones takes 40% off the torn
+// edges longer than 40mm, which are the ones anybody can see.
 
 import { BONE_COUNT } from './skeleton.js';
 
@@ -39,7 +51,7 @@ export function decodeFighter(buffer) {
   const dv = new DataView(buffer);
   if (dv.getUint32(0, true) !== MAGIC) throw new Error('not a baked fighter');
   const version = dv.getUint16(4, true);
-  if (version < 1 || version > 3) throw new Error(`fighter asset version ${version} not supported`);
+  if (version < 1 || version > 4) throw new Error(`fighter asset version ${version} not supported`);
   // And which skeleton it was baked against.
   //
   // The two spare bytes after the version were always zero; from version 3 they
@@ -78,18 +90,30 @@ export function decodeFighter(buffer) {
     uv[i] = (dv.getInt16(o, true) / 32767) * uvMax;
     o += 2;
   }
-  const bone = new Float32Array(n * 2);
+  // Four slots whatever the file says. A version 3 file fills the last two
+  // with its own first bone at zero weight, so everything downstream reads one
+  // shape and a file already sitting in somebody's cache still draws exactly
+  // as it did.
+  const per = version >= 4 ? 4 : 2;
+  const bone = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
-    bone[i * 2] = dv.getUint8(o);
-    bone[i * 2 + 1] = dv.getUint8(o + 1);
-    o += 2;
+    for (let k = 0; k < per; k++) bone[i * 4 + k] = dv.getUint8(o + k);
+    for (let k = per; k < 4; k++) bone[i * 4 + k] = bone[i * 4];
+    o += per;
   }
-  const wt = new Float32Array(n * 2);
+  const wt = new Float32Array(n * 4);
   for (let i = 0; i < n; i++) {
-    const w = dv.getUint8(o) / 255;
-    wt[i * 2] = w;
-    wt[i * 2 + 1] = 1 - w;
-    o += 1;
+    if (version >= 4) {
+      let rest = 1;
+      for (let k = 0; k < 3; k++) { const w = dv.getUint8(o + k) / 255; wt[i * 4 + k] = w; rest -= w; }
+      wt[i * 4 + 3] = Math.max(0, rest);
+      o += 3;
+    } else {
+      const w = dv.getUint8(o) / 255;
+      wt[i * 4] = w;
+      wt[i * 4 + 1] = 1 - w;
+      o += 1;
+    }
   }
   const mat = new Float32Array(n);
   for (let i = 0; i < n; i++) {

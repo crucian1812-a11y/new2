@@ -81,9 +81,9 @@ function skinAll(m, sk, out) {
   const n = m.pos.length / 3;
   for (let v = 0; v < n; v++) {
     let x = 0, y = 0, z = 0;
-    for (let k = 0; k < 2; k++) {
-      const w = m.wt[v*2+k]; if (w <= 0) continue;
-      const s = sk.skin.subarray(m.bone[v*2+k]*16, m.bone[v*2+k]*16+16);
+    for (let k = 0; k < 4; k++) {
+      const w = m.wt[v*4+k]; if (w <= 0) continue;
+      const s = sk.skin.subarray(m.bone[v*4+k]*16, m.bone[v*4+k]*16+16);
       const px = m.pos[v*3], py = m.pos[v*3+1], pz = m.pos[v*3+2];
       x += w*(s[0]*px+s[4]*py+s[8]*pz+s[12]);
       y += w*(s[1]*px+s[5]*py+s[9]*pz+s[13]);
@@ -122,7 +122,7 @@ const scan = (role, label) => {
     if (b > 1e-9) {
       const a = area(p, tri[0], tri[1], tri[2]);
       if (a / b > 6 && a > worstArea.v) worstArea = { v: a, ratio: a/b, label,
-        bones: [...new Set(tri.map(x => m.bone[x*2]))].map(x => NAMES[x]).join('+') };
+        bones: [...new Set(tri.map(x => m.bone[x*4]))].map(x => NAMES[x]).join('+') };
     }
     for (const [x, y] of [[0,1],[1,2],[2,0]]) {
       const e0 = edge(BIND[role], tri[x], tri[y]);
@@ -132,10 +132,10 @@ const scan = (role, label) => {
       if (r >= 2) {
         torn++; if (e1 > 0.04) tornLong++;
         if (e1 > longest.v) longest = { v: e1, label, ratio: r, bind: e0 * 1000,
-          bones: [NAMES[m.bone[tri[x]*2]], NAMES[m.bone[tri[y]*2]]].join('->') };
+          bones: [NAMES[m.bone[tri[x]*4]], NAMES[m.bone[tri[y]*4]]].join('->') };
       }
       if (r > worstEdge.v) worstEdge = { v: r, label, mm: e1 * 1000,
-        bones: [NAMES[m.bone[tri[x]*2]], NAMES[m.bone[tri[y]*2]]].join('->') };
+        bones: [NAMES[m.bone[tri[x]*4]], NAMES[m.bone[tri[y]*4]]].join('->') };
     }
   }
 };

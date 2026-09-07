@@ -40,7 +40,8 @@ check(badBone === 0, 'every bone index names a real bone', `${badBone} bad`);
 
 let badW = 0;
 for (let i = 0; i < n; i++) {
-  const s = m.wt[i * 2] + m.wt[i * 2 + 1];
+  let s = 0;
+  for (let k = 0; k < 4; k++) s += m.wt[i * 4 + k];
   if (Math.abs(s - 1) > 0.01) badW++;
 }
 check(badW === 0, 'weights sum to one', `${badW} vertices off`);
@@ -71,7 +72,12 @@ check(H > 1.5 && H < 1.9, 'the fighter is a person-sized person', `${H.toFixed(2
 check(Math.abs(lo[1]) < 0.12, 'the feet are on the mat, not through it', `lowest y ${lo[1].toFixed(3)}`);
 check(hi[0] - lo[0] < 1.3, 'the fighter fits in a human envelope', `${(hi[0] - lo[0]).toFixed(2)} m wide`);
 
-const owned = new Set(m.bone);
+// Only the slots that carry weight. Four slots a vertex means the spare ones
+// hold the first bone again at zero, and counting those would say every bone
+// drives geometry that no bone drives.
+const owned = new Set();
+for (let i = 0; i < n; i++) for (let k = 0; k < 4; k++)
+  if (k === 0 || m.wt[i * 4 + k] > 0) owned.add(m.bone[i * 4 + k]);
 const rigged = owned.size > 1;
 console.log(`     this is a ${rigged ? 'rigged fighter' : 'static prop (everything on the root bone)'}`);
 
@@ -90,7 +96,8 @@ if (rigged) {
   // Both halves have to be represented, or the character is skinned to one
   // side and folds up the first time it is posed.
   const counts = new Map();
-  for (const b of m.bone) counts.set(b, (counts.get(b) || 0) + 1);
+  for (let i = 0; i < n; i++) for (let k = 0; k < 4; k++)
+    if (k === 0 || m.wt[i * 4 + k] > 0) counts.set(m.bone[i * 4 + k], (counts.get(m.bone[i * 4 + k]) || 0) + 1);
   const share = (name) => (counts.get(BONES.findIndex((b) => b[0] === name)) || 0) / n;
   for (const [l, r] of [['armL', 'armR'], ['thighL', 'thighR'], ['handL', 'handR']]) {
     const a = share(l), b = share(r);
@@ -99,7 +106,7 @@ if (rigged) {
   }
 } else {
   let allRoot = true;
-  for (let i = 0; i < n; i++) if (m.wt[i * 2] < 0.999) allRoot = false;
+  for (let i = 0; i < n; i++) if (m.wt[i * 4] < 0.999) allRoot = false;
   check(allRoot, 'a static prop rides the root bone rigidly');
 }
 
@@ -156,7 +163,7 @@ check(mats.has(0) && mats.has(1), 'the fighter has both skin and cloth on it',
   // and the cheek beside it cannot be the same number.
   const head = [];
   for (let v = 0; v < n; v++) {
-    if (m.bone[v * 2] === BONE_INDEX.head && (m.mat[v] === 0 || m.mat[v] === 6)) head.push(m.ao[v]);
+    if (m.bone[v * 4] === BONE_INDEX.head && (m.mat[v] === 0 || m.mat[v] === 6)) head.push(m.ao[v]);
   }
   head.sort((a, b) => a - b);
   const p = (f) => (head.length ? head[Math.floor(head.length * f)] : 0);

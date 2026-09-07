@@ -188,8 +188,8 @@ vec3 applyBump(vec3 N, vec3 world, vec2 uv, vec3 tn, float amount) {
 const OUTLINE_VS = COMMON + `
 in vec3 a_pos;
 in vec3 a_nrm;
-in vec2 a_bone;
-in vec2 a_wt;
+in vec4 a_bone;
+in vec4 a_wt;
 in float a_mat;
 uniform mat4 u_viewProj;
 uniform mat4 u_bones[${BONE_COUNT}];
@@ -219,13 +219,20 @@ void main() {
   // hand comes out as a black paddle. Excluded by bone rather than by material
   // because that needs no change to the baked file — the skin of a hand and the
   // skin of a shoulder are the same material and always will be.
-  int nb = a_wt.x >= a_wt.y ? int(a_bone.x) : int(a_bone.y);
+  float wb = a_wt.x; int nb = int(a_bone.x);
+  if (a_wt.y > wb) { wb = a_wt.y; nb = int(a_bone.y); }
+  if (a_wt.z > wb) { wb = a_wt.z; nb = int(a_bone.z); }
+  if (a_wt.w > wb) { wb = a_wt.w; nb = int(a_bone.w); }
   if (nb == ${BONE_INDEX.handL} || nb == ${BONE_INDEX.handR} ||
       nb == ${BONE_INDEX.footL} || nb == ${BONE_INDEX.footR}) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
-  mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
+  // Four bones a vertex. The last two are the first bone at zero weight on a
+  // procedural body and on any file baked before version 4, so this is the
+  // same arithmetic those used to get with two terms.
+  mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y
+         + u_bones[int(a_bone.z)] * a_wt.z + u_bones[int(a_bone.w)] * a_wt.w;
   vec4 p = s * vec4(a_pos, 1.0);
   vec3 n = normalize(mat3(s) * a_nrm);
 
@@ -293,8 +300,8 @@ const SKIN_VS = COMMON + `
 in vec3 a_pos;
 in vec3 a_nrm;
 in vec2 a_uv;
-in vec2 a_bone;
-in vec2 a_wt;
+in vec4 a_bone;
+in vec4 a_wt;
 in float a_mat;
 // How much of the room this vertex can see, measured on the mesh by the baker
 // (tools/ao.mjs). One byte per vertex, and the only thing in the shading that
@@ -319,7 +326,11 @@ out float v_ao;
 flat out float v_mat;
 
 void main() {
-  mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
+  // Four bones a vertex. The last two are the first bone at zero weight on a
+  // procedural body and on any file baked before version 4, so this is the
+  // same arithmetic those used to get with two terms.
+  mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y
+         + u_bones[int(a_bone.z)] * a_wt.z + u_bones[int(a_bone.w)] * a_wt.w;
   vec4 p = s * vec4(a_pos, 1.0);
   v_world = p.xyz;
   // Guarded normalise. A zero-length normal — which a decimated mesh can carry
@@ -331,7 +342,8 @@ void main() {
   v_nrm = nl > 1e-6 ? nn / nl : vec3(0.0, 1.0, 0.0);
   v_uv = a_uv;
   v_mat = a_mat;
-  v_bend = u_bend[int(a_bone.x)] * a_wt.x + u_bend[int(a_bone.y)] * a_wt.y;
+  v_bend = u_bend[int(a_bone.x)] * a_wt.x + u_bend[int(a_bone.y)] * a_wt.y
+         + u_bend[int(a_bone.z)] * a_wt.z + u_bend[int(a_bone.w)] * a_wt.w;
   v_ao = a_ao;
   gl_Position = u_viewProj * p;
 }`;
@@ -998,12 +1010,16 @@ void main() {
 
 const SHADOW_VS_SKIN = COMMON + `
 in vec3 a_pos;
-in vec2 a_bone;
-in vec2 a_wt;
+in vec4 a_bone;
+in vec4 a_wt;
 uniform mat4 u_lightVP;
 uniform mat4 u_bones[${BONE_COUNT}];
 void main() {
-  mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y;
+  // Four bones a vertex. The last two are the first bone at zero weight on a
+  // procedural body and on any file baked before version 4, so this is the
+  // same arithmetic those used to get with two terms.
+  mat4 s = u_bones[int(a_bone.x)] * a_wt.x + u_bones[int(a_bone.y)] * a_wt.y
+         + u_bones[int(a_bone.z)] * a_wt.z + u_bones[int(a_bone.w)] * a_wt.w;
   gl_Position = u_lightVP * (s * vec4(a_pos, 1.0));
 }`;
 
@@ -1277,8 +1293,8 @@ export class Renderer {
         { name: 'a_pos', data: m.pos, size: 3 },
         { name: 'a_nrm', data: m.nrm, size: 3 },
         { name: 'a_uv', data: m.uv, size: 2 },
-        { name: 'a_bone', data: m.bone, size: 2 },
-        { name: 'a_wt', data: m.wt, size: 2 },
+        { name: 'a_bone', data: m.bone, size: 4 },
+        { name: 'a_wt', data: m.wt, size: 4 },
         { name: 'a_mat', data: m.mat, size: 1 },
         // The procedural body carries no baked occlusion — it is built at run
         // time and never went through a baker — so it sees the whole room.
@@ -1286,14 +1302,14 @@ export class Renderer {
       ], m.idx),
       shadow: vao(gl, this.progShadowSkin.p, [
         { name: 'a_pos', data: m.pos, size: 3 },
-        { name: 'a_bone', data: m.bone, size: 2 },
-        { name: 'a_wt', data: m.wt, size: 2 },
+        { name: 'a_bone', data: m.bone, size: 4 },
+        { name: 'a_wt', data: m.wt, size: 4 },
       ], m.idx),
       outline: vao(gl, this.progOutline.p, [
         { name: 'a_pos', data: m.pos, size: 3 },
         { name: 'a_nrm', data: m.nrm, size: 3 },
-        { name: 'a_bone', data: m.bone, size: 2 },
-        { name: 'a_wt', data: m.wt, size: 2 },
+        { name: 'a_bone', data: m.bone, size: 4 },
+        { name: 'a_wt', data: m.wt, size: 4 },
         { name: 'a_mat', data: m.mat, size: 1 },
       ], m.idx),
       count: m.count,

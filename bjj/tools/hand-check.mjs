@@ -129,16 +129,16 @@ function measure(m, side, curl) {
   const isFinger = new Uint8Array(n);
   for (let v = 0; v < n; v++) {
     let w = 0;
-    for (let k = 0; k < 2; k++) if (m.bone[v * 2 + k] === chain[1] || m.bone[v * 2 + k] === chain[2]) w += m.wt[v * 2 + k];
+    for (let k = 0; k < 4; k++) if (m.bone[v * 4 + k] === chain[1] || m.bone[v * 4 + k] === chain[2]) w += m.wt[v * 4 + k];
     if (w >= 0.5) isFinger[v] = 1;
   }
 
   const P = new Float64Array(n * 3);
   for (let v = 0; v < n; v++) {
     let x = 0, y = 0, z = 0;
-    for (let k = 0; k < 2; k++) {
-      const w = m.wt[v * 2 + k]; if (w <= 0) continue;
-      const s = sk.skin.subarray(m.bone[v * 2 + k] * 16, m.bone[v * 2 + k] * 16 + 16);
+    for (let k = 0; k < 4; k++) {
+      const w = m.wt[v * 4 + k]; if (w <= 0) continue;
+      const s = sk.skin.subarray(m.bone[v * 4 + k] * 16, m.bone[v * 4 + k] * 16 + 16);
       const px = m.pos[v * 3], py = m.pos[v * 3 + 1], pz = m.pos[v * 3 + 2];
       x += w * (s[0] * px + s[4] * py + s[8] * pz + s[12]);
       y += w * (s[1] * px + s[5] * py + s[9] * pz + s[13]);
@@ -174,10 +174,10 @@ function measure(m, side, curl) {
   let thumb = 0;
   for (let v = 0; v < n; v++) {
     let wf = 0, wh = 0;
-    for (let k = 0; k < 2; k++) {
-      const b = m.bone[v * 2 + k];
-      if (b === chain[1] || b === chain[2]) wf += m.wt[v * 2 + k];
-      if (b === chain[0]) wh += m.wt[v * 2 + k];
+    for (let k = 0; k < 4; k++) {
+      const b = m.bone[v * 4 + k];
+      if (b === chain[1] || b === chain[2]) wf += m.wt[v * 4 + k];
+      if (b === chain[0]) wh += m.wt[v * 4 + k];
     }
     if (wf >= 0.5 || wh < 0.6) continue;
     const dx = m.pos[v * 3] - BIND.world[chain[0]][12], dy = m.pos[v * 3 + 1] - BIND.world[chain[0]][13],

@@ -7,7 +7,7 @@
 //
 // Garland–Heckbert, in the half-edge form: every collapse moves one vertex onto
 // another one that already exists, so every attribute the format carries — the
-// UV, the two bone indices, the weight, the material, the baked occlusion —
+// UV, the four bone indices, the weights, the material, the baked occlusion —
 // belongs to a vertex that was authored rather than to one this invented. That
 // is the whole reason for the restriction. A quadric that solves for the
 // optimal position gives a slightly smaller error and would have to make up
@@ -349,7 +349,7 @@ export function decimate(mesh, targetTris, keep = null) {
   };
   return {
     pos: take(mesh.pos, 3), nrm: take(mesh.nrm, 3), uv: take(mesh.uv, 2),
-    bone: take(mesh.bone, 2), wt: take(mesh.wt, 2), mat: take(mesh.mat, 1),
+    bone: take(mesh.bone, 4), wt: take(mesh.wt, 4), mat: take(mesh.mat, 1),
     ao: mesh.ao ? take(mesh.ao, 1) : null,
     idx: outIdx.map((v) => remap[v]),
     count,
