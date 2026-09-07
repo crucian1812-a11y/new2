@@ -13,7 +13,28 @@
 //
 // So the solver's grid is a refinement of the judge's: every point the judge
 // looks at is a point the solver looked at, and the solver looked at more.
-export const JUDGE_STEPS = 41;
+//
+// And now they are the same, because "the solver looked at more" turned out to
+// have a second edge to it that nothing guarded. The rule above stops a search
+// hiding a collision from the judge. It says nothing about the judge hiding
+// one from the reader — and it was: on the graph as it stands, arc-solve
+// reported its worst moment in flight as 21cm while blend-check, walking the
+// same transitions at half the resolution, reported 17. Measured at 81 the
+// judge's own numbers move:
+//
+//     transitions, worst    17cm -> 21cm      work list  12 -> 13
+//     hold loops, worst      8cm ->  9cm      deeper than their ends  2 -> 3cm
+//
+// Four centimetres of that was sitting between two samples, and the line this
+// file will not ship past is 22. So the graph has been one centimetre from
+// unshippable while reporting five, for as long as the two numbers differed.
+//
+// Equal rather than finer: equality still satisfies what the paragraph above
+// asks for — the solver's grid is not coarser than the judge's and not
+// different from it — and doubling the solver instead would double the twenty
+// minutes a full re-solve costs to buy a guarantee against a gap neither tool
+// has yet been shown to have.
+export const JUDGE_STEPS = 81;
 export const SOLVE_STEPS = 81;
 
 const ratio = (SOLVE_STEPS - 1) / (JUDGE_STEPS - 1);
