@@ -75,8 +75,11 @@ class MeshBuilder {
     this.pos.push(p[0], p[1], p[2]);
     this.nrm.push(n[0], n[1], n[2]);
     this.uv.push(u[0], u[1]);
-    this.bone.push(b0, b1);
-    this.wt.push(w0, w1);
+    // Four slots, to match what a baked fighter decodes to; the procedural
+    // body never needs more than two, so the last pair is the first bone at
+    // no weight.
+    this.bone.push(b0, b1, b0, b0);
+    this.wt.push(w0, w1, 0, 0);
     this.mat.push(mat);
     return this.pos.length / 3 - 1;
   }
@@ -201,8 +204,8 @@ function capRing(mb, first, sides, normal, matId, reverse = false) {
     cz += mb.pos[(first + s) * 3 + 2];
   }
   cx /= sides; cy /= sides; cz /= sides;
-  const b0 = mb.bone[first * 2], b1 = mb.bone[first * 2 + 1];
-  const w0 = mb.wt[first * 2], w1 = mb.wt[first * 2 + 1];
+  const b0 = mb.bone[first * 4], b1 = mb.bone[first * 4 + 1];
+  const w0 = mb.wt[first * 4], w1 = mb.wt[first * 4 + 1];
   const centre = mb.vert([cx, cy, cz], normal, [0.5, 0.5], b0, b1, w0, w1, matId);
   for (let s = 0; s < sides; s++) {
     const s2 = (s + 1) % sides;
