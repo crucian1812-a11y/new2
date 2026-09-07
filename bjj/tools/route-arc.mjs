@@ -21,6 +21,10 @@
 // this drives arc-solve as a subprocess, and a subprocess that dies halfway
 // leaves the file in whatever state it was in.
 
+// First, and it matters that it is first: this puts arcs.js back if the last
+// run was killed while it was holding a candidate, and it has to happen before
+// arcs.js is read into memory a few lines down. See arcs-guard.mjs.
+import { ARCS_BACKUP, readVias } from './arcs-guard.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, copyFileSync, unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +41,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ARCS_PATH = join(here, '../src/game/arcs.js');
 // Outside the source tree: the first version kept it beside arcs.js and a
 // `git add -A` swept it into a commit.
-const BACKUP = join(tmpdir(), 'bjj-arcs-backup.js');
+// The same path the guard reads, so the two cannot drift apart.
+const BACKUP = ARCS_BACKUP;
 
 const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
@@ -125,7 +130,40 @@ function solve(key) {
   return r.status === 0;
 }
 
+// What is actually on disk, which is not always what this process imported: if
+// the guard above repaired the file, it did so after the module graph had
+// already been parsed. See arcs-guard.mjs.
+{
+  const disk = readVias();
+  for (const k of Object.keys(VIAS)) delete VIAS[k];
+  Object.assign(VIAS, disk);
+}
 copyFileSync(ARCS_PATH, BACKUP);
+
+// What should be on disk if this stops right now.
+//
+// Every candidate is tried by writing it into arcs.js and solving against it,
+// so at any instant the file holds a route nobody has decided on yet. That is
+// fine while the process is alive and it is not fine when it is killed: two
+// runs died with the machine this week and both left the repository holding a
+// candidate the log had not even finished measuring — a one-line diff that
+// looks exactly like a result and is not one.
+//
+// So the last decided state is kept here and put back on the way out. It is
+// also the per-key restore point, which fixes a second thing: the restore used
+// to come from the backup taken at the top, so a key that solved nothing threw
+// away the wins of every key before it.
+let safe = readFileSync(ARCS_PATH, 'utf8');
+const putBack = () => {
+  try {
+    if (readFileSync(ARCS_PATH, 'utf8') !== safe) writeFileSync(ARCS_PATH, safe);
+  } catch { /* the file is gone; nothing to put back */ }
+};
+process.on('exit', putBack);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { putBack(); process.exit(130); });
+}
+
 const poses = [...POSITION_IDS, ...WAYPOINT_IDS];
 const TIMINGS = ['', '@early', '@late', '@mid+A', '@early+A', '@late+A', '@mid+B', '@early+B', '@late+B'];
 
@@ -190,9 +228,10 @@ for (const key of ONLY) {
   }
   if (best) {
     writeFileSync(ARCS_PATH, best.file);
+    safe = best.file;
     console.log(`  -> ${best.route || 'the straight line'} at ${(best.worst * 100).toFixed(0)}cm`);
   } else {
-    copyFileSync(BACKUP, ARCS_PATH);
+    writeFileSync(ARCS_PATH, safe);
     console.log('  -> nothing solved; left as it was');
   }
 }
