@@ -58,6 +58,7 @@ const check = (ok, msg, extra = '') => {
 // claw is the fault being fixed, and a line drawn around it would bless it.
 const GAP = 3, GAP_FAIL = 8;            // mm of daylight in a typical cut
 const AIR = 1.5, AIR_FAIL = 4.0;        // cm² of gaps wider than two millimetres
+const THUMB = 45, THUMB_FAIL = 55;      // mm the thumb stands off the hand's axis
 
 const MM = 0.0005;                       // half a millimetre a pixel
 
@@ -150,6 +151,40 @@ function measure(m, side, curl) {
   for (let v = 0; v < n; v++) {
     const q = xf(inv, P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
     L[v * 3] = q[0]; L[v * 3 + 1] = q[1]; L[v * 3 + 2] = q[2];
+  }
+
+  // And the thumb, which is a different question with the same answer. FOLD
+  // puts it on the palm bone, so it never curls and never moves: whatever
+  // shape it arrives in is the shape it has in every frame of the game. On
+  // both characters it arrives standing seven centimetres off the axis of a
+  // hand nine centimetres long — a hitchhiker, and the one part of the claw
+  // that a stronger rest curl cannot touch. Measured off the chain's own axis,
+  // which is where it would lie if it lay along the hand.
+  // Measured in the bind pose against the bind chain, not in the posed one:
+  // the thumb is rigid with the palm, so its shape is a property of the bake
+  // and one number should come out of it. Against the posed chain the reading
+  // moved from 58 to 49 between an open hand and a closed one, and nothing
+  // about the thumb had moved — the axis had.
+  const BIND = new Skeleton(); BIND.pose();
+  const hx = [BIND.world[chain[2]][12] - BIND.world[chain[0]][12],
+              BIND.world[chain[2]][13] - BIND.world[chain[0]][13],
+              BIND.world[chain[2]][14] - BIND.world[chain[0]][14]];
+  const hl = Math.hypot(hx[0], hx[1], hx[2]) || 1;
+  for (let i = 0; i < 3; i++) hx[i] /= hl;
+  let thumb = 0;
+  for (let v = 0; v < n; v++) {
+    let wf = 0, wh = 0;
+    for (let k = 0; k < 2; k++) {
+      const b = m.bone[v * 2 + k];
+      if (b === chain[1] || b === chain[2]) wf += m.wt[v * 2 + k];
+      if (b === chain[0]) wh += m.wt[v * 2 + k];
+    }
+    if (wf >= 0.5 || wh < 0.6) continue;
+    const dx = m.pos[v * 3] - BIND.world[chain[0]][12], dy = m.pos[v * 3 + 1] - BIND.world[chain[0]][13],
+          dz = m.pos[v * 3 + 2] - BIND.world[chain[0]][14];
+    const t = dx * hx[0] + dy * hx[1] + dz * hx[2];
+    const off = Math.hypot(dx - hx[0] * t, dy - hx[1] * t, dz - hx[2] * t);
+    if (off > thumb) thumb = off;
   }
 
   // The cloud's own frame: e0 down the fingers, e1 across them, e2 through the
@@ -260,7 +295,8 @@ function measure(m, side, curl) {
   widest.sort((a, b) => a - b);
   const gap = widest.length ? widest[widest.length >> 1] : 0;
   const wide = widest.length ? widest[widest.length - 1] : 0;
-  return { gap: gap * MM * 1000, wide: wide * MM * 1000, air: airPx * MM * MM * 1e4, runs, mask, W, H };
+  return { gap: gap * MM * 1000, wide: wide * MM * 1000, air: airPx * MM * MM * 1e4,
+           thumb: thumb * 1000, runs, mask, W, H };
 }
 
 const STATES = [['rest', [HAND_REST, TIP_REST]], ['grip', [HAND_GRIP, TIP_GRIP]]];
@@ -269,18 +305,19 @@ const FIGHTERS = named.length
   ? named.map((f, i) => [String.fromCharCode(65 + i), f])
   : [['A', 'fighter.bin'], ['B', 'fighter-b.bin']];
 
-console.log('  who state hand    gap mm  worst mm   air cm²  fingers');
-let worstGap = { v: 0 }, worstAir = { v: 0 };
+console.log('  who state hand    gap mm  worst mm   air cm²  thumb mm  fingers');
+let worstGap = { v: 0 }, worstAir = { v: 0 }, worstThumb = { v: 0 };
 for (const [who, file] of FIGHTERS) {
   const m = load(file);
   for (const [sn, curl] of STATES) {
     for (const side of ['L', 'R']) {
       const r = measure(m, side, curl);
       console.log(`   ${who}   ${sn.padEnd(5)} ${side}    ${r.gap.toFixed(1).padStart(6)} ${r.wide.toFixed(1).padStart(9)} ` +
-        `${r.air.toFixed(2).padStart(9)}      ${r.runs}`);
+        `${r.air.toFixed(2).padStart(9)} ${r.thumb.toFixed(0).padStart(9)}       ${r.runs}`);
       const label = `${who} ${sn} ${side}`;
       if (r.gap > worstGap.v) worstGap = { v: r.gap, label, runs: r.runs };
       if (r.air > worstAir.v) worstAir = { v: r.air, label };
+      if (r.thumb > worstThumb.v) worstThumb = { v: r.thumb, label };
       if (DUMP) {
         mkdirSync(DUMP, { recursive: true });
         const img = new Uint8Array(r.W * r.H * 4);
@@ -301,10 +338,14 @@ check(worstGap.v <= GAP_FAIL, 'the fingers lie together',
   `${worstGap.v.toFixed(1)}mm of daylight between them at worst (${worstGap.label}, ${worstGap.runs} apart), line ${GAP_FAIL.toFixed(0)}`);
 check(worstAir.v <= AIR_FAIL, 'and there is no window through the hand',
   `${worstAir.v.toFixed(2)}cm² of it at worst (${worstAir.label}), line ${AIR_FAIL.toFixed(1)}`);
+check(worstThumb.v <= THUMB_FAIL, 'the thumb lies along the hand rather than off it',
+  `${worstThumb.v.toFixed(0)}mm off the axis at worst (${worstThumb.label}), line ${THUMB_FAIL.toFixed(0)}`);
 if (worstGap.v > GAP && worstGap.v <= GAP_FAIL)
   console.log(`     work list: ${worstGap.label} still shows ${worstGap.v.toFixed(1)}mm of daylight (want ${GAP.toFixed(0)})`);
 if (worstAir.v > AIR && worstAir.v <= AIR_FAIL)
   console.log(`     work list: ${worstAir.label} still shows ${worstAir.v.toFixed(2)}cm² of air (want ${AIR.toFixed(1)})`);
+if (worstThumb.v > THUMB && worstThumb.v <= THUMB_FAIL)
+  console.log(`     work list: ${worstThumb.label} still stands ${worstThumb.v.toFixed(0)}mm off the axis (want ${THUMB.toFixed(0)})`);
 
 console.log(`\n${fail ? `${fail} check(s) failed` : 'a hand that reads as a hand'}`);
 process.exitCode = fail ? 1 : 0;

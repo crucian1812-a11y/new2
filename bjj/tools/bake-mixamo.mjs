@@ -1051,6 +1051,113 @@ for (const side of ['L', 'R']) {
     `worst move ${(most * 1000).toFixed(1)}mm`);
 }
 
+// And fold the thumb in.
+//
+// The fingers were the loud half of the claw; the thumb is the half that no
+// amount of rest curl can reach. FOLD puts it on the palm bone — deliberately,
+// because a thumb that curls with the fingers is a fist — so whatever shape it
+// arrives in, it holds in every frame of the game. It arrives standing 72mm
+// off the axis of a hand 90mm long on fighter A and 57mm on the opponent: a
+// hitchhiker. Swept against the picture, that thumb is the one part of a
+// raised guard that does not move when HAND_REST goes from 26 degrees to 55,
+// which is why sweeping the curl looked like it changed nothing.
+//
+// So it is folded here, the same way and for the same reason as the fingers:
+// the rest shape is geometry. The thumb swings about its own base, in the
+// plane that holds the hand's axis and the thumb's own direction, until its
+// skin stands no further off that axis than THUMB_OFF. The angle is not
+// written down — it is solved for, by bisection, so both characters land on
+// the same number rather than on the same rotation.
+const THUMB_OFF = +(process.env.HAND_THUMB ?? 0.042);
+for (const side of ['L', 'R']) {
+  const chain = ['hand' + side, 'fing' + side, 'hand' + side + 'Tip'].map((n) => BONE_INDEX[n]);
+  if (chain.some((i) => i === undefined)) continue;
+  const head = chain.map((i) => [ourBind[i][12], ourBind[i][13], ourBind[i][14]]);
+  const ax = [head[2][0] - head[0][0], head[2][1] - head[0][1], head[2][2] - head[0][2]];
+  const AL = Math.hypot(ax[0], ax[1], ax[2]) || 1;
+  for (let i = 0; i < 3; i++) ax[i] /= AL;
+
+  // The thumb: on the palm bone, not on the fingers, and standing off the
+  // axis. Found by where it is rather than by name, because FOLD is the only
+  // thing that knew it was a thumb and it has already thrown that away.
+  const nv = P.length / 3;
+  const grp = [];
+  for (let v = 0; v < nv; v++) {
+    let wf = 0, wh = 0;
+    for (let k = 0; k < 2; k++) {
+      const b = BONE[v * 2 + k];
+      if (b === chain[1] || b === chain[2]) wf += WT[v * 2 + k];
+      if (b === chain[0]) wh += WT[v * 2 + k];
+    }
+    if (wf >= 0.5 || wh < 0.6) continue;
+    const d = [P[v * 3] - head[0][0], P[v * 3 + 1] - head[0][1], P[v * 3 + 2] - head[0][2]];
+    const t = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+    const r = [d[0] - ax[0] * t, d[1] - ax[1] * t, d[2] - ax[2] * t];
+    const off = Math.hypot(r[0], r[1], r[2]);
+    // The palm is the same bone and must not move: the ramp is zero at two
+    // centimetres off the axis, which is the palm's own radius, and one at
+    // four, which is past the web.
+    const w = Math.min(1, Math.max(0, (off - 0.020) / 0.020));
+    if (w <= 0) continue;
+    grp.push({ v, off, w, t, r });
+  }
+  if (grp.length < 10) continue;
+  const before = grp.reduce((a, g) => Math.max(a, g.off), 0);
+  if (before <= THUMB_OFF) continue;
+
+  // Its base, and the plane it swings in.
+  let piv = [0, 0, 0], pn = 0, R = [0, 0, 0];
+  for (const g of grp) {
+    if (g.w < 0.35) { piv[0] += P[g.v * 3]; piv[1] += P[g.v * 3 + 1]; piv[2] += P[g.v * 3 + 2]; pn++; }
+    if (g.w > 0.9) for (let i = 0; i < 3; i++) R[i] += g.r[i] / g.off;
+  }
+  if (!pn) continue;
+  for (let i = 0; i < 3; i++) piv[i] /= pn;
+  const RL = Math.hypot(R[0], R[1], R[2]) || 1;
+  for (let i = 0; i < 3; i++) R[i] /= RL;
+  // Perpendicular to both, so turning about it swings the thumb along the hand
+  // rather than around it.
+  const nx = [ax[1] * R[2] - ax[2] * R[1], ax[2] * R[0] - ax[0] * R[2], ax[0] * R[1] - ax[1] * R[0]];
+  const NL = Math.hypot(nx[0], nx[1], nx[2]) || 1;
+  for (let i = 0; i < 3; i++) nx[i] /= NL;
+  // Rodrigues, about `nx` through `piv`. The sign is chosen by trying it: a
+  // turn that takes the thumb further out is the other one.
+  const turned = (g, th) => {
+    const d = [P[g.v * 3] - piv[0], P[g.v * 3 + 1] - piv[1], P[g.v * 3 + 2] - piv[2]];
+    const c = Math.cos(th), s = Math.sin(th);
+    const kd = nx[0] * d[0] + nx[1] * d[1] + nx[2] * d[2];
+    const cr = [nx[1] * d[2] - nx[2] * d[1], nx[2] * d[0] - nx[0] * d[2], nx[0] * d[1] - nx[1] * d[0]];
+    return [0, 1, 2].map((i) => piv[i] + d[i] * c + cr[i] * s + nx[i] * kd * (1 - c));
+  };
+  const reach = (th) => {
+    let worst = 0;
+    for (const g of grp) {
+      const p = turned(g, th * g.w);
+      const d = [p[0] - head[0][0], p[1] - head[0][1], p[2] - head[0][2]];
+      const t = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+      worst = Math.max(worst, Math.hypot(d[0] - ax[0] * t, d[1] - ax[1] * t, d[2] - ax[2] * t));
+    }
+    return worst;
+  };
+  const probe = 10 * Math.PI / 180;
+  const sign = reach(probe) < reach(-probe) ? 1 : -1;
+  let lo = 0, hi = sign * 80 * Math.PI / 180;
+  if (reach(hi) > THUMB_OFF) { lo = hi; } else {
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2;
+      if (reach(mid) > THUMB_OFF) lo = mid; else hi = mid;
+    }
+    lo = hi;
+  }
+  for (const g of grp) {
+    const p = turned(g, lo * g.w);
+    for (let k = 0; k < 3; k++) { P[g.v * 3 + k] = p[k]; pos[g.v * 3 + k] = p[k]; }
+  }
+  console.log(`folded the thumb of hand${side}: ${grp.length} vertices, ` +
+    `${(before * 1000).toFixed(0)}mm off the hand's axis -> ${(reach(0) * 1000).toFixed(0)}mm, ` +
+    `turned ${(Math.abs(lo) * 180 / Math.PI).toFixed(0)}°`);
+}
+
 // Find the eyeballs by their shape, for a character that welded them in.
 //
 // `classify` names a part by the bones that move it, and that works when the
