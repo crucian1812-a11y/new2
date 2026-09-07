@@ -420,6 +420,12 @@ async function look(pose) {
       w, h, pixels: n, seam, merged: seam ? same / seam : 0,
       near: nNear > 400 ? dNear / nNear : null,
       far: nFar > 400 ? dFar / nFar : null,
+      // How much of him the camera can see being pressed on. Mount reads a
+      // weaker gradient than every other tangle, and the standing hypothesis
+      // is that what actually touches there — his shins against the bottom
+      // man's ribs — is behind his own body from every angle this walks. That
+      // is a claim about this number.
+      pressedShare: nNear + nFar > 0 ? nNear / (nNear + nFar) : 0,
       p5: q(0.05), p95: q(0.95), clipped: n ? clipped / n : 0,
       flat: flatN ? flat / flatN : 0,
       flatOff: flatN ? flatOff / flatN : 0,
@@ -440,7 +446,7 @@ async function look(pose) {
   }, pose);
 }
 
-console.log('  frame            of A  | darkened near / away |  seam  merged | fold  cav | relief on/off' +
+console.log('  frame            of A  |pressed| darkened near / away |  seam  merged | fold  cav | relief on/off' +
   '        | head: cavity/deep eyes');
 const rows = [];
 for (const pose of SHOTS) {
@@ -450,7 +456,7 @@ for (const pose of SHOTS) {
   rows.push({ pose, ...r });
   const f = (v, w2 = 6) => (v === null || v === undefined ? '--'.padStart(w2) : v.toFixed(1).padStart(w2));
   console.log(
-    `  ${pose.padEnd(14)} ${String(r.pixels).padStart(6)} | ${f(r.near)} ${f(r.far)}` +
+    `  ${pose.padEnd(14)} ${String(r.pixels).padStart(6)} |${((r.pressedShare||0)*100).toFixed(0).padStart(5)}% | ${f(r.near)} ${f(r.far)}` +
     `        | ${String(r.seam).padStart(5)} ${(r.merged * 100).toFixed(0).padStart(4)}%` +
     ` | ${r.fold.toFixed(1).padStart(4)}/${r.foldNoise.toFixed(1)} ${r.cavity.toFixed(1).padStart(4)}` +
     ` | ${['foreL', 'foreR', 'thighL', 'shinR'].map((b) => {
