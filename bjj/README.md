@@ -302,6 +302,8 @@ node bjj/tools/verify.mjs             # пос-линт + бойца + 400 ма�
 node bjj/tools/verify.mjs --browser   # плюс настоящий кадр в headless Chromium
 node bjj/tools/pose-check.mjs         # геометрия всех парных поз
 node bjj/tools/asset-check.mjs        # запечённый боец: веса, кости, размеры, материалы
+node bjj/tools/drill-check.mjs        # зал: каждую отработку можно нажать и можно сдать
+node bjj/tools/human-check.mjs 200 --skill 3  # та же лестница у полностью отработанного игрока
 node bjj/tools/hand-check.mjs         # кисть похожа на кисть: сколько воздуха между пальцами
 node bjj/tools/hand-check.mjs --dump out/  # и картинки, по которым это меряется
 node bjj/tools/sim-check.mjs 500      # баланс: форма матча по поясам, чем кончается, как ранжируется

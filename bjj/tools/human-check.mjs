@@ -34,6 +34,7 @@ import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
 import { AI } from '../src/game/ai.js';
 import { DIRS } from '../src/game/positions.js';
 import { seedRandom, rand, randInt } from '../src/game/rng.js';
+import { SKILL_STEP } from '../src/game/skills.js';
 
 const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
@@ -54,6 +55,12 @@ const CFG = {
   // a threefold discount it never earned. Here the clock is the loop, so the
   // cost is exactly what it says.
   attention: +flag('attention', 150),
+  // How much of the training mode the hand has done, 0 to 3, as a flat level
+  // on every move. The room hands a drilled move a few per cent (see
+  // src/game/skills.js) and the question that number has to answer is asked
+  // here: does a fully drilled player still meet the same ladder? A constant
+  // rather than a store, because the interesting case is the top of it.
+  skill: +flag('skill', 0),
 };
 const WHY = args.includes('--why');
 const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : 20260903);
@@ -195,7 +202,8 @@ class Hand {
 
 function play(level, plan) {
   const m = new Match([new Fighter('вы'), new Fighter('соперник')],
-    { time: MATCH_TIME, ...(CFG.window ? { denyWindow: +CFG.window } : {}) });
+    { time: MATCH_TIME, ...(CFG.window ? { denyWindow: +CFG.window } : {}),
+      ...(CFG.skill ? { skill: (tr, by) => (by === 0 ? 1 + SKILL_STEP * CFG.skill : 1) } : {}) });
   const ai = new AI(1, level);
   const hand = new Hand(plan);
   m.start();

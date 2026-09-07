@@ -249,6 +249,13 @@ export class Match {
     // A flat window, for tools that sweep it. Null means the real rule: each
     // attack gives you its own wind-up.
     this.denyWindow = opts.denyWindow ?? null;
+    // What the man pressing has drilled, as a multiplier on his own chance.
+    //
+    // A function rather than a store, because the match must not know where
+    // the number comes from: the player's comes out of localStorage, the
+    // opponent's is always one, and every tool that sweeps this hands in a
+    // constant. See src/game/skills.js.
+    this.skillOf = opts.skill || (() => 1);
     // What actually happened, in order. See _tape.
     this.tape = [];
     this.pressN = 0;   // presses in total, kept or only counted
@@ -821,6 +828,10 @@ export class Match {
     // the left thumb when it went off.
     let p = tr.base;
     p *= 0.75 + me.technique * 0.5;
+    // And what he has drilled of this move in particular. Zero to three rounds
+    // of a drill, five per cent a round; the only thing the training mode
+    // gives back to a real match. See skills.js for why it is one lever.
+    p *= this.skillOf(tr, by);
     p *= 0.72 + (me.stamina / 100) * 0.5;
     p *= 1 + this.gripAdv[by] * 0.35;
     p /= 0.78 + (you.stamina / 100) * 0.42;

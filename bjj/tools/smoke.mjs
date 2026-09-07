@@ -134,6 +134,34 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
   check(after === kept, 'and it survives a reload', `${after}`);
 }
 
+// The room next door. drill-check plays every drill in Node and measures what
+// each round is worth; what it cannot see is the wiring — whether the door on
+// the title card opens, whether a row in the list starts the drill it names,
+// and whether the pair actually arrives in the position that drill starts
+// from. Three questions, all of them about this page.
+{
+  const gym = await page.evaluate(async () => {
+    const g = window.__bjj;
+    g.openGym();
+    const rows = g.gym().rows.map((r) => ({ name: r.tr.name, from: r.tr.from }));
+    g.startDrill(0);
+    await new Promise((r) => setTimeout(r, 400));
+    const d = g.drill();
+    const at = g.match().position;
+    g.endDrill();
+    await new Promise((r) => setTimeout(r, 200));
+    return { rows, name: d && d.tr.name, want: d && d.tr.from, at,
+             pages: g.gym().pages, back: g.gym().screen, after: !!g.drill() };
+  });
+  check(gym.rows.length > 0 && gym.pages > 1, 'the room has a list in it',
+    `${gym.rows.length} on the page, ${gym.pages} pages, first «${gym.rows[0] && gym.rows[0].name}»`);
+  check(gym.name === gym.rows[0].name, 'a row starts the drill it names',
+    `${gym.name} vs ${gym.rows[0].name}`);
+  check(gym.at === gym.want, 'and the pair starts where that drill starts',
+    `${gym.at} vs ${gym.want}`);
+  check(gym.back === 'gym' && !gym.after, 'and leaving one puts you back in the room');
+}
+
 // Fatigue is checked in pose-check, not here.
 //
 // It was here, comparing the frame with a fresh fighter against the frame with

@@ -44,7 +44,10 @@ export class HUD {
     // The scorebug belongs to a match in progress. On the title card it is
     // clutter across the fighter's head, announcing a score of nothing to
     // nothing.
-    if (match.state !== 'ready') {
+    // A drill has no score, no clock and no advantages. Drawing the scorebug
+    // over one would put three empty numbers where the thing being practised
+    // is supposed to be.
+    if (match.state !== 'ready' && !opts.drill) {
       this._scorebug(match);
       this._positionBar(match);
     }
@@ -55,7 +58,12 @@ export class HUD {
     if (match.deny && match.attempt) this._denyPrompt(match);
     if (match.state === 'sub') this._sub(match);
     this._events(match, dt);
-    if (match.state === 'ready') this._title(opts);
+    if (match.state === 'ready') {
+      if (opts.screen === 'gym') this._gym(opts);
+      else this._title(opts);
+    }
+    if (opts.drill && (match.state === 'live' || match.state === 'sub')) this._drillBar(opts.drill);
+    if (opts.drillOver) this._drillOver(opts.drillOver);
     if (match.state === 'over') { this.result = opts.result; this._result(match); }
     // The first minute's coach, above everything except the result card.
     if (opts.tutorial) {
@@ -647,14 +655,20 @@ export class HUD {
     const mw = Math.min(236, this.w * 0.37);
     const top = Math.min(Math.max(46, this.h * 0.14), 96);
     const rowH = 28, pitch = 32;
-    const beltY = top + 40;
+    // Two doors before anything else: the fight, and the room where you drill
+    // it. They sit above the ladder because the ladder is a setting for one of
+    // them and not for the other.
+    const modeY = top + 18, modeH = 26;
+    const modeW = (mw - 8) / 2;
+    const beltY = modeY + modeH + 26;
     const timeY = beltY + 5 * pitch + 12;
     const timeH = 24;
     const startY = timeY + timeH + 12;
     const startH = 34;
     const cw = (mw - 12) / 3;
     return {
-      left, mw, top, rowH, pitch, beltY, timeY, timeH, startY, startH,
+      left, mw, top, rowH, pitch, beltY, timeY, timeH, startY, startH, modeY, modeH,
+      mode: (i) => ({ x: left + i * (modeW + 8), y: modeY, w: modeW, h: modeH }),
       belt: (i) => ({ x: left, y: beltY + i * pitch, w: mw, h: rowH }),
       time: (t) => ({ x: left + TIMES_ORDER.indexOf(t) * (cw + 6), y: timeY, w: cw, h: timeH }),
       start: { x: left, y: startY, w: mw, h: startH },
@@ -666,6 +680,7 @@ export class HUD {
   menuHit(p) {
     if (!p) return null;
     const L = this.menuLayout();
+    for (let i = 0; i < 2; i++) if (inside(p, L.mode(i))) return { kind: 'mode', value: i ? 'gym' : 'fight' };
     if (inside(p, L.start)) return { kind: 'start' };
     for (let i = 0; i < 5; i++) if (inside(p, L.belt(i))) return { kind: 'belt', value: i };
     for (const t of TIMES_ORDER) if (inside(p, L.time(t))) return { kind: 'time', value: t };
@@ -769,6 +784,27 @@ export class HUD {
     c.fillText(`позиционная борьба · твой пояс: ${(opts.mine || 'white').toUpperCase()}${rec}`,
       L.left, L.top + 4);
 
+    // The two doors. The fight is where the ladder is climbed; the room is
+    // where a move is drilled until it works. Both are always open — nothing
+    // in the gym is locked behind a belt, because a beginner is exactly who
+    // needs it.
+    const gym = opts.gym || { drilled: 0, total: 0 };
+    for (let i = 0; i < 2; i++) {
+      const r = L.mode(i);
+      const on = (opts.screen === 'gym') === (i === 1);
+      roundRect(c, r.x, r.y, r.w, r.h, 6);
+      c.fillStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(8,11,17,0.58)';
+      c.fill();
+      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.14)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.font = `800 12px ${FONT}`;
+      c.fillStyle = on ? '#1a1203' : 'rgba(255,255,255,0.82)';
+      c.textAlign = 'center';
+      c.fillText(i ? 'ЗАЛ' : 'БОЙ', r.x + r.w / 2, r.y + r.h / 2);
+      c.textAlign = 'left';
+    }
+
     // The difficulty ladder. Locked rungs — past the one you have earned — are
     // dimmed and answer nothing; the rest pick the man you fight next.
     c.font = `700 9px ${FONT}`;
@@ -845,6 +881,232 @@ export class HUD {
     c.font = `600 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.5)';
     c.fillText('очки — за +N на кольце, если удержать 3 секунды', L.left, s.y + s.h + 16);
+  }
+
+  /* ---------------------------------------------------------------- зал */
+
+  // The drill list. Six at a time and paged, rather than a scrolling list:
+  // scrolling inside a canvas overlay means writing momentum, bounds and a
+  // scrollbar by hand, and every one of those is a place for a tap to be eaten
+  // — which is the bug the ring's own layout function exists to prevent. Six
+  // rows and a "next" is the same information with none of that.
+  GYM_ROWS = 6;
+
+  gymLayout() {
+    const left = Math.max(20, this.w * 0.05);
+    const mw = Math.min(300, this.w * 0.46);
+    const top = Math.min(Math.max(46, this.h * 0.14), 96);
+    const rowH = 30, pitch = 34;
+    const listY = top + 26;
+    const footY = listY + this.GYM_ROWS * pitch + 8;
+    const fw = (mw - 8) / 2;
+    return {
+      left, mw, top, rowH, pitch, listY, footY,
+      row: (i) => ({ x: left, y: listY + i * pitch, w: mw, h: rowH }),
+      more: { x: left, y: footY, w: fw, h: 26 },
+      back: { x: left + fw + 8, y: footY, w: fw, h: 26 },
+    };
+  }
+
+  gymHit(p) {
+    if (!p) return null;
+    const L = this.gymLayout();
+    if (inside(p, L.more)) return { kind: 'more' };
+    if (inside(p, L.back)) return { kind: 'back' };
+    for (let i = 0; i < this.GYM_ROWS; i++) if (inside(p, L.row(i))) return { kind: 'drill', value: i };
+    return null;
+  }
+
+  _gym(opts) {
+    const c = this.ctx;
+    const g = c.createLinearGradient(0, this.h * 0.2, 0, this.h);
+    g.addColorStop(0, 'rgba(4,6,10,0.2)');
+    g.addColorStop(0.4, 'rgba(4,6,10,0.72)');
+    g.addColorStop(1, 'rgba(4,6,10,0.96)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, this.w, this.h);
+
+    const L = this.gymLayout();
+    const list = opts.gymList || [];
+    const gym = opts.gym || { drilled: 0, total: 0, page: 0, pages: 1 };
+
+    c.textAlign = 'left';
+    c.fillStyle = '#fff';
+    c.font = `800 ${Math.round(Math.min(26, this.w * 0.038))}px ${FONT}`;
+    c.fillText('ЗАЛ', L.left, L.top - 16);
+    c.font = `600 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    c.fillText(`отработка приёмов · освоено ${gym.drilled} из ${gym.total}`, L.left, L.top + 2);
+
+    for (let i = 0; i < this.GYM_ROWS; i++) {
+      const d = list[i];
+      const r = L.row(i);
+      roundRect(c, r.x, r.y, r.w, r.h, 6);
+      c.fillStyle = 'rgba(8,11,17,0.62)';
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.12)';
+      c.lineWidth = 1;
+      c.stroke();
+      if (!d) continue;
+      c.font = `700 11px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.9)';
+      c.fillText(d.name, r.x + 10, r.y + r.h / 2 - 5);
+      c.font = `600 9px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.45)';
+      c.fillText(`${d.from} · ${d.round}`, r.x + 10, r.y + r.h / 2 + 8);
+      // Three dots: the rounds passed. A drill is a ladder of three and the
+      // level is which rung you are standing on, so three marks say it without
+      // a word.
+      for (let k = 0; k < 3; k++) {
+        const on = d.level > k;
+        c.beginPath();
+        c.arc(r.x + r.w - 14 - k * 12, r.y + r.h / 2, 4, 0, Math.PI * 2);
+        c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.16)';
+        c.fill();
+      }
+    }
+
+    for (const [rect, label] of [[L.more, `ЕЩЁ · ${gym.page + 1}/${gym.pages}`], [L.back, 'НАЗАД']]) {
+      roundRect(c, rect.x, rect.y, rect.w, rect.h, 6);
+      c.fillStyle = 'rgba(8,11,17,0.62)';
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.16)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.font = `700 10px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.82)';
+      c.textAlign = 'center';
+      c.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
+      c.textAlign = 'left';
+    }
+  }
+
+  // The banner over a drill in progress. It takes the scorebug's place rather
+  // than sitting under it: a drill has no score, no clock and no advantages,
+  // and drawing three empty ones would say the opposite.
+  drillExit() {
+    // Top left, which in a drill is the one corner nothing else wants: the
+    // scorebug is not drawn, and both bottom corners are under a thumb for the
+    // whole session. It first sat bottom right and landed on the ring's own
+    // label for the button underneath it.
+    return { x: 16, y: 16, w: 62, h: 22 };
+  }
+
+  drillExitHit(p) {
+    return !!p && inside(p, this.drillExit());
+  }
+
+  _drillBar(d) {
+    const c = this.ctx;
+    const w = Math.min(560, this.w - 28);
+    const x = (this.w - w) / 2;
+    roundRect(c, x, 8, w, 42, 8);
+    c.fillStyle = 'rgba(6,9,14,0.78)';
+    c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.10)';
+    c.lineWidth = 1;
+    c.stroke();
+
+    c.textAlign = 'left';
+    c.font = `800 13px ${FONT}`;
+    c.fillStyle = '#fff';
+    c.fillText(d.name, x + 12, 22);
+    c.font = `600 9px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.fillText(`${d.from} · ${d.round} · нужно ${d.need} из ${d.reps}`, x + 12, 37);
+
+    // Six pips, filled as the attempts go by. Green landed, red not; the ones
+    // still to come are hollow, so the row reads as "how much of this is left"
+    // as well as "how it is going".
+    for (let i = 0; i < d.reps; i++) {
+      const px = x + w - 14 - (d.reps - 1 - i) * 15;
+      c.beginPath();
+      c.arc(px, 26, 5, 0, Math.PI * 2);
+      const r = d.marks[i];
+      c.fillStyle = r === 'hit' ? 'rgba(110,220,140,0.95)'
+        : r ? 'rgba(230,110,110,0.85)' : 'rgba(255,255,255,0.14)';
+      c.fill();
+    }
+
+    // The line the round is about, under the banner and out of the way of both
+    // thumbs.
+    c.textAlign = 'center';
+    c.font = `600 11px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.62)';
+    c.fillText(d.hint, this.w / 2, 62);
+    c.textAlign = 'left';
+
+    const b = this.drillExit();
+    roundRect(c, b.x, b.y, b.w, b.h, 6);
+    c.fillStyle = 'rgba(8,11,17,0.62)';
+    c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.16)';
+    c.lineWidth = 1;
+    c.stroke();
+    c.font = `700 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.8)';
+    c.textAlign = 'center';
+    c.fillText('ВЫЙТИ', b.x + b.w / 2, b.y + b.h / 2);
+    c.textAlign = 'left';
+  }
+
+  // What a finished round says. Two buttons, because after a drill there are
+  // exactly two things anybody wants: again, or something else.
+  drillOverLayout() {
+    const w = Math.min(320, this.w * 0.6);
+    const x = (this.w - w) / 2;
+    const y = this.h * 0.5 - 40;
+    const bw = (w - 10) / 2;
+    return {
+      x, y, w, h: 120,
+      again: { x, y: y + 78, w: bw, h: 30 },
+      back: { x: x + bw + 10, y: y + 78, w: bw, h: 30 },
+    };
+  }
+
+  drillOverHit(p) {
+    if (!p) return null;
+    const L = this.drillOverLayout();
+    if (inside(p, L.again)) return { kind: 'again' };
+    if (inside(p, L.back)) return { kind: 'back' };
+    return null;
+  }
+
+  _drillOver(d) {
+    const c = this.ctx;
+    c.fillStyle = 'rgba(3,5,9,0.66)';
+    c.fillRect(0, 0, this.w, this.h);
+    const L = this.drillOverLayout();
+    roundRect(c, L.x, L.y, L.w, L.h, 10);
+    c.fillStyle = 'rgba(9,13,20,0.94)';
+    c.fill();
+    c.strokeStyle = d.passed ? 'rgba(255,209,102,0.6)' : 'rgba(255,255,255,0.14)';
+    c.lineWidth = 1;
+    c.stroke();
+
+    c.textAlign = 'center';
+    c.font = `800 18px ${FONT}`;
+    c.fillStyle = d.passed ? '#ffd166' : 'rgba(255,255,255,0.9)';
+    c.fillText(d.passed ? 'СДАНО' : 'НЕ СДАНО', L.x + L.w / 2, L.y + 26);
+    c.font = `600 11px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.7)';
+    c.fillText(`${d.hits} из ${d.reps} · нужно ${d.need}`, L.x + L.w / 2, L.y + 48);
+    c.font = `600 10px ${FONT}`;
+    c.fillStyle = d.raised ? '#ffd166' : 'rgba(255,255,255,0.45)';
+    c.fillText(d.note, L.x + L.w / 2, L.y + 66);
+
+    for (const [rect, label] of [[L.again, 'ЕЩЁ РАЗ'], [L.back, 'В ЗАЛ']]) {
+      roundRect(c, rect.x, rect.y, rect.w, rect.h, 7);
+      c.fillStyle = 'rgba(255,255,255,0.08)';
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.2)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.font = `700 11px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.9)';
+      c.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
+    }
+    c.textAlign = 'left';
   }
 
   _result(m) {

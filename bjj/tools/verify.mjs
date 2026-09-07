@@ -70,6 +70,10 @@ const steps = [
   // so nothing here noticed that the window to answer an attack was shorter
   // than a hand.
   ['a hand on it', 'human-check.mjs', ['120']],
+  // And whether the room next door is worth walking into: every drill is a
+  // move the ring will offer, every drill can be passed, and what a drilled
+  // move is worth is what the store says it is worth.
+  ['the зал', 'drill-check.mjs', ['12']],
   // And whether what the game says about the match afterwards is true.
   ['the разбор', 'tape-check.mjs', ['120']],
   // Whether the ring can be pressed the way it looks like it can. Everything

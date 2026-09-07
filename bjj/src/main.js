@@ -9,6 +9,8 @@ import { Skeleton, poseToQuats, BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { seedRandom } from './game/rng.js';
 import { AI } from './game/ai.js';
+import { Skills } from './game/skills.js';
+import { Drill, drillOrder, ROUNDS, REPS, NEED } from './game/drills.js';
 import { Tutorial } from './game/tutorial.js';
 import { Camera } from './game/camera.js';
 import { Referee } from './game/referee.js';
@@ -266,6 +268,19 @@ const hudOpts = () => ({
   level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut,
   selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
   fullscreen: isFullscreen(), fsHint,
+  // The room, and whatever is going on in it.
+  screen,
+  gym: { drilled: skills.drilled, total: DRILL_TOTAL, page: gymPage % gymPages(), pages: gymPages() },
+  gymList: gymRows().map((e) => ({
+    name: e.tr.name, from: POSE_LABEL(e.tr.from), level: skills.level(e.tr),
+    round: ROUNDS[Math.min(ROUNDS.length - 1, skills.level(e.tr))].title,
+  })),
+  drill: drill && drill.phase !== 'done' ? {
+    name: drill.tr.name, from: POSE_LABEL(drill.tr.from),
+    round: ROUNDS[drill.round].title, hint: ROUNDS[drill.round].hint,
+    need: drill.need, reps: REPS, marks: drill.marks,
+  } : null,
+  drillOver,
 });
 
 // The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
@@ -293,6 +308,30 @@ const BELT_LABEL = { white: 'БЕЛЫЙ', blue: 'СИНИЙ', purple: 'ПУРП�
 const MENU_BELTS = LADDER.map((b) => ({ name: b, label: BELT_LABEL[b], col: BELT_COL[b], man: ROSTER[b].name }));
 const TIMES = [3, 5, 10];
 
+// What the player has drilled, and the room they drill it in.
+//
+// The store is loaded once and written when a round is passed; the match never
+// sees it directly — it is handed a function that turns a transition into a
+// multiplier, and the opponent's is always one. See skills.js.
+const skills = new Skills();
+// Which of the two title screens is up, which page of the drill list is
+// showing, and the drill in progress if there is one.
+let screen = 'title';
+let gymPage = 0;
+let drill = null;
+let drillOver = null;
+const GYM_ROWS = 6;
+// The position a drill starts in, in the same words the position bar uses.
+const POSE_LABEL = (id) => (POSES[id] && POSES[id].name) || id;
+const DRILL_TOTAL = drillOrder(skills).length;
+const gymList = () => drillOrder(skills);
+const gymPages = () => Math.max(1, Math.ceil(gymList().length / GYM_ROWS));
+const gymRows = () => {
+  const all = gymList();
+  const at = (gymPage % gymPages()) * GYM_ROWS;
+  return all.slice(at, at + GYM_ROWS);
+};
+
 let match, ai;
 function newMatch() {
   const you = new Fighter('ВЫ', {
@@ -307,7 +346,12 @@ function newMatch() {
     skinCol: new Float32Array(ROSTER[oppBelt()].skinCol),
     technique: 0.55, strength: 0.55, cardio: 0.5,
   });
-  match = new Match([you, opp], { time: selection.time * 60, onEvent: onMatchEvent });
+  match = new Match([you, opp], {
+    time: selection.time * 60, onEvent: onMatchEvent,
+    // Only the player's side. The opponent is a belt, and the belt is his
+    // skill; giving him a drill store too would be two ladders doing one job.
+    skill: (tr, by) => (by === 0 ? skills.bonus(tr) : 1),
+  });
   ai = new AI(1, oppBelt());
   rig.origin[0] = 0;
   rig.origin[2] = 0;
@@ -316,6 +360,31 @@ function newMatch() {
   camera.orbit = 0.7;
 }
 newMatch();
+
+// Start one drill. A fresh match, because a drill is not the fight it was
+// interrupting — and the same match object, because it is the same rig, the
+// same referee and the same mat, and a drill that looked different from the
+// game would be teaching the wrong game.
+function startDrill(entry) {
+  drillOver = null;
+  newMatch();
+  // The round to run is the one after the last one passed, and the third one
+  // stays open forever: sparring is not a box to tick.
+  const round = Math.min(ROUNDS.length - 1, skills.level(entry.tr));
+  drill = new Drill(entry, round, skills);
+  drill.reset(match);
+  match.start();
+  fade();
+}
+
+function endDrill() {
+  drill = null;
+  drillOver = null;
+  screen = 'gym';
+  selection.belt = Math.min(selection.belt, progress.rank);
+  newMatch();
+  fade();
+}
 
 function onMatchEvent(e) {
   if (e.kind === 'position') {
@@ -609,7 +678,8 @@ function frame(now) {
     // A press on the full-screen button is not that press: it must not start
     // the next match out from under the menu the player is about to fold away.
     const onFs = input.pressAt && hud.fsHit(input.pressAt);
-    if (match.state === 'over' && !onFs) {
+    if (drill || drillOver) { /* the drill owns its own buttons, below */ }
+    else if (match.state === 'over' && !onFs) {
       selection.belt = progress.rank;
       newMatch();
       match.start();
@@ -632,15 +702,67 @@ function frame(now) {
     else if (r && typeof r === 'object') { did.moved = true; audio.cloth(0.5); }
     else if (r) audio.cloth(0.5);
   }
+  // A tap on one of the ring's buttons is that button. The ring is drawn as
+  // four labelled circles with a price on each, and until now the only way to
+  // press one was to swipe: tapping the button marked «+4» started a grip fight
+  // instead, silently. Everything that ever measured this game swiped, so
+  // nothing caught it.
+  //
+  // The beat inside a submission still owns the tap — there the whole screen is
+  // the rhythm and there is nothing else a tap could mean.
+  //
+  // Its own function because a drill needs it too: inside one the ring is the
+  // whole of the interface, and a second copy of this would be a second place
+  // for a button to stop answering.
+  const ringTap = () => {
+    const onBeat = match.state === 'sub' && match.sub && match.sub.attacker === 0;
+    const dir = onBeat || !input.tapAt ? null : hud.ringDir(input.tapAt.x, input.tapAt.y);
+    if (dir) {
+      const r = match.input(0, dir);
+      if (r === 'deny') { did.denied = true; audio.click(); }
+      else if (r === 'escape') audio.cloth(0.7);
+      else if (r && typeof r === 'object') { did.moved = true; audio.cloth(0.5); }
+      else if (r) audio.cloth(0.5);
+    } else if (onBeat) {
+      const r = match.subTap(0);
+      if (r === 'tight') audio.tap(0.45); else audio.click();
+    } else {
+      const r = match.grip(0);
+      if (r === 'win' || r === 'lose') did.gripped = true;
+      if (r) audio.cloth(r === 'win' ? 0.9 : 0.4);
+    }
+  };
+
   if (input.tap) {
     // The full-screen button, in the corner of every screen. It outranks
     // everything else so a tap on it is never read as a grip or a menu row.
     if (hud.fsHit(input.tapAt)) {
       toggleFullscreen();
       audio.click();
+    } else if (drillOver) {
+      const hit = hud.drillOverHit(input.tapAt);
+      if (hit && hit.kind === 'again') { audio.click(); startDrill(drillOver.entry); }
+      else if (hit) { audio.click(); endDrill(); }
+    } else if (drill) {
+      if (hud.drillExitHit(input.tapAt)) { audio.click(); endDrill(); }
+      else if (!input.tapLeft) ringTap();
+    } else if (match.state === 'ready' && screen === 'gym') {
+      const hit = hud.gymHit(input.tapAt);
+      if (hit && hit.kind === 'drill') {
+        const row = gymRows()[hit.value];
+        if (row) { audio.click(); startDrill(row); }
+      } else if (hit && hit.kind === 'more') {
+        gymPage = (gymPage + 1) % gymPages(); audio.click();
+      } else if (hit && hit.kind === 'back') {
+        screen = 'title'; audio.click();
+      }
     } else if (match.state === 'ready') {
       const hit = hud.menuHit(input.tapAt);
-      if (hit && hit.kind === 'belt') {
+      if (hit && hit.kind === 'mode') {
+        screen = hit.value === 'gym' ? 'gym' : 'title';
+        gymPage = 0;
+        audio.click();
+      } else if (hit && hit.kind === 'belt') {
         if (!FORCED && hit.value <= progress.rank) { selection.belt = hit.value; audio.click(); }
       } else if (hit && hit.kind === 'time') {
         selection.time = hit.value; audio.click();
@@ -652,30 +774,7 @@ function frame(now) {
         startBell();
       }
     } else if (!input.tapLeft) {
-      // A tap on one of the ring's buttons is that button. The ring is drawn
-      // as four labelled circles with a price on each, and until now the only
-      // way to press one was to swipe: tapping the button marked «+4» started a
-      // grip fight instead, silently. Everything that ever measured this game
-      // swiped, so nothing caught it.
-      //
-      // The beat inside a submission still owns the tap — there the whole
-      // screen is the rhythm and there is nothing else a tap could mean.
-      const onBeat = match.state === 'sub' && match.sub && match.sub.attacker === 0;
-      const dir = onBeat || !input.tapAt ? null : hud.ringDir(input.tapAt.x, input.tapAt.y);
-      if (dir) {
-        const r = match.input(0, dir);
-        if (r === 'deny') { did.denied = true; audio.click(); }
-        else if (r === 'escape') audio.cloth(0.7);
-        else if (r && typeof r === 'object') { did.moved = true; audio.cloth(0.5); }
-        else if (r) audio.cloth(0.5);
-      } else if (onBeat) {
-        const r = match.subTap(0);
-        if (r === 'tight') audio.tap(0.45); else audio.click();
-      } else {
-        const r = match.grip(0);
-        if (r === 'win' || r === 'lose') did.gripped = true;
-        if (r) audio.cloth(r === 'win' ? 0.9 : 0.4);
-      }
+      ringTap();
     }
   }
 
@@ -698,17 +797,43 @@ function frame(now) {
   // it. The tutorial drives his one attack through the same `input` door, so
   // nothing about the match knows the difference.
   if (tut && !tut.done) tut.update(dt, match, did);
+  else if (drill && !drill.partnerThinks) { /* he stands there; that is the round */ }
   else ai.update(dt, match,
-    (dir) => match.input(1, dir),
-    () => (match.state === 'sub' && match.sub.attacker === 1 ? match.subTap(1) : match.grip(1)));
+    // In the middle round of a drill the partner defends and starts nothing.
+    // Said here, by what the flick is for at the moment it is thrown, rather
+    // than by teaching the AI a second personality: a flick that is not an
+    // answer to the drill's own threat simply does not reach the match.
+    (dir) => (!drill || drill.letThrough(match) ? match.input(1, dir) : null),
+    () => (!drill || drill.letThrough(match)
+      ? (match.state === 'sub' && match.sub.attacker === 1 ? match.subTap(1) : match.grip(1))
+      : null));
 
   /* --- sim -------------------------------------------------------------- */
   const c0 = control0();
-  // The coach's partner has no left thumb of his own: he stands where he is.
-  match.update(dt, [c0, tut && !tut.done ? ZERO : ai.control]);
+  // The coach's partner has no left thumb of his own: he stands where he is,
+  // and so does the drill partner in the round that is about the movement.
+  const still = (tut && !tut.done) || (drill && !drill.partnerThinks);
+  match.update(dt, [c0, still ? ZERO : ai.control]);
   // The lesson is not against the clock — five minutes is generous, but a
   // player reading the coach is not racing, so the bell never rings mid-step.
   if (tut && !tut.done) match.time = MATCH_TIME;
+  // Neither is a drill: it is six attempts long, not five minutes, and a bell
+  // in the middle of one would be the game answering a question nobody asked.
+  if (drill) {
+    match.time = MATCH_TIME;
+    drill.update(dt, match);
+    if (drill.phase === 'done' && !drillOver) {
+      drillOver = {
+        entry: { tr: drill.tr },
+        passed: drill.passed, hits: drill.hits, need: drill.need, reps: REPS,
+        raised: drill.raised,
+        note: drill.raised
+          ? `уровень ${skills.level(drill.tr)} из 3 · +${Math.round(skills.level(drill.tr) * 5)}% к приёму`
+          : drill.passed ? 'этот круг уже был сдан' : 'попробуй ещё раз',
+      };
+      audio.click();
+    }
+  }
   clockSound();
   // The music leans in with the fight. `intensity` is the sim's own number for
   // how hard they are working; a submission is its own kind of loud.
@@ -879,6 +1004,15 @@ window.__bjj = {
   // The first-minute coach, so a tool can drive the lesson and read how far
   // the player has got — the same way it reads the match and the renderer.
   tutorial: () => tut,
+  // The room. A tool has to be able to open it, pick a drill, watch the reps go
+  // by and read what the round was worth, without a screenshot of a menu.
+  skills,
+  gym: () => ({ screen, page: gymPage % gymPages(), pages: gymPages(), rows: gymRows() }),
+  openGym: () => { screen = 'gym'; gymPage = 0; },
+  startDrill: (i) => { const all = drillOrder(skills); startDrill(all[i % all.length]); },
+  drill: () => drill,
+  drillOver: () => drillOver,
+  endDrill,
   // The HUD is here for the same reason the rig is: a tool has to be able to
   // ask where the ring's buttons are without re-deriving the layout and
   // drifting from it. tools/tap-check.mjs taps them.
