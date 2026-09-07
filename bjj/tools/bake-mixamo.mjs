@@ -1622,6 +1622,31 @@ const AO = bakeAO(FINAL.pos, FINAL.nrm, FINAL.idx);
 const out = encode(FINAL.pos, FINAL.nrm, FINAL.uv, FINAL.bone, FINAL.wt, FINAL.mat, AO, FINAL.idx);
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, out);
-if (WEIGHTS4) { writeFileSync(OUT + '.w4.json', JSON.stringify(W4)); console.log(`wrote ${W4.length / 9} vertices of four-bone weights`); }
+if (WEIGHTS4) {
+  // Only where nothing has rewritten the vertex since. The finger pass, the
+  // twin re-parenting and the crotch smoothing all replace weights after this
+  // table was taken, and a table that disagrees with the mesh it is compared
+  // against measures its own staleness: the first run of this experiment
+  // charged four-bone skinning with the hand tearing that two-bone skinning
+  // had already been fixed for.
+  let kept = 0, dropped = 0;
+  for (let i = 0; i < W4.length; i += 9) {
+    const v = W4[i];
+    // The two heaviest bones, by name. Not by weight: the table is normalised
+    // over four and the mesh over two, so the same vertex reads 0.50 here and
+    // 0.62 there and every vertex would look rewritten.
+    const b0 = BONE[v * 2], b1 = WT[v * 2 + 1] > 0 ? BONE[v * 2 + 1] : b0;
+    const same = (W4[i + 1] === b0 && W4[i + 3] === b1) || (W4[i + 1] === b1 && W4[i + 3] === b0);
+    if (same) { kept++; continue; }
+    dropped++;
+    W4[i + 1] = BONE[v * 2]; W4[i + 2] = WT[v * 2];
+    W4[i + 3] = BONE[v * 2 + 1]; W4[i + 4] = WT[v * 2 + 1];
+    W4[i + 5] = BONE[v * 2]; W4[i + 6] = 0;
+    W4[i + 7] = BONE[v * 2]; W4[i + 8] = 0;
+  }
+  writeFileSync(OUT + '.w4.json', JSON.stringify(W4));
+  console.log(`wrote ${W4.length / 9} vertices of four-bone weights ` +
+    `(${kept} as taken, ${dropped} replaced by what a later pass wrote)`);
+}
 console.log(`\nwrote ${OUT}  ${(out.length / 1024).toFixed(0)} KB  ` +
   `${FINAL.pos.length / 3} verts  ${FINAL.idx.length / 3} tris`);
