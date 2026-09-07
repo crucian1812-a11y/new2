@@ -92,6 +92,10 @@ for (const r of ['A', 'B']) {
 
 const rig = new PairRig(); rig.live = false;
 let worstArea = { v: 0 }, worstEdge = { v: 0 };
+// How many, not just how bad. One edge can be talked around; four thousand
+// cannot, and a change that halves the count while nudging the single worst
+// is a change the single worst cannot judge.
+let torn = 0, tornLong = 0;
 const scan = (role, label) => {
   const m = MESH[role], p = WORK[role];
   for (let t = 0; t < BINDA[role].length; t++) {
@@ -105,8 +109,10 @@ const scan = (role, label) => {
     for (const [x, y] of [[0,1],[1,2],[2,0]]) {
       const e0 = edge(BIND[role], tri[x], tri[y]);
       if (e0 < 1e-6) continue;
-      const r = edge(p, tri[x], tri[y]) / e0;
-      if (r > worstEdge.v) worstEdge = { v: r, label, mm: edge(p, tri[x], tri[y]) * 1000,
+      const e1 = edge(p, tri[x], tri[y]);
+      const r = e1 / e0;
+      if (r >= 2) { torn++; if (e1 > 0.04) tornLong++; }
+      if (r > worstEdge.v) worstEdge = { v: r, label, mm: e1 * 1000,
         bones: [NAMES[m.bone[tri[x]*2]], NAMES[m.bone[tri[y]*2]]].join('->') };
     }
   }
@@ -144,5 +150,6 @@ const work = [];
 if (worstEdge.v >= EDGE) work.push(`${worstEdge.bones} in ${worstEdge.label} at ${worstEdge.v.toFixed(1)}x`);
 if (worstArea.v * 1e4 >= AREA_CM2) work.push(`${worstArea.bones} in ${worstArea.label} at ${(worstArea.v*1e4).toFixed(0)}cm2`);
 if (work.length) console.log(`\n     work list: ${work.join('; ')}`);
+console.log(`\n     ${torn} edges are pulled past twice their bind length, ${tornLong} of them past 40mm`);
 console.log(`\n${fail ? `${fail} check(s) failed` : 'the skin holds together'}`);
 process.exitCode = fail ? 1 : 0;

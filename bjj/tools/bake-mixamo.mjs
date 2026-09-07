@@ -899,6 +899,85 @@ for (let v = 0; v < P.length / 3; v++) {
 }
 if (straddlers) console.log(`re-parented ${straddlers} vertices that straddled a limb and its twin`);
 
+// Take the cliff out of the crotch.
+//
+// Re-parenting the two-thigh vertices onto the hips fixed who owns them and
+// not how fast the ownership changes: BACK_WORK2 still had neighbours a
+// five-millimetre edge apart carrying thighL 0.84/hips 0.16 and thighL
+// 0.58/hips 0.42, and with the hip folded as far as that position folds it,
+// a quarter of a weight is ten centimetres of trouser. skin-check called it
+// 19.7x, the worst edge in the library.
+//
+// The gradient is what does it, so the gradient is what is smoothed — and only
+// where this fault lives: vertices split between a thigh and the hips. The
+// fingers, which were given their bands two blocks up, and every other joint
+// on the body are left exactly as they are.
+//
+// Neighbours are found by position rather than by index, because this baker
+// splits vertices at material and UV seams and a seam would otherwise stop the
+// smoothing dead in the middle of the very patch that needs it.
+{
+  const n = P.length / 3;
+  const key = (v) => `${Math.round(P[v * 3] * 2000)},${Math.round(P[v * 3 + 1] * 2000)},${Math.round(P[v * 3 + 2] * 2000)}`;
+  const at = new Map();
+  for (let v = 0; v < n; v++) {
+    const k = key(v);
+    let g = at.get(k); if (!g) { g = []; at.set(k, g); }
+    g.push(v);
+  }
+  const nb = new Map();
+  const link = (a, b) => { let g = nb.get(a); if (!g) { g = new Set(); nb.set(a, g); } g.add(b); };
+  for (let t = 0; t < IDX.length; t += 3) {
+    for (const [x, y] of [[0, 1], [1, 2], [2, 0]]) {
+      const a = key(IDX[t + x]), b = key(IDX[t + y]);
+      if (a !== b) { link(a, b); link(b, a); }
+    }
+  }
+  const hip = BONE_INDEX.hips;
+  const thigh = new Set([BONE_INDEX.thighL, BONE_INDEX.thighR]);
+  // The hips' share at each welded position, for the vertices this applies to.
+  const share = new Map();
+  for (const [k, vs] of at) {
+    const v = vs[0];
+    const b0 = BONE[v * 2], b1 = BONE[v * 2 + 1];
+    const isCrotch = (b0 === hip && thigh.has(b1)) || (b1 === hip && thigh.has(b0));
+    if (!isCrotch) continue;
+    share.set(k, b0 === hip ? WT[v * 2] : WT[v * 2 + 1]);
+  }
+  // One damped pass, and the number came from a sweep rather than from taste.
+  //
+  //   passes   worst edge   torn edges   of them past 40mm
+  //     0        19.7x         32572          16394
+  //     1        19.7x         31869          15504
+  //     2        23.6x         31319          14857
+  //     3        24.7x         30790          14806
+  //
+  // One buys nine hundred fewer long tears and costs nothing at all on the
+  // worst edge. Past that it is a trade — more hip weight spread down the
+  // thigh makes a new gradient of its own where the hips turn hardest, and
+  // three passes walk the worst edge to within a tenth of the line the check
+  // will not ship past. A gain that has to be argued for is not this one.
+  for (let pass = 0; pass < 1; pass++) {
+    const next = new Map();
+    for (const [k, f] of share) {
+      let sum = 0, cnt = 0;
+      for (const j of nb.get(k) || []) { const g = share.get(j); if (g !== undefined) { sum += g; cnt++; } }
+      next.set(k, cnt ? f + (sum / cnt - f) * 0.6 : f);
+    }
+    for (const [k, f] of next) share.set(k, f);
+  }
+  let smoothed = 0;
+  for (const [k, f] of share) {
+    for (const v of at.get(k)) {
+      const b0 = BONE[v * 2];
+      if (b0 === hip) { WT[v * 2] = f; WT[v * 2 + 1] = 1 - f; }
+      else { WT[v * 2] = 1 - f; WT[v * 2 + 1] = f; }
+      smoothed++;
+    }
+  }
+  if (smoothed) console.log(`smoothed the thigh-to-hip weight across ${smoothed} crotch vertices`);
+}
+
 // Unsew the legs.
 //
 // The source characters stand in an A-pose with the inner thighs touching, and
