@@ -31,6 +31,11 @@ const steps = [
   // asks: a torn triangle is in the right place, so pose-check and
   // blend-check both read it as fine, and a player sees splinters.
   ['the skin holds', 'skin-check.mjs', ['--grip']],
+  // And whether a hand reads as a hand. skin-check answers "is the surface
+  // torn", which is a different question from "is this shape a hand": the
+  // tearing on the knuckles was found and fixed and the player still saw a
+  // claw, because the fingers arrive from the source straight and fanned.
+  ['hands', 'hand-check.mjs', []],
   // Whether the bodies themselves are possible. It was written, it was used to
   // find eighty-five joints outside human range, and it was never added here —
   // so when the measure inside it turned out to be reading a roll nothing

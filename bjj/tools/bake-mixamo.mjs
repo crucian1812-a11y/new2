@@ -801,6 +801,256 @@ for (const side of ['L', 'R']) {
   if (touched) console.log(`re-weighted ${touched} finger vertices onto hand${side}/fing${side}/hand${side}Tip`);
 }
 
+// Close the fan the fingers arrive in.
+//
+// A player looked at the title screen and called the hands claws. Three
+// explanations were tried and measured and all three were wrong — the rest
+// curl (swept 26 to 60 degrees), the rim light (zeroed), the torn skin
+// (already fixed, 112 stretched edges down to 14) — and the fourth was the
+// mesh itself: both source characters are modelled with the fingers straight
+// and spread, which is right for a T-pose and wrong for every frame of a
+// fight. hand-check puts a number on it by looking down the palm at the air
+// between the fingers: four to eleven square centimetres of it, and the spread
+// getting wider toward the tips rather than narrower, 1.65 to 2.18 times.
+//
+// The rig cannot answer that. All four fingers share one `fing*` bone, so
+// there is nothing to rotate a single finger with; two more bones a hand would
+// buy a freedom no pose ever asks for, in a game where a hand is either open
+// or on a lapel. What is wrong is the rest shape, and the rest shape is
+// geometry, so it is fixed here — once, at bake time, on both characters, with
+// the weights untouched.
+//
+// The move is a gap-closing map across the hand, and it is done on the
+// silhouette rather than on the vertices, because the two cheap versions both
+// fail on the same thing:
+//
+//   the extent of a triangle    a triangle of webbing at the base of two
+//                               fingers spans the gap between them, so the
+//                               gap reads as skin: 2mm of air found where the
+//                               picture shows twenty.
+//   the angle from an apex      fitted over both characters, the fingers are
+//                               not radial from any point: the best apex still
+//                               calls 95-100% of the fan skin.
+//
+// So: rasterise the fingers as an eye sees them — down the palm, half a
+// millimetre a pixel — and read each row of that picture. A row is a cut
+// across the hand; the runs of ink in it are the fingers at that height, and
+// the air between the runs is what closes. Runs keep their width, so a finger
+// keeps its thickness and its shape; only the gaps shrink, to GATHER of what
+// they were.
+//
+// Rows are linked to the rows below them by overlap, which gives each finger
+// an identity the mesh does not have — and that identity is what stops the two
+// obvious failures. Near the knuckle the fingers are one run and nothing
+// moves, so the palm and the webbing stay where they are. Past the end of the
+// short fingers a row holds one run and would ask for nothing, so instead it
+// keeps what its parent row asked for, and the long finger travels straight
+// out rather than hooking back.
+const GATHER = +(process.env.HAND_GATHER ?? 0.15);   // what is left of a gap
+const GBIN = 0.0005;                                  // half a millimetre a pixel
+for (const side of ['L', 'R']) {
+  const chain = ['hand' + side, 'fing' + side, 'hand' + side + 'Tip'].map((n) => BONE_INDEX[n]);
+  if (chain.some((i) => i === undefined)) continue;
+  const head = chain.map((i) => [ourBind[i][12], ourBind[i][13], ourBind[i][14]]);
+  const ax = [head[2][0] - head[0][0], head[2][1] - head[0][1], head[2][2] - head[0][2]];
+  const AL = Math.hypot(ax[0], ax[1], ax[2]) || 1;
+  ax[0] /= AL; ax[1] /= AL; ax[2] /= AL;
+  const along = (v) => (P[v * 3] - head[0][0]) * ax[0] + (P[v * 3 + 1] - head[0][1]) * ax[1] +
+                       (P[v * 3 + 2] - head[0][2]) * ax[2];
+  const perp = (v) => {
+    const s = along(v);
+    return [P[v * 3] - (head[0][0] + ax[0] * s), P[v * 3 + 1] - (head[0][1] + ax[1] * s),
+            P[v * 3 + 2] - (head[0][2] + ax[2] * s)];
+  };
+  const knuck = (head[1][0] - head[0][0]) * ax[0] + (head[1][1] - head[0][1]) * ax[1] +
+                (head[1][2] - head[0][2]) * ax[2];
+
+  const nv = P.length / 3;
+  const fw = new Float64Array(nv);       // how much of a vertex is finger
+  const core = [];
+  let smax = -Infinity;
+  for (let v = 0; v < nv; v++) {
+    let w = 0;
+    for (let k = 0; k < 2; k++)
+      if (BONE[v * 2 + k] === chain[1] || BONE[v * 2 + k] === chain[2]) w += WT[v * 2 + k];
+    fw[v] = w;
+    if (w >= 0.5) { core.push(v); const s = along(v); if (s > smax) smax = s; }
+  }
+  if (core.length < 20 || smax <= knuck) continue;
+
+  // Which way the hand is wide, taken from the fingers themselves: the two
+  // source meshes are built in different frames and the axis that is thickness
+  // on one is spread on the other.
+  let c = [0, 0, 0];
+  for (const v of core) { const p = perp(v); c[0] += p[0]; c[1] += p[1]; c[2] += p[2]; }
+  c = c.map((x) => x / core.length);
+  const t0 = Math.abs(ax[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  const b1 = [ax[1] * t0[2] - ax[2] * t0[1], ax[2] * t0[0] - ax[0] * t0[2], ax[0] * t0[1] - ax[1] * t0[0]];
+  const bl = Math.hypot(b1[0], b1[1], b1[2]); for (let i = 0; i < 3; i++) b1[i] /= bl;
+  const b2 = [ax[1] * b1[2] - ax[2] * b1[1], ax[2] * b1[0] - ax[0] * b1[2], ax[0] * b1[1] - ax[1] * b1[0]];
+  let U = null, bestS2 = -1;
+  for (let a = 0; a < 180; a += 2) {
+    const th = a * Math.PI / 180;
+    const d = [0, 1, 2].map((i) => b1[i] * Math.cos(th) + b2[i] * Math.sin(th));
+    let s2 = 0;
+    for (const v of core) {
+      const p = perp(v);
+      const x = (p[0] - c[0]) * d[0] + (p[1] - c[1]) * d[1] + (p[2] - c[2]) * d[2];
+      s2 += x * x;
+    }
+    if (s2 > bestS2) { bestS2 = s2; U = d; }
+  }
+  const lat = (v) => { const p = perp(v); return (p[0] - c[0]) * U[0] + (p[1] - c[1]) * U[1] + (p[2] - c[2]) * U[2]; };
+
+  // The picture: rows from the knuckle out to the fingertips, columns across.
+  const isCore = new Uint8Array(nv);
+  for (const v of core) isCore[v] = 1;
+  let u0 = Infinity, u1 = -Infinity;
+  for (const v of core) { const u = lat(v); if (u < u0) u0 = u; if (u > u1) u1 = u; }
+  u0 -= 0.010; u1 += 0.010;
+  const NC = Math.ceil((u1 - u0) / GBIN) + 1, NR = Math.ceil((smax - knuck) / GBIN) + 1;
+  const col = (v) => Math.round((lat(v) - u0) / GBIN);
+  const row = (v) => Math.round((along(v) - knuck) / GBIN);
+  // Taken again after the move, so the pass can say what it did rather than
+  // what it meant to do.
+  const shoot = () => {
+    const mask = new Uint8Array(NC * NR);
+    for (let t = 0; t < IDX.length; t += 3) {
+      const a = IDX[t], b = IDX[t + 1], d = IDX[t + 2];
+      if (!(isCore[a] && isCore[b] && isCore[d])) continue;
+      const p = [[col(a), row(a)], [col(b), row(b)], [col(d), row(d)]];
+      const xlo = Math.max(0, Math.min(p[0][0], p[1][0], p[2][0])), xhi = Math.min(NC - 1, Math.max(p[0][0], p[1][0], p[2][0]));
+      const ylo = Math.max(0, Math.min(p[0][1], p[1][1], p[2][1])), yhi = Math.min(NR - 1, Math.max(p[0][1], p[1][1], p[2][1]));
+      const sgn = (x1, y1, x2, y2, x3, y3) => (x1 - x3) * (y2 - y3) - (x2 - x3) * (y1 - y3);
+      for (let y = ylo; y <= yhi; y++) for (let x = xlo; x <= xhi; x++) {
+        const d1 = sgn(x, y, p[0][0], p[0][1], p[1][0], p[1][1]);
+        const d2 = sgn(x, y, p[1][0], p[1][1], p[2][0], p[2][1]);
+        const d3 = sgn(x, y, p[2][0], p[2][1], p[0][0], p[0][1]);
+        if (!(((d1 < 0) || (d2 < 0) || (d3 < 0)) && ((d1 > 0) || (d2 > 0) || (d3 > 0)))) mask[y * NC + x] = 1;
+      }
+      // And the edges, walked: a triangle thinner than a pixel contains no
+      // pixel centre, and a finger built of those reads as a row of holes —
+      // which is how a hand with four fingers first measured as eight.
+      for (const [i, j] of [[0, 1], [1, 2], [2, 0]]) {
+        const n2 = Math.max(Math.abs(p[j][0] - p[i][0]), Math.abs(p[j][1] - p[i][1]));
+        for (let k = 0; k <= n2; k++) {
+          const x = Math.round(p[i][0] + (p[j][0] - p[i][0]) * (k / (n2 || 1)));
+          const y = Math.round(p[i][1] + (p[j][1] - p[i][1]) * (k / (n2 || 1)));
+          if (x >= 0 && x < NC && y >= 0 && y < NR) mask[y * NC + x] = 1;
+        }
+      }
+    }
+    const rows = [];
+    for (let y = 0; y < NR; y++) {
+      const run = [];
+      let lo = -1;
+      for (let x = 0; x < NC; x++) {
+        const on = mask[y * NC + x];
+        if (on && lo < 0) lo = x;
+        if ((!on || x === NC - 1) && lo >= 0) {
+          const hi = on ? x : x - 1;
+          // Anything thinner than three millimetres is not a finger. One
+          // single-pixel speck beside the knuckle, taken for a finger, asked
+          // the whole hand to slide twenty-seven millimetres sideways and
+          // then handed that answer up every row above it.
+          if (hi - lo + 1 >= 6) run.push({ lo, hi, d: 0 });
+          lo = -1;
+        }
+      }
+      rows.push(run);
+    }
+    return rows;
+  };
+  // The middle cut across the fingers, which is what hand-check reports and
+  // what the eye reads: the worst single row is the notch where two fingers
+  // part at the knuckle and it is there on a fist too.
+  const midGap = (rows) => {
+    const w = [];
+    for (const run of rows) {
+      let g = 0;
+      for (let i = 1; i < run.length; i++) g = Math.max(g, run[i].lo - run[i - 1].hi - 1);
+      if (run.length > 1) w.push(g);
+    }
+    w.sort((a, b) => a - b);
+    return w.length ? w[w.length >> 1] * GBIN : 0;
+  };
+
+  const rows = shoot();
+  const before = midGap(rows);
+  for (const run of rows) {
+    if (run.length < 2) continue;
+    // Keep every run's width, shrink every gap, then slide the row back so
+    // the hand closes on itself instead of drifting off the wrist.
+    let cur = run[0].lo, inOld = 0, inNew = 0, wSum = 0;
+    const put = [];
+    for (let i = 0; i < run.length; i++) {
+      put.push(cur);
+      const w = run[i].hi - run[i].lo + 1;
+      inOld += (run[i].lo + run[i].hi) * 0.5 * w; inNew += (cur + w * 0.5 - 0.5) * w; wSum += w;
+      cur += w;
+      if (i < run.length - 1) cur += (run[i + 1].lo - run[i].hi - 1) * GATHER;
+    }
+    const shift = (inOld - inNew) / wSum;
+    for (let i = 0; i < run.length; i++) run[i].d = put[i] + shift - run[i].lo;
+  }
+  // A finger that has ended must not un-bend. Past the tip of the short
+  // fingers a row holds one run, which has no gap to close and would ask for
+  // nothing; instead it keeps what the row below it asked for, matched by
+  // overlap, and the long finger travels straight out rather than hooking
+  // back. Only rows with one run: handing a row's answer up wherever it was
+  // larger poisoned the whole hand from a single speck.
+  for (let y = 1; y < NR; y++) {
+    if (rows[y].length !== 1) continue;
+    const r = rows[y];
+    let par = null, best = 0;
+    for (const q of rows[y - 1]) {
+      const ov = Math.min(r[0].hi, q.hi) - Math.max(r[0].lo, q.lo) + 1;
+      if (ov > best) { best = ov; par = q; }
+    }
+    if (par) r[0].d = par.d;
+  }
+
+  // Row by row, with what each run was asked to do. This is how the speck was
+  // found; leave it in, because the next thing that goes wrong here will go
+  // wrong in the same place.
+  if (process.env.HAND_TRACE) {
+    console.log(`  hand${side}: NR=${NR} NC=${NC} knuck=${(knuck*1000).toFixed(0)} smax=${(smax*1000).toFixed(0)}`);
+    for (let y = 0; y < NR; y += 8) {
+      const r = rows[y];
+      console.log(`   y=${String(y).padStart(4)} ${(y*GBIN*1000).toFixed(0).padStart(4)}mm runs=${r.length} ` +
+        r.map((q) => `[${q.lo}-${q.hi} d=${q.d.toFixed(1)}]`).join(' '));
+    }
+  }
+  const dispAt = (y, x) => {
+    if (y < 0 || y >= NR) return 0;
+    let best = null, near = Infinity;
+    for (const r of rows[y]) {
+      const dx = x < r.lo ? r.lo - x : x > r.hi ? x - r.hi : 0;
+      if (dx < near) { near = dx; best = r; }
+    }
+    return best && near <= 8 ? best.d : 0;
+  };
+
+  let moved = 0, most = 0;
+  for (let v = 0; v < nv; v++) {
+    if (fw[v] <= 0.01) continue;                 // palm and thumb stay where they are
+    const s = along(v);
+    if (s <= knuck) continue;
+    const y = (s - knuck) / GBIN, x = (lat(v) - u0) / GBIN;
+    const y0 = Math.floor(y), f = y - y0;
+    const d = (dispAt(y0, x) * (1 - f) + dispAt(y0 + 1, x) * f) * GBIN * Math.min(1, fw[v] / 0.5);
+    if (Math.abs(d) < 1e-9) continue;
+    for (let k = 0; k < 3; k++) { P[v * 3 + k] += d * U[k]; pos[v * 3 + k] = P[v * 3 + k]; }
+    moved++; if (Math.abs(d) > most) most = Math.abs(d);
+  }
+  let fingers = 0;
+  for (const run of rows) if (run.length > fingers) fingers = run.length;
+  const after = midGap(shoot());
+  console.log(`gathered hand${side}: ${moved} vertices, up to ${fingers} fingers apart, ` +
+    `a typical cut ${(before * 1000).toFixed(1)}mm of air -> ${(after * 1000).toFixed(1)}mm, ` +
+    `worst move ${(most * 1000).toFixed(1)}mm`);
+}
+
 // Find the eyeballs by their shape, for a character that welded them in.
 //
 // `classify` names a part by the bones that move it, and that works when the

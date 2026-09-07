@@ -18,6 +18,10 @@ const POSE = flag('pose', null);
 const PLAY = +flag('play', 0);   // seconds of a real match before the shutter
 const PATH = flag('path', '/bjj/index.html');
 const CLIP = flag('clip', null);
+// How many device pixels a CSS pixel is worth. The default two is a phone;
+// higher is how you look at something small — a hand, a patch, an eye —
+// without asking the page for a viewport the renderer will not give you.
+const DPR = +flag('dpr', 2);
 
 const browser = await chromium.launch({
   // The sandbox ships a browser; CHROME_PATH points at it when the npm copy
@@ -26,7 +30,7 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });
 const ctx = await browser.newContext({
-  viewport: { width: W, height: H }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
+  viewport: { width: W, height: H }, deviceScaleFactor: DPR, isMobile: true, hasTouch: true,
 });
 const page = await ctx.newPage();
 const logs = [];

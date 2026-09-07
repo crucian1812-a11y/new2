@@ -302,6 +302,8 @@ node bjj/tools/verify.mjs             # пос-линт + бойца + 400 ма�
 node bjj/tools/verify.mjs --browser   # плюс настоящий кадр в headless Chromium
 node bjj/tools/pose-check.mjs         # геометрия всех парных поз
 node bjj/tools/asset-check.mjs        # запечённый боец: веса, кости, размеры, материалы
+node bjj/tools/hand-check.mjs         # кисть похожа на кисть: сколько воздуха между пальцами
+node bjj/tools/hand-check.mjs --dump out/  # и картинки, по которым это меряется
 node bjj/tools/sim-check.mjs 500      # баланс: форма матча по поясам, чем кончается, как ранжируется
 node bjj/tools/blend-check.mjs        # то же для середины каждого перехода и каждой петли
 node bjj/tools/mark-check.mjs         # клубные марки: шрифт, атлас, разметка мата, нашивки
@@ -319,7 +321,8 @@ node bjj/tools/sheet.mjs out          # по скриншоту на кажду�
 node bjj/tools/angles.mjs MOUNT out   # одна поза с четырёх сторон, включая сверху
 node bjj/tools/strip.mjs A B out      # переход покадрово
 node bjj/tools/shot.mjs out.png --pose MOUNT
-node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/body-block.fbx --out bjj/assets/fighter.bin
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/body-block.fbx --tris 20000 --out bjj/assets/fighter.bin
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/Ch31_nonPBR.fbx --tris 20000 --out bjj/assets/fighter-b.bin
 node bjj/tools/mixamo-pose.mjs bjj/art/mixamo/situp-to-idle.fbx --at 1.0 --name SIT_UP
 ```
 
