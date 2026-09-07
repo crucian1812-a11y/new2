@@ -39,6 +39,10 @@ const NOGI = argv.includes('--nogi');
 // Thin the merged mesh to about this many triangles before baking. 0 leaves it
 // alone. See the decimation block at the bottom of this file.
 const TRIS = +flag('tris', 0);
+// Write the four strongest bones a vertex beside the mesh, to measure what the
+// two-bone vertex format is costing before anybody pays to widen it.
+const WEIGHTS4 = !!process.env.WEIGHTS4;
+const W4 = [];
 
 /* --------------------------------------------------------- the bone map */
 
@@ -341,10 +345,16 @@ for (const mesh of parsed.meshes) {
     }
   }
 
+  const __drop = [];
+  let __n3 = 0;
   for (let v = 0; v < n; v++) {
     // Top two bones, renormalised. The vertex format carries two and on a body
     // two is enough — the third is always under a couple of per cent.
     const pairs = [...acc[v].entries()].sort((a, b) => b[1] - a[1]);
+    { let tot = 0; for (const e of pairs) tot += e[1];
+      const kept = (pairs[0] ? pairs[0][1] : 0) + (pairs[1] ? pairs[1][1] : 0);
+      __drop.push(tot > 0 ? 1 - kept / tot : 0);
+      if (pairs.length > 2 && pairs[2][1] / (tot || 1) > 0.05) __n3++; }
     let b0 = pairs[0] ? pairs[0][0] : BONE_INDEX.hips;
     let b1 = pairs[1] ? pairs[1][0] : b0;
     let w0 = pairs[0] ? pairs[0][1] : 1;
@@ -358,10 +368,23 @@ for (const mesh of parsed.meshes) {
     const p0 = xform(m0, x, y, z);
     const p1 = xform(m1, x, y, z);
     P.push(p0[0] * w0 + p1[0] * w1, p0[1] * w0 + p1[1] * w1, p0[2] * w0 + p1[2] * w1);
+    // A dump of what the two-bone format threw away, for the experiment that
+    // decides whether a four-bone format is worth the change. Env-gated: it
+    // writes nothing and costs nothing unless somebody is asking.
+    if (WEIGHTS4) {
+      const four = pairs.slice(0, 4);
+      let t4 = 0; for (const e of four) t4 += e[1];
+      W4.push(P.length / 3 - 1,
+        ...[0, 1, 2, 3].flatMap((i) => four[i] ? [four[i][0], four[i][1] / (t4 || 1)] : [b0, 0]));
+    }
     BONE.push(b0, b1);
     WT.push(w0, w1);
     MAT.push(info.mat);
   }
+  if (WEIGHTS4) { const d = __drop.slice().sort((a, b) => a - b), q = (f) => d[Math.floor(d.length * f)] || 0;
+    console.log(`two bones a vertex: dropped weight mean ${(d.reduce((a, b) => a + b, 0) / d.length * 100).toFixed(1)}%, `
+      + `median ${(q(0.5) * 100).toFixed(1)}%, 90th ${(q(0.9) * 100).toFixed(1)}%, worst ${(q(0.999) * 100).toFixed(1)}%; `
+      + `${__n3} of ${d.length} vertices have a third bone over 5%`); }
   for (let i = 0; i < mesh.idx.length; i++) IDX.push(base + mesh.idx[i]);
   base += n;
 }
@@ -1593,9 +1616,12 @@ if (TRIS > 0 && idx.length / 3 > TRIS) {
   FINAL = thin;
 }
 
+
+
 const AO = bakeAO(FINAL.pos, FINAL.nrm, FINAL.idx);
 const out = encode(FINAL.pos, FINAL.nrm, FINAL.uv, FINAL.bone, FINAL.wt, FINAL.mat, AO, FINAL.idx);
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, out);
+if (WEIGHTS4) { writeFileSync(OUT + '.w4.json', JSON.stringify(W4)); console.log(`wrote ${W4.length / 9} vertices of four-bone weights`); }
 console.log(`\nwrote ${OUT}  ${(out.length / 1024).toFixed(0)} KB  ` +
   `${FINAL.pos.length / 3} verts  ${FINAL.idx.length / 3} tris`);

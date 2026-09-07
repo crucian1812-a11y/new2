@@ -48,6 +48,23 @@ const check = (ok, msg, extra = '') => {
 // list with its number rather than hidden under a line drawn to fit it.
 const EDGE = 5.0, EDGE_FAIL = 25;
 const AREA_CM2 = 45, AREA_FAIL = 80;
+// And how long the longest torn edge actually is, which is a different
+// question from how many times its own length it was pulled to. A player saw
+// a white sail standing off a shoulder in turtle: twenty-two centimetres of
+// jacket, and nothing here named it, because that edge is only 2.2x — it
+// started at 105mm. Ranking by ratio finds needles and misses sails.
+//
+// The work-list line is what a body can honestly hold; the ship line is set
+// far above the 19cm that is there, on purpose. What is left is not a mistake
+// anybody can sew up: the vertex format carries two bones, the tears that stay
+// are on edges whose two ends between them name three, and both cheap answers
+// have been tried and measured. Subdividing them is worse — the midpoint has
+// to drop a bone and becomes a tear of its own. A four-bone format was
+// measured before being asked for: 29% off the tears over 40mm, 7% off the
+// worst, and more short ones. The ship line is there for the other kind of
+// fault, the one that has actually shipped from here: a hand that came out as
+// a spike two metres long.
+const LONG_MM = 100, LONG_FAIL = 400;
 
 const load = (n) => {
   const r = readFileSync(new URL(`../assets/${n}`, import.meta.url));
@@ -96,6 +113,7 @@ let worstArea = { v: 0 }, worstEdge = { v: 0 };
 // cannot, and a change that halves the count while nudging the single worst
 // is a change the single worst cannot judge.
 let torn = 0, tornLong = 0;
+let longest = { v: 0 };
 const scan = (role, label) => {
   const m = MESH[role], p = WORK[role];
   for (let t = 0; t < BINDA[role].length; t++) {
@@ -111,7 +129,11 @@ const scan = (role, label) => {
       if (e0 < 1e-6) continue;
       const e1 = edge(p, tri[x], tri[y]);
       const r = e1 / e0;
-      if (r >= 2) { torn++; if (e1 > 0.04) tornLong++; }
+      if (r >= 2) {
+        torn++; if (e1 > 0.04) tornLong++;
+        if (e1 > longest.v) longest = { v: e1, label, ratio: r, bind: e0 * 1000,
+          bones: [NAMES[m.bone[tri[x]*2]], NAMES[m.bone[tri[y]*2]]].join('->') };
+      }
       if (r > worstEdge.v) worstEdge = { v: r, label, mm: e1 * 1000,
         bones: [NAMES[m.bone[tri[x]*2]], NAMES[m.bone[tri[y]*2]]].join('->') };
     }
@@ -146,8 +168,14 @@ check(worstArea.v * 1e4 < AREA_FAIL, 'no triangle is stretched into a sheet',
   worstArea.v ? `worst ${(worstArea.v*1e4).toFixed(0)}cm2 at ${worstArea.ratio.toFixed(0)}x (${worstArea.bones}) in ${worstArea.label} ` +
                 `(work list ${AREA_CM2}cm2, cannot ship ${AREA_FAIL}cm2)`
               : 'nothing past six times its bind area');
+check(longest.v * 1000 < LONG_FAIL, 'and none of it is standing off the body',
+  longest.v ? `longest torn edge ${(longest.v * 1000).toFixed(0)}mm (${longest.bones}) in ${longest.label}, ` +
+              `${longest.bind.toFixed(0)}mm in bind at ${longest.ratio.toFixed(1)}x ` +
+              `(work list ${LONG_MM}mm, cannot ship ${LONG_FAIL}mm)`
+            : 'nothing torn at all');
 const work = [];
 if (worstEdge.v >= EDGE) work.push(`${worstEdge.bones} in ${worstEdge.label} at ${worstEdge.v.toFixed(1)}x`);
+if (longest.v * 1000 >= LONG_MM) work.push(`${longest.bones} in ${longest.label} at ${(longest.v * 1000).toFixed(0)}mm`);
 if (worstArea.v * 1e4 >= AREA_CM2) work.push(`${worstArea.bones} in ${worstArea.label} at ${(worstArea.v*1e4).toFixed(0)}cm2`);
 if (work.length) console.log(`\n     work list: ${work.join('; ')}`);
 console.log(`\n     ${torn} edges are pulled past twice their bind length, ${tornLong} of them past 40mm`);
