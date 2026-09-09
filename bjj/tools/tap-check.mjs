@@ -37,7 +37,16 @@ await page.waitForFunction(() => window.__bjj && window.__bjj.match(), null, { t
 
 const out = await page.evaluate(() => new Promise((done) => {
   const ui = document.getElementById('ui');
-  const m = window.__bjj.match();
+  // Asked for every time, never held.
+  //
+  // This captured the match once, before the tap that starts it — and that tap
+  // is exactly the one that throws the match away: the title card builds the
+  // match the menu chose and starts that. So every tap after it went to a
+  // match nobody was playing, `m.state` was 'ready' forever, and the tool
+  // reported four lost buttons and a dead match on a page where all four
+  // buttons work. It read that way for two rounds, in a check that only runs
+  // behind --browser.
+  const M = () => window.__bjj.match();
   const hud = window.__bjj.hud;
   const send = (type, x, y, id) => ui.dispatchEvent(new PointerEvent(type, {
     pointerId: id, clientX: x, clientY: y, bubbles: true, isPrimary: true,
@@ -50,7 +59,7 @@ const out = await page.evaluate(() => new Promise((done) => {
 
   const r = { taps: [], grip: null, live: false };
   setTimeout(() => {
-    r.live = m.state === 'live';
+    r.live = M().state === 'live';
     const { R, cx, cy } = hud.ringLayout();
     const V = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
     // One tap per button, spaced so the cooldown between moves is over.
@@ -59,28 +68,28 @@ const out = await page.evaluate(() => new Promise((done) => {
     const step = () => {
       if (k >= dirs.length) {
         // And a tap in the middle, which must still be the grip fight.
-        const before = m.tape.filter((x) => x.k === 'press').length;
-        const adv0 = m.gripAdv[0] + m.gripAdv[1];
+        const before = M().tape.filter((x) => x.k === 'press').length;
+        const adv0 = M().gripAdv[0] + M().gripAdv[1];
         tap(cx, cy);
         setTimeout(() => {
           r.grip = {
-            moves: m.tape.filter((x) => x.k === 'press').length - before,
-            adv: (m.gripAdv[0] + m.gripAdv[1]) - adv0,
+            moves: M().tape.filter((x) => x.k === 'press').length - before,
+            adv: (M().gripAdv[0] + M().gripAdv[1]) - adv0,
           };
           done(r);
         }, 1200);
         return;
       }
       const d = dirs[k++];
-      const before = m.tape.filter((x) => x.k === 'press').length;
-      const offered = !!m.preview(0)[d];
+      const before = M().tape.filter((x) => x.k === 'press').length;
+      const offered = !!M().preview(0)[d];
       tap(cx + V[d][0] * R, cy + V[d][1] * R);
       // Polled, not slept on. The page is on a software rasteriser here and a
       // frame can take a third of a second; a fixed wait measured the
       // rasteriser and reported a tap the game had simply not read yet.
       const t0 = performance.now();
       const look = () => {
-        const rec = m.tape.filter((x) => x.k === 'press');
+        const rec = M().tape.filter((x) => x.k === 'press');
         if (rec.length > before) {
           r.taps.push({ dir: d, offered, heard: true, got: rec[rec.length - 1].dir });
           setTimeout(step, 500);

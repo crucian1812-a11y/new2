@@ -133,6 +133,11 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     // green pixel where the pill was not, and a red pill as green.
     m.state = 'live';
     m.sub = null; m.attempt = null; m.deny = null; m.hold = null;
+    // And no pill of its own already up. The swipes above can score, and a
+    // real score puts a real pill exactly where this one is about to look —
+    // the check then reads 209 before and 209 after and calls the pill
+    // missing. It lives a second and a half; this waits it out.
+    for (let i = 0; i < 30 && window.__bjj.punch(); i++) await wait(200);
     await wait(120);
     const before = read();
     // The same call the match makes when a hold is paid off.
