@@ -31,6 +31,7 @@ import { GRIP_POINTS } from '../src/render/body.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { intentCost } from '../src/game/intent.js';
+import { declaredPairs, pairKey, GRIP_ALLOW } from './grip-pairs.mjs';
 
 const WRITE = process.argv.includes('--write');
 const ONLY = process.argv.filter((a) => !a.startsWith('-') && POSES[a]);
@@ -41,6 +42,11 @@ const MAT_Y = 0.05;
 const ALLOW = 0.02;
 // How far a joint and a root are allowed to move from what was authored.
 const JOINT_LIMIT = +(process.env.JOINT_LIMIT || 22);
+// What a hovering limb costs. A knob because the fifteen that are left are the
+// price of pulling the legs out of the mat, and «how much is a floating shin
+// worth against everything else in this cost» is a measurement rather than a
+// constant.
+const HOVER_W = +(process.env.HOVER_W || 80);
 const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 
 const rig = new PairRig();
@@ -127,13 +133,22 @@ function skinNow() {
 // is what stops the search trading one collision for another: pulling a thigh
 // out of a thigh and into a shin leaves the deepest number flat and the sum
 // unchanged, so a search on the maximum alone wanders forever.
-function penetration(skA, skB) {
+function penetration(skA, skB, grips = null) {
   const all = overlap.all(skA, skB);
   let sum = 0, worst = 0, where = null;
   for (const p of all) {
-    const over = p.pen - ALLOW;
+    // A contact the pose asked for is allowed to be deep. See grip-pairs.mjs:
+    // a hand on a neck reports eight centimetres against a head capsule wide
+    // enough to cover a jaw, and this cost was charging for it — pushing the
+    // search to undo the grips the same pose declares, against an intent term
+    // weighted four hundred to keep them.
+    const asked = grips && grips.has(pairKey(p.where));
+    const over = p.pen - (asked ? GRIP_ALLOW : ALLOW);
     if (over > 0) sum += over * over;
-    if (p.pen > worst) { worst = p.pen; where = p.where; }
+    // The worst is reported without the grips too, because the number a person
+    // reads off this tool should be about the pose and not about the shape of
+    // a capsule.
+    if (!asked && p.pen > worst) { worst = p.pen; where = p.where; }
   }
   return { sum, worst, where };
 }
@@ -329,6 +344,34 @@ function underneath(s, x, y, z, skip) {
   }
   return false;
 }
+// Hovering, as the game runs rather than as the pose is written.
+//
+// The other terms here are measured with the foot planting off, and that is
+// the whole reason the ground library came out of the mat: with it on, the
+// solver reads the IK's answer instead of the pose. Hovering is the one term
+// where that rule is backwards. A limb three centimetres above the mat with
+// nothing under it is a limb the *player* sees floating, and what the player
+// sees is the planted pose — so measured with the planting off, this term was
+// blind to exactly the fifteen limbs weight-check was reporting. BACK read
+// zero here and one there; RNC read zero and three.
+//
+// Measured with the planting on, the search finds them and puts them down, so
+// this re-applies the pose the way the game does, reads the skin, and puts the
+// rig back the way the rest of the cost expects it. Two extra applies an
+// evaluation, which is what it costs to ask the right question.
+function hoverPlayed(id, count = false) {
+  rig.rewind();
+  rig.plantFeet = true;
+  rig.apply(id, id, 1, 0.016);
+  skinNow();
+  const v = hoverCost(count);
+  rig.rewind();
+  rig.plantFeet = planting(id);
+  rig.apply(id, id, 1, 0.016);
+  skinNow();
+  return v;
+}
+
 function hoverCost(count = false) {
   let c = 0;
   for (const [me, you] of [['A', 'B'], ['B', 'A']]) {
@@ -374,7 +417,7 @@ function cost(id) {
   skinNow();
   const A = rig.skel.A, B = rig.skel.B;
 
-  const pen = penetration(A, B);
+  const pen = penetration(A, B, declaredPairs(rig.skel, id, overlap));
   let c = pen.sum * 60;
 
   // What the position is. Weighted well above the collision term, because a
@@ -555,7 +598,7 @@ function cost(id) {
   c += lookCost(id) * 6;
 
   // And nothing hanging in the air an inch off the mat.
-  c += hoverCost() * 80;
+  c += hoverPlayed(id) * HOVER_W;
 
   // Still a grappling position and not two solos: the closest pair of read
   // points has to stay inside a forearm's length.
@@ -719,8 +762,8 @@ for (const id of ids) {
   const matBefore = underMat();
   const balBefore = balance(rig.skel.A, rig.skel.B);
   const lookBefore = lookCost(id);
-  const hovBefore = hoverCost();
-  const hangBefore = hoverCost(true);
+  const hovBefore = hoverPlayed(id);
+  const hangBefore = hoverPlayed(id, true);
   // What the pose was, so a search that trades can be refused.
   //
   // The sixth time this project learns the same sentence. arc-solve has a
@@ -736,7 +779,7 @@ for (const id of ids) {
   let matAfter = underMat();
   let balAfter = balance(rig.skel.A, rig.skel.B);
   let lookAfter = lookCost(id);
-  let hovAfter = hoverCost();
+  let hovAfter = hoverPlayed(id);
   let kept = false;
   // Half a centimetre of slack on each, and not because strictness is
   // uncomfortable: with an exact comparison the guard threw away the rear naked
@@ -795,10 +838,10 @@ for (const id of ids) {
     matAfter = underMat();
     balAfter = balance(rig.skel.A, rig.skel.B);
     lookAfter = lookCost(id);
-    hovAfter = hoverCost();
+    hovAfter = hoverPlayed(id);
     kept = true;
   }
-  const hangAfter = hoverCost(true);
+  const hangAfter = hoverPlayed(id, true);
   const mark = after.worst > 0.08 || matAfter.worst > 0.03 ? '!' : ' ';
   console.log(
     `${mark} ${id.padEnd(16)} overlap ${(before.worst * 100).toFixed(0).padStart(3)} -> ` +

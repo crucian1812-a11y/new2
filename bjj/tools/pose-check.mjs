@@ -16,6 +16,7 @@ import { Overlap } from '../src/game/collide.js';
 import { GRIP_POINTS } from '../src/render/body.js';
 import { m4point, v3 } from '../src/core/m4.js';
 import { violations } from '../src/game/intent.js';
+import { declaredPairs, GRIP_ALLOW } from './grip-pairs.mjs';
 import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 
 const MAT_Y = 0.05;
@@ -127,49 +128,13 @@ for (const id of Object.keys(POSES)) {
   // however carefully the pose is authored. Where the author has declared that
   // two parts must be near each other, they are allowed to be inside each other
   // rather further than parts that have no business touching at all.
-  const declared = new Set();
-  for (const h of POSES[id].hold || []) {
-    if (h.of && h.near) declared.add([h.of, h.near].sort().join('|'));
-  }
-  // A grip says it louder than a hold does. `hold` is a fact about the
-  // position; `grips` is an instruction to the rig — put this hand on that
-  // point — and the rig obeys it with IK, so wherever the point lands is where
-  // the hand goes.
-  //
-  // Side control's bottom man frames with a hand at the neck. GRIP_POINTS puts
-  // that point seven centimetres in front of the neck bone, which is the
-  // throat and is also eight centimetres from the head bone, and the head
-  // capsule is ten wide there: a hand on the throat is eight centimetres
-  // inside the skull the moment it arrives. Three poses in that family sit at
-  // 7.8, 7.9 and 8.0 cm on exactly that pair, and the third failed for the
-  // two millimetres. The pose solver was given a wider budget and a swept
-  // shoulder and moved it by nothing, because there is nothing to move: the
-  // target is inside the capsule and the hand has to be on the target.
-  //
-  // So the pairs a grip forces are declared, the same as a hold's, and found
-  // the same way the collider would — by asking which capsules the point is
-  // actually in, rather than by naming the bone the point hangs off. The point
-  // is a place, and the capsule model does not respect bone names.
-  for (const g of POSES[id].grips || []) {
-    const def = GRIP_POINTS[g.point];
-    // A hand on the man's own other wrist — a seatbelt, a gable grip — says
-    // nothing about the pair of bodies, and the overlap measure only ever
-    // compares one man against the other, so a self grip could only ever
-    // declare a pair nothing will look up.
-    if (!def || g.self) continue;
-    const held = g.role === 'A' ? 'B' : 'A';
-    m4point(_t, rig.skel[held].world[BONE_INDEX[def[0]]], def[1]);
-    // The forearm as well as the hand, and it is the forearm that matters: a
-    // hand capsule is four centimetres and stops at the point, a forearm ends
-    // at the hand and so has its own tip in there too, seven centimetres wide.
-    // The pair that failed was the forearm's.
-    const arm = g.hand === 'L' ? ['handL', 'foreL'] : ['handR', 'foreR'];
-    for (const bone of overlap.contains(rig.skel[held], _t)) {
-      for (const own of arm) declared.add([`${g.role}.${own}`, `${held}.${bone}`].sort().join('|'));
-    }
-  }
+  // Which contacts this pose asked for: its `hold` pairs and the capsules a
+  // grip point actually lands in. The list moved into tools/grip-pairs.mjs when
+  // the pose solver needed the same answer — it was charging for the grips the
+  // pose declares while its intent term paid to keep them.
+  const declared = declaredPairs(rig.skel, id, overlap);
   const pair = ov.where && ov.where.replace(' in ', '|').split('|').sort().join('|');
-  const limit = declared.has(pair) ? 0.12 : 0.08;
+  const limit = declared.has(pair) ? GRIP_ALLOW : 0.08;
   if (ov.deepest > limit) {
     info.notes.push(`${(ov.deepest * 100).toFixed(0)}cm of ${ov.where} — a limb is inside a body`);
   }
