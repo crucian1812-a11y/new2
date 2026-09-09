@@ -16,8 +16,9 @@
 // because what an idle arc costs is invisible to everything else here — a
 // blend it does not change is a blend blend-check reads as fine.
 //
-//   node bjj/tools/idle-check.mjs
-import { readFileSync } from 'node:fs';
+//   node bjj/tools/idle-check.mjs            name the arcs nobody would miss
+//   node bjj/tools/idle-check.mjs --write    and take them out of arcs.js
+import { readFileSync, writeFileSync } from 'node:fs';
 import { PairRig } from '../src/game/rig.js';
 import { ARCS } from '../src/game/arcs.js';
 import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
@@ -29,6 +30,7 @@ import { skinLite, skinInto } from './skin-lite.mjs';
 import { JUDGE_STEPS as STEPS } from './grid.mjs';
 
 const MAT_Y = 0.05;
+const ARCS_PATH = new URL('../src/game/arcs.js', import.meta.url);
 const load = (n) => { const r = readFileSync(new URL(`../assets/${n}`, import.meta.url));
   return decodeFighter(r.buffer.slice(r.byteOffset, r.byteOffset + r.length)); };
 const LITE = { A: skinLite(load('fighter.bin')), B: skinLite(load('fighter-b.bin')) };
@@ -93,5 +95,35 @@ console.log('  transition                       overlap w/ w/o    mat w/ w/o    
 for (const r of idle) console.log(`  ${r.k.padEnd(32)}${cm(r.withIt.worst)}${cm(r.without.worst)}  ` +
   `${cm(r.withIt.sunk)}${cm(r.without.sunk)}  ${cm(r.withIt.lift)}${cm(r.without.lift)}` +
   (r.costs ? '   ← and makes something worse' : ''));
+
+// And take them out, because otherwise somebody does it by hand every time the
+// arcs are solved.
+//
+// arc-solve has a --prune of its own and it does not catch these: it prunes on
+// its own fitted skin and on overlap alone, while this walks the baked skin and
+// weighs three numbers. STANDING>OPEN_GUARD came back idle from two separate
+// full solves — 6.1cm of overlap either way and 1.8cm of lift bought with
+// it — and both times a person deleted the block by hand. The measurer that
+// says which arcs are idle is the one that should be able to remove them.
+//
+// Textual, on the same block shape arc-solve writes: one quoted key, the
+// waypoints, and a closing bracket. Nothing else in the file is touched.
+if (process.argv.includes('--write') && idle.length) {
+  let src = readFileSync(ARCS_PATH, 'utf8');
+  let cut = 0;
+  for (const r of idle) {
+    const open = `\n  '${r.k}': [\n`;
+    const at = src.indexOf(open);
+    if (at < 0) continue;
+    const end = src.indexOf('\n  ],', at + open.length);
+    if (end < 0) continue;
+    src = src.slice(0, at) + src.slice(end + '\n  ],'.length);
+    cut++;
+  }
+  if (cut) {
+    writeFileSync(ARCS_PATH, src);
+    console.log(`\ntook ${cut} idle arc(s) out of src/game/arcs.js`);
+  }
+}
 
 process.exitCode = 1;

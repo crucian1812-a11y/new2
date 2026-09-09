@@ -475,6 +475,58 @@ function cost(id) {
     if (out > 0.12) c += (out - 0.12) * (out - 0.12) * 30;
   }
 
+  // And the way back to the pose this one is a variant of.
+  //
+  // A held position cycles: the pose, out to its working variant, and back.
+  // Both ends can be clean and the middle of that cycle a shin through a
+  // thigh — blend-check judges a hold loop against the deeper of its own two
+  // ends plus three centimetres, and HALF_GUARD>HALF_GUARD_WORK failed it by a
+  // millimetre with both ends at 4.4cm and the middle at 7.5.
+  //
+  // arc-solve is the tool for a bad middle and on this one it had nothing: its
+  // search came back worse from a cold start, with ten bones to move and
+  // forty-eight degrees to move them, and with the price of a big correction
+  // cut to a third. The middle was not something a correction could reach; it
+  // was where the variant is, relative to what it is a variant of.
+  //
+  // So the variant is asked about it here. Seven interior samples of the blend
+  // it makes with its own base, and anything deeper than the ends is charged
+  // for. It costs eight rig applies on every evaluation and it only runs on
+  // the nineteen variant poses, which is the price of a term that can see the
+  // one thing the pose itself cannot.
+  if (POSES[id].variantOf && POSES[POSES[id].variantOf]) {
+    const base = POSES[id].variantOf;
+    let mid = 0;
+    for (let i = 1; i <= 7; i++) {
+      rig.rewind();
+      // As it plays, planting included — and this is the one place in this
+      // file where that is right. The pose itself is solved with the IK off,
+      // because with it on the solver reads the IK's answer instead of the
+      // pose; a blend is a different question. blend-check judges the loop the
+      // way the game runs it, so a term aiming at blend-check's number has to
+      // measure the same thing. Measured with the IK off, this loop reads
+      // 4.4cm — the poses' own — and there is nothing to fix; with it on, 7.5.
+      rig.plantFeet = !!POSES[id].ground;
+      rig.applyAt(base, id, i / 8, 0.016);
+      const d = overlap.measure(rig.skel.A, rig.skel.B).deepest;
+      if (d > mid) mid = d;
+    }
+    // Against the pose's own depth: a loop is allowed to be as deep as the
+    // tangle it runs between, and blend-check gives it three centimetres more.
+    const over = mid - Math.max(pen.worst, ALLOW) - 0.02;
+    // Twenty thousand looks absurd until the units are read: this is metres
+    // squared, and the thing being charged for is a centimetre. At 400 the
+    // whole term was worth five hundredths of a cost whose intent alone is
+    // weighted four hundred, and the search — correctly — ignored it.
+    if (over > 0) c += over * over * 20000;
+    // The samples left the rig on the last of them; put the pose back so
+    // everything below this reads the pose and not the blend.
+    rig.rewind();
+    rig.plantFeet = planting(id);
+    rig.apply(id, id, 1, 0.016);
+    skinNow();
+  }
+
   // A man on the ground rests on the ground.
   //
   // Not on the other man alone. In mount both of the top man's knees are down

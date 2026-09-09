@@ -124,6 +124,16 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
       return (async () => { while (!fn() && Date.now() - t0 < ms) await wait(80); return fn(); })();
     };
     const m = g.match();
+    // Nothing else on the glass first.
+    //
+    // The pill is read at the pixel, and the first version of this read
+    // whatever the match happened to be doing: the swipes above can leave a
+    // submission running, and the submission panel paints across the middle of
+    // the screen — the same middle the pill sits in. It reported an opaque
+    // green pixel where the pill was not, and a red pill as green.
+    m.state = 'live';
+    m.sub = null; m.attempt = null; m.deny = null; m.hold = null;
+    await wait(120);
     const before = read();
     // The same call the match makes when a hold is paid off.
     m.onEvent({ kind: 'points', by: 0, points: 4, note: 'прошёл гард' });
