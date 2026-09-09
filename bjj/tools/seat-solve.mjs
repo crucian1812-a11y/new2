@@ -72,12 +72,23 @@ function restY(ys) {
 }
 
 const rig = new PairRig();
-// Measured with the runtime exactly as it plays, planting included. Switching
-// the planting off looks purer and measures a pose nobody sees: the library
-// leans on it — side control's bottom leg is authored forty centimetres through
-// the floor — so without it the "resting patch" of half the library is a shin
-// underground, and seating by that would hoist the pair a third of a metre into
+// Measured with the runtime as it plays — on the ground. Switching the planting
+// off there looks purer and measures a pose nobody sees: the library leans on
+// it, side control's bottom leg is authored forty centimetres through the
+// floor, so without it the "resting patch" of half the library is a shin
+// underground and seating by that would hoist the pair a third of a metre into
 // the air. What has to be true is what the player sees: the pair touches the mat.
+//
+// Standing is the other way round, and that took a player asking why the
+// fighters walk with bent knees. On his feet a man's resting patch *is* his
+// feet, so with the planting on this measured the planting: the stance was
+// authored with its root thirty centimetres too low, both feet ended up under
+// the mat, the IK hauled them back up and folded the knees to a hundred and two
+// degrees to do it, and the seat read zero because the soles were exactly where
+// they belonged. Every check in the battery reads the rig after that IK, which
+// is why nothing caught it for four rounds. Off, on his feet, the pose has to
+// reach the mat by itself.
+const planting = (id) => !!POSES[id].ground;
 // Both fighters, in both slots.
 //
 // The two baked men are not the same size — measured, up to three and a half
@@ -89,6 +100,7 @@ const rig = new PairRig();
 // into a soft mat is invisible, and a body floating above one has a shadow
 // under it that everybody sees.
 function measure(id) {
+  rig.plantFeet = planting(id);
   rig.rewind();
   rig.applyAt(id, id, 1, 0.016);
   const low = (sk) => Math.max(skinY(MESH.A, sk)[0], skinY(MESH.B, sk)[0]);
@@ -115,7 +127,14 @@ for (const id of ids) {
   // What this fixes is the pose that hangs in the air whole: measured, in
   // closed guard and turtle **neither man touches the mat at all**, and the
   // turtled man's shadow lies on the ground a hand's breadth beneath him.
-  if (start.low > FLOOR + 0.005) {
+  //
+  // On his feet it goes both ways. There the resting patch is the soles, a
+  // patch under the mat is the whole man standing in it, and there is no
+  // planting to fight: the seat is the only thing that decides how tall he is.
+  // That direction is what four rounds of this tool never had, and it is the
+  // whole of why the fighters walked in a squat.
+  const both = !planting(id);
+  if (start.low > FLOOR + 0.005 || (both && start.low < FLOOR - 0.005)) {
     const d = start.low - FLOOR;
     POSES[id].A.root.p[1] -= d;
     POSES[id].B.root.p[1] -= d;

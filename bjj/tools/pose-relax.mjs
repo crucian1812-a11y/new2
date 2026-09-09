@@ -44,6 +44,15 @@ const JOINT_LIMIT = +(process.env.JOINT_LIMIT || 22);
 const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 
 const rig = new PairRig();
+// On the ground the cost is measured with the runtime as it plays, foot
+// planting included; on his feet it is not. The reason is the one seat-solve
+// gives at more length: standing, a man's resting patch is his soles, so with
+// the planting on the solver is looking at the IK's answer rather than at the
+// pose — the stance was authored thirty centimetres into the mat, the planting
+// hauled the feet out and folded the knees to a hundred degrees, and every cost
+// term here read a man standing politely on the floor. Off, on his feet, the
+// pose has to reach the mat by itself.
+const planting = (id) => !!POSES[id].ground;
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest', 'shinL', 'shinR'];
 
@@ -80,6 +89,7 @@ const MESH_FOR = { A: 'A', B: 'B' };
 function pickMeshes(id) {
   rig.invalidate(id);
   rig.rewind();
+  rig.plantFeet = planting(id);
   rig.apply(id, id, 1, 0.016);
   for (const role of ['A', 'B']) {
     let best = -9, pick = 'A';
@@ -355,6 +365,7 @@ function cost(id) {
   // chasing its own wobble: every other tool in the battery already called
   // rewind() for exactly this reason and this one did not.
   rig.rewind();
+  rig.plantFeet = planting(id);
   rig.apply(id, id, 1, 0.016);
   skinNow();
   const A = rig.skel.A, B = rig.skel.B;
@@ -408,6 +419,31 @@ function cost(id) {
       if (s.low[b] > 8) continue;
       const under = MAT_Y - s.low[b];
       if (under > 0) c += under * under * 200;
+    }
+  }
+
+  // On his feet, both feet are on the mat.
+  //
+  // There is no such thing in the ground poses and it is not written as one:
+  // a man in half guard has a foot wherever the tangle puts it. Standing is
+  // different and it is the one thing a stance means — and until the planting
+  // was taken out of this cost, nothing could see it. With the stance sitting
+  // thirty centimetres into the mat the IK put both soles on the floor and the
+  // library read as four men standing; seated properly, the clinch turned out
+  // to have one man floating thirteen centimetres with a leg hanging.
+  //
+  // Three centimetres of slack, which is what weight-check calls resting, and
+  // a foot deliberately picked up — a step, a knee on the way in — is past
+  // this term's reach anyway because the pose says so and the term is quiet
+  // above a hand's breadth.
+  if (!POSES[id].ground) {
+    for (const role of ['A', 'B']) {
+      const s = SKIN[role];
+      for (const b of [BONE_INDEX.footL, BONE_INDEX.footR]) {
+        if (s.low[b] > 8) continue;
+        const up = s.low[b] - MAT_Y - 0.03;
+        if (up > 0) c += Math.min(up, 0.25) * Math.min(up, 0.25) * 220;
+      }
     }
   }
 

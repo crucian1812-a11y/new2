@@ -347,6 +347,47 @@ check(under < 0.05, 'nobody is inside the mat',
 check(above < 0.03, 'and every pose touches it',
   `the worst hangs ${(above * 100).toFixed(1)}cm above (17cm before)`);
 
+// And how much of that the runtime is doing rather than the pose.
+//
+// Every check in this file — and in pose-check, and in blend-check, and in the
+// solver that writes the poses — reads the rig after `plantFeet` has finished.
+// That IK exists to keep a foot on the mat while a man moves, and it will pull
+// a foot up as far as it has to, so a pose authored with its feet through the
+// floor arrives here looking immaculate. It hid a stance for four rounds: the
+// standing pose was seated thirty centimetres into the mat, the planting hauled
+// both feet out, folded the knees to a hundred and two degrees to reach, and
+// every number on this page was green while the fighters walked in a squat.
+//
+// So the question is asked of the IK itself: how far does it have to move a
+// foot. On his feet the answer has to be nothing — a stance that does not reach
+// the mat on its own is not a stance. On the ground it is a work list, because
+// a leg authored through the floor is a leg to author, not a height to change,
+// and there are sixty of them.
+{
+  const bare = new PairRig();
+  bare.live = false;
+  bare.plantFeet = false;
+  let standWorst = { d: 0 }, groundWorst = { d: 0 }, groundN = 0;
+  for (const id of Object.keys(POSES)) {
+    if (POSES[id].mirrorOf) continue;
+    rig.rewind(); rig.applyAt(id, id, 1, 0.016);
+    bare.rewind(); bare.applyAt(id, id, 1, 0.016);
+    for (const role of ['A', 'B']) {
+      for (const f of ['footL', 'footR']) {
+        const i = BONE_INDEX[f];
+        const d = rig.skel[role].world[i][13] - bare.skel[role].world[i][13];
+        const at = { d, id, who: `${role}.${f}` };
+        if (POSES[id].ground) { if (d > 0.05) groundN++; if (d > groundWorst.d) groundWorst = at; }
+        else if (d > standWorst.d) standWorst = at;
+      }
+    }
+  }
+  check(standWorst.d < 0.05, 'a stance reaches the mat without the foot IK',
+    `worst lift ${(standWorst.d * 100).toFixed(1)}cm${standWorst.id ? ` (${standWorst.id} ${standWorst.who})` : ''} — 30cm before`);
+  console.log(`     on the ground the planting still lifts ${groundN} feet past 5cm, ` +
+    `worst ${(groundWorst.d * 100).toFixed(0)}cm in ${groundWorst.id} ${groundWorst.who} — legs to author`);
+}
+
 // And three work lists, reported rather than ruled on. Each is real and each
 // needs authoring rather than a solver: where a man's weight is, whether a limb
 // is resting on anything, and where he is looking.
