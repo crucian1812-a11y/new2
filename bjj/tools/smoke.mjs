@@ -117,14 +117,69 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     };
     await until(() => window.__bjj.match().state === 'over');
     const over = window.__bjj.match().state;
+    // Two points against the man at your own rung is a promotion, so the belt
+    // card is what comes up first — and it refuses a press for the first eight
+    // tenths of a second on purpose, because the bell, the roar and the card
+    // all land in the same instant. A tool that presses straight through the
+    // ceremony is a tool that would not notice the ceremony disappearing.
+    const belt = window.__bjj.promo();
+    const shown = belt && { label: belt.label, beatOf: belt.beatOf, nextMan: belt.nextMan };
+    press();
+    const early = !!window.__bjj.promo();
+    await until(() => window.__bjj.promo() && window.__bjj.promo().t > 0.9);
+    // The belt is drawn rather than written, so it is read at the pixel: the
+    // band has to be the belt's own colour and the bar at its end has to be
+    // the bar. Everything else about this card is a string a test could pass
+    // while the screen showed nothing at all.
+    const paint = (() => {
+      const hud = window.__bjj.hud;
+      const cv = hud.canvas;
+      const g = cv.getContext('2d');
+      const dpr = cv.width / cv.clientWidth;
+      const at = (x, y) => {
+        const d = g.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data;
+        return [d[0], d[1], d[2], d[3]];
+      };
+      const L = hud.promoLayout();
+      const p = window.__bjj.promo();
+      return {
+        want: p.col.map((v) => Math.round(v * 255)),
+        // Below the middle of the band, out of the highlight and above the
+        // shadow: the cloth itself.
+        band: at(L.band.x + L.band.w * 0.3, L.band.y + L.band.h * 0.55),
+        bar: at(L.bar.x + L.bar.w / 2, L.bar.y + L.bar.h * 0.55),
+      };
+    })();
+    press();
+    await until(() => !window.__bjj.promo());
+    const gone = !window.__bjj.promo();
     press();
     await until(() => window.__bjj.match() !== m0);
     const m1 = window.__bjj.match();
     return {
-      over, next: m1.state, fresh: m1 !== m0, saved: localStorage.getItem('bjj.progress'), belt0,
+      over, shown, early, gone, paint,
+      next: m1.state, fresh: m1 !== m0, saved: localStorage.getItem('bjj.progress'), belt0,
     };
   });
   check(ladder.over === 'over', 'the match ends on the clock', ladder.over);
+  check(!!ladder.shown, 'a win on your own rung puts the belt on the screen',
+    ladder.shown ? `${ladder.shown.label} ПОЯС, выиграл у ${ladder.shown.beatOf}, дальше ${ladder.shown.nextMan}` : 'no card');
+  check(ladder.early, 'and the first touch, in the same instant as the bell, does not wipe it');
+  {
+    const { want, band, bar } = ladder.paint;
+    // The sheen rides on top of the cloth, so this is a band of tolerance and
+    // not an equality: what is being caught is a belt drawn in the wrong
+    // colour, or not drawn at all.
+    const near = band.every((v, i) => i === 3 ? v > 250 : Math.abs(v - want[i]) <= 26);
+    check(near, 'the band on it is the belt\u2019s own colour',
+      `rgb(${band.slice(0, 3)}) against rgb(${want})`);
+    // And the black bar at the end of it is not the belt: on the blue belt the
+    // two differ by the whole of the blue.
+    const apart = Math.abs(bar[0] - band[0]) + Math.abs(bar[1] - band[1]) + Math.abs(bar[2] - band[2]);
+    check(apart > 40 && bar[3] > 250, 'and the rank bar at its end is a bar',
+      `rgb(${bar.slice(0, 3)}), ${apart} apart from the cloth`);
+  }
+  check(ladder.gone, 'a touch takes it away once it has been up long enough to read');
   check(ladder.fresh && ladder.next !== 'over', 'a touch puts the next man on the mat', ladder.next);
   check(!!ladder.saved, 'the ladder is written down', ladder.saved || 'nothing in localStorage');
   const kept = await page.evaluate(() => localStorage.getItem('bjj.progress'));
