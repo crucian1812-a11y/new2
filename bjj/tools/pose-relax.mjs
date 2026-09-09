@@ -463,7 +463,40 @@ function cost(id) {
   // *supposed* to be outside its base, because that is what falling is.
   if (!POSES[id].waypoint) {
     const out = balance(A, B);
+    // Two terms, and the gentle one is the point. The steep one starts at
+    // twelve centimetres, which is the line for a pair actually falling over —
+    // so below it the search paid nothing for walking the weight from zero out
+    // to ten, and then the guard, which allows a regression of one, threw the
+    // whole answer away. Ten poses sat on exactly that: a leg forty centimetres
+    // through the mat, an answer that pulled it out, and a refusal for a
+    // balance the cost had never mentioned. The gentle term is what the guard
+    // is going to ask about, said in advance.
+    c += out * out * 30;
     if (out > 0.12) c += (out - 0.12) * (out - 0.12) * 30;
+  }
+
+  // A man on the ground rests on the ground.
+  //
+  // Not on the other man alone. In mount both of the top man's knees are down
+  // beside the hips he is sitting on; in half guard he has a knee and a foot on
+  // the mat. weight-check has asked this question since a player photographed a
+  // mount where the top man's lowest point was 21 cm up — and it could only
+  // report it, because nothing in this cost mentioned it: the hover term
+  // forgives everything above nine centimetres as «plainly lifted», which is
+  // exactly the band a man floating on his partner sits in.
+  //
+  // It went from a report to a term when pulling sixty-two legs out of the mat
+  // put three men in the air — the legs came up and took their owners with
+  // them. Waypoints are left out for the same reason they are left out of the
+  // balance term: the middle of a movement is allowed to be off the floor.
+  if (POSES[id].ground && !POSES[id].waypoint) {
+    for (const role of ['A', 'B']) {
+      const s = SKIN[role];
+      let low = 9;
+      for (let b = 0; b < 26; b++) if (s.low[b] < low) low = s.low[b];
+      const up = low - MAT_Y - 0.02;
+      if (up > 0) c += Math.min(up, 0.3) * Math.min(up, 0.3) * 120;
+    }
   }
 
   // And a head that is looking at something.
@@ -660,9 +693,51 @@ for (const id of ids) {
   // the trade this solver exists to make; what the guard is for is the trade
   // that pays a centimetre for a centimetre and calls it progress.
   const SLACK = 0.005;
-  if (after.worst > before.worst + SLACK || matAfter.worst > matBefore.worst + SLACK
-      || balAfter > balBefore + 0.01 || lookAfter > lookBefore + 0.05
-      || hovAfter > hovBefore + 0.0002) {
+  // And which of them said no. «kept what it had» on its own is a dead end for
+  // whoever reads it next: the answer was refused, and the one thing worth
+  // knowing — what it was refused for — was the thing not printed. Four poses
+  // sat on that line for two rounds.
+  const refused = [];
+  if (after.worst > before.worst + SLACK) refused.push(`overlap ${(before.worst * 100).toFixed(1)}→${(after.worst * 100).toFixed(1)}cm`);
+  if (matAfter.worst > matBefore.worst + SLACK) refused.push(`mat ${(matBefore.worst * 100).toFixed(1)}→${(matAfter.worst * 100).toFixed(1)}cm`);
+  // Balance, and not on a waypoint. The cost does not ask a waypoint to keep
+  // its weight over its base — the middle of falling into a guard is a pair
+  // falling, and that is the note written beside the term — so the guard must
+  // not ask either. It did, and it is why three of the four poses left with a
+  // leg through the mat were waypoints: the search was refused for a number
+  // nothing had asked it to keep.
+  const wonMat = Math.max(0, matBefore.worst - matAfter.worst);
+  // A lean is not a fall. Five centimetres of weight outside the base is a man
+  // leaning on the other man, which is what this sport is; the cost's own line
+  // for a pair going over is twelve. So a solve that takes a leg out of the
+  // floor may spend balance down to five, and no further — which is how the
+  // last pose with a leg buried, the rear naked choke's second work variant,
+  // paid 3.4cm for thirty-seven.
+  const leaning = wonMat > 0.05 && balAfter < 0.05;
+  if (!POSES[id].waypoint && !leaning && balAfter > balBefore + 0.01) {
+    refused.push(`weight ${(balBefore * 100).toFixed(1)}→${(balAfter * 100).toFixed(1)}cm`);
+  }
+  if (lookAfter > lookBefore + 0.05) refused.push('look');
+  // Hover, in the same units as everything else it is being weighed against.
+  //
+  // The cost is a sum of squared gaps, and the guard compared it to a bare
+  // 0.0002 — a number in square metres sitting in a list of lengths. It read
+  // as strict and it was: the rear naked choke and side control each had a leg
+  // forty centimetres through the floor, the solver pulled both out, and this
+  // line threw the answer away because a limb ended up three centimetres above
+  // the mat with nothing under it. Two rounds, both poses, the same refusal.
+  //
+  // A limb under the floor is impossible; a limb above it is unconvincing.
+  // So the trade is allowed and it is bounded by itself: you may buy N
+  // centimetres out of the mat with at most N centimetres of hover. The
+  // fourteen millimetres of slack is what the old square number allowed, in
+  // length.
+  const hoverLen = (v) => Math.sqrt(Math.max(0, v));
+  if (hoverLen(hovAfter) > hoverLen(hovBefore) + 0.014 + wonMat) {
+    refused.push(`hover ${(hoverLen(hovBefore) * 100).toFixed(1)}→${(hoverLen(hovAfter) * 100).toFixed(1)}cm ` +
+      `against ${(wonMat * 100).toFixed(0)}cm out of the mat`);
+  }
+  if (refused.length) {
     restore(id, undo);
     after = cost(id).pen;
     matAfter = underMat();
@@ -679,7 +754,7 @@ for (const id of ids) {
     `${(matBefore.worst * 100).toFixed(0).padStart(3)} -> ${(matAfter.worst * 100).toFixed(0).padStart(3)}cm ` +
     `weight out ${(balBefore * 100).toFixed(0).padStart(3)} -> ${(balAfter * 100).toFixed(0).padStart(3)}cm  ` +
     `hangs ${String(hangBefore).padStart(2)} -> ${String(hangAfter).padStart(2)}  ` +
-    `${kept ? ' (kept what it had)' : ''}` +
+    `${kept ? ` (kept what it had: ${refused.join(', ')})` : ''}` +
     `${matAfter.worst > 0.03 ? ' ' + matAfter.where : ''}${after.worst > 0.05 ? ' ' + after.where : ''}`
   );
   changed.push(id);
