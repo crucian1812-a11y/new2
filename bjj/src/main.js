@@ -119,6 +119,15 @@ if (baked) {
   skeleton.finishSkin();
   hero = {
     skeleton,
+    // How far he reaches from the point the title camera is aimed at, so the
+    // lens can be opened enough to hold him — the same number the match
+    // camera computes for the pair every frame, and for the same reason. It
+    // is a constant here because he never moves.
+    //
+    // It was not passed at all while he was a crouched man a metre and a
+    // third tall and the hand-set framing happened to fit him. Standing up
+    // straight he is 1.72 to the crown and the shot cut him off at the shin.
+    spread: 0,
     gpu: gpuYou,
     giCol: new Float32Array([0.9, 0.905, 0.885]),
     beltCol: new Float32Array([0.035, 0.035, 0.04]),
@@ -902,6 +911,14 @@ const REF_BELT = new Float32Array([0.03, 0.03, 0.04]);
 const REF_SKIN = new Float32Array([0.55, 0.39, 0.30]);
 
 const HERO_FOCUS = v3(0.34, 0.95, 0.1);
+if (hero) {
+  let far = 0;
+  for (const w of hero.skeleton.world) {
+    const d = Math.hypot(w[12] - HERO_FOCUS[0], w[13] - HERO_FOCUS[1], w[14] - HERO_FOCUS[2]);
+    if (d > far) far = d;
+  }
+  hero.spread = far;
+}
 
 function drawFrame(now, real) {
   const dt = 1 / 60;
@@ -913,7 +930,7 @@ function drawFrame(now, real) {
 
   // Before the bell, the screen belongs to one fighter and the empty mat.
   if (hero && match.state === 'ready') {
-    camera.update(dt, HERO_FOCUS, 'hero', 0);
+    camera.update(dt, HERO_FOCUS, 'hero', 0, hero.spread);
     renderer.render({
       camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero],
       score: [match.f[0].points, match.f[1].points], clock: match.time,
