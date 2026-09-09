@@ -55,6 +55,10 @@ export class HUD {
       this._ring(match, input);
       this._stick(input);
     }
+    // Points, said out loud. Not on a drill: a drill has no score, and a pill
+    // announcing four points for a rep would be announcing a number the room
+    // does not keep.
+    if (opts.punch && !opts.drill && match.state !== 'ready') this._punch(opts.punch);
     if (match.deny && match.attempt) this._denyPrompt(match);
     if (match.state === 'sub') this._sub(match);
     this._events(match, dt, !!opts.promo);
@@ -423,6 +427,70 @@ export class HUD {
   // The denial prompt. Big, central, and gone in under half a second — this is
   // the moment the match turns on and it has to be readable in peripheral
   // vision while you are looking at two bodies moving.
+  /* ------------------------------------------------------------ the punch */
+
+  // Where the score pill goes: under the position bar, across the middle,
+  // clear of the deny circle at the centre of the glass and of both thumbs.
+  punchLayout() {
+    return { x: this.w / 2, y: 110, h: 26 };
+  }
+
+  // «+4 ПРОШЁЛ ГАРД».
+  //
+  // Three points for a sweep used to be a line of grey text in the bottom-left
+  // corner, in the same size and the same place as «стоп» and «выход» — the
+  // scoreboard changed by three and nothing on the screen said why. The
+  // position graph already writes down what each move is called in the words a
+  // coach would use («прошёл гард», «вышел на спину», «бросок»); the match
+  // hands that note along with the points, and this is where it is said.
+  //
+  // It pops and it goes. The pop is a scale from 1.35 in a sixth of a second,
+  // which is the length of the sound that plays with it; the going is the last
+  // four tenths, drifting up as it fades, so the eye follows it off rather
+  // than watching a box disappear.
+  _punch(p) {
+    const c = this.ctx;
+    const L = this.punchLayout();
+    const t = p.t;
+    const pop = t < 0.16 ? 1.35 - 0.35 * (t / 0.16) : 1;
+    const out = Math.max(0, (t - (PUNCH_LIFE - 0.4)) / 0.4);
+    const a = 1 - out;
+    if (a <= 0) return;
+
+    const num = `+${p.n}`;
+    const note = (p.note || '').toUpperCase();
+    c.font = `800 20px ${FONT}`;
+    const numW = c.measureText(num).width;
+    c.font = `700 11px ${FONT}`;
+    const noteW = note ? c.measureText(note).width : 0;
+    const padW = 12;
+    const w = numW + (note ? noteW + 10 : 0) + padW * 2;
+
+    c.save();
+    c.globalAlpha = a;
+    c.translate(L.x, L.y - out * 14);
+    c.scale(pop, pop);
+    const col = p.mine ? '#4fd48a' : '#ff6a55';
+    roundRect(c, -w / 2, -L.h / 2, w, L.h, L.h / 2);
+    c.fillStyle = 'rgba(6,9,14,0.82)';
+    c.fill();
+    c.strokeStyle = col;
+    c.lineWidth = 1.5;
+    c.stroke();
+    c.textAlign = 'left';
+    c.fillStyle = col;
+    c.font = `800 20px ${FONT}`;
+    c.fillText(num, -w / 2 + padW, 1);
+    if (note) {
+      c.fillStyle = 'rgba(255,255,255,0.86)';
+      c.font = `700 11px ${FONT}`;
+      c.fillText(note, -w / 2 + padW + numW + 10, 1);
+    }
+    c.restore();
+    c.globalAlpha = 1;
+    c.textAlign = 'left';
+  }
+
   _denyPrompt(m) {
     const c = this.ctx;
     const d = m.deny;
@@ -843,7 +911,32 @@ export class HUD {
       c.stroke();
       c.font = `700 11px ${FONT}`;
       c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.8)';
-      c.fillText(`${b.label} ПОЯС`, r.x + 28, r.y + r.h / 2);
+      // The colour on its own, without the word «ПОЯС» after it. The row is
+      // 236 pixels wide on a phone and it now carries four things — the belt's
+      // dot, its name, the record against the man and the man — and the first
+      // draft of this had «ПУРПУРНЫЙ ПОЯС 2—2РАФАЭЛ» running into itself. The
+      // dot beside it and the header above it already say these are belts.
+      c.fillText(b.label, r.x + 28, r.y + r.h / 2);
+      // What you have done to this man, and he to you. Only once there is
+      // something to say: five rows of «0—0» on a fresh install is a scoreboard
+      // for a career that has not started.
+      const rec = (opts.records && opts.records[i]) || [0, 0];
+      if (rec[0] || rec[1]) {
+        const at = r.x + 28 + c.measureText(b.label).width + 8;
+        const tail = locked ? 'ЗАКРЫТО' : b.man;
+        c.font = `600 10px ${FONT}`;
+        const room = r.x + r.w - 10 - c.measureText(tail).width - 8;
+        c.font = `600 9px ${FONT}`;
+        const line = `${rec[0]}—${rec[1]}`;
+        // And only where it fits. A name is the row's own, a record is a note
+        // beside it, and a note that overlaps what it is a note about is worse
+        // than no note.
+        if (at + c.measureText(line).width < room) {
+          c.fillStyle = rec[0] > rec[1] ? 'rgba(79,212,138,0.75)'
+            : rec[1] > rec[0] ? 'rgba(255,106,85,0.75)' : 'rgba(255,255,255,0.4)';
+          c.fillText(line, at, r.y + r.h / 2 + 1);
+        }
+      }
       c.textAlign = 'right';
       if (locked) {
         c.font = `600 9px ${FONT}`;
@@ -1326,6 +1419,10 @@ export class HUD {
     c.globalAlpha = 1;
   }
 }
+
+// How long the score pill lives, in seconds. Shared with main.js, which is
+// what clears it: the HUD draws what it is handed and never owns a timer.
+export const PUNCH_LIFE = 1.5;
 
 // The rank bar at the end of the belt: black on every belt but the black one,
 // where the IBJJF makes it red. Named because smoke reads them off the card.
