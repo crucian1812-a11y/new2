@@ -24,7 +24,7 @@
 // what it imported. Two halves because they answer two questions — what is on
 // disk, and what this process thinks is on disk — and the bug was the gap
 // between them.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -32,12 +32,32 @@ import { tmpdir } from 'node:os';
 export const ARCS_PATH = join(dirname(fileURLToPath(import.meta.url)), '../src/game/arcs.js');
 export const ARCS_BACKUP = join(tmpdir(), 'bjj-arcs-backup.js');
 
+// And a backup is only a rescue while it is fresh.
+//
+// This is not hypothetical and it is not cheap. A backup left by a run that
+// died on a Sunday sat in /tmp for two days, through a full re-solve of every
+// arc in the graph and four commits, and the next run of this tool restored
+// it — silently putting the old arcs back over an hour of solving, with the
+// same reassuring line printed as when it does the right thing.
+//
+// A dead run's backup is minutes old. Six hours is generous by a factor of
+// dozens and still far short of anything that could outlive a round of work.
+// Past that it is not a rescue, it is a fossil: dropped, and said out loud.
+const FRESH = 6 * 3600 * 1000;
+
 if (existsSync(ARCS_BACKUP)) {
   try {
-    const held = readFileSync(ARCS_BACKUP, 'utf8');
-    if (readFileSync(ARCS_PATH, 'utf8') !== held) {
-      writeFileSync(ARCS_PATH, held);
-      console.log('the last run died mid-candidate; arcs.js put back the way it was');
+    const age = Date.now() - statSync(ARCS_BACKUP).mtimeMs;
+    if (age > FRESH) {
+      rmSync(ARCS_BACKUP, { force: true });
+      console.log(`a backup ${(age / 3600000).toFixed(0)}h old was left behind; ` +
+        'too old to be this run\'s rescue, dropped without restoring');
+    } else {
+      const held = readFileSync(ARCS_BACKUP, 'utf8');
+      if (readFileSync(ARCS_PATH, 'utf8') !== held) {
+        writeFileSync(ARCS_PATH, held);
+        console.log('the last run died mid-candidate; arcs.js put back the way it was');
+      }
     }
   } catch { /* the file is gone, or unreadable; there is nothing to put back */ }
 }
