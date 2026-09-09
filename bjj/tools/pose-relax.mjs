@@ -52,7 +52,11 @@ const rig = new PairRig();
 // hauled the feet out and folded the knees to a hundred degrees, and every cost
 // term here read a man standing politely on the floor. Off, on his feet, the
 // pose has to reach the mat by itself.
-const planting = (id) => !!POSES[id].ground;
+// PLANT=0 takes it off the ground poses too, which is not what ships: there the
+// buried legs are real and there are sixty of them, so a solve with it off is
+// the whole library moving at once. It is here to measure that before anybody
+// asks for it.
+const planting = (id) => process.env.PLANT !== '0' && !!POSES[id].ground;
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest', 'shinL', 'shinR'];
 
