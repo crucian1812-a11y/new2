@@ -194,6 +194,17 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     // Run the clock out rather than playing it out: what is being checked is
     // the shell, and the sim has four hundred matches of its own in sim-check.
     m0.f[0].points = 2;
+    // And press a real move first, so the разбор has something to name and the
+    // gym check below is not passing on an empty match. The swipes above are a
+    // thumb on glass and they mostly land on a grip fight; this is the ring's
+    // own door, pressed through the same входы the player's thumb reaches.
+    for (let i = 0; i < 6; i++) {
+      if (m0.tape.some((r) => r.k === 'press' && r.res === 'go')) break;
+      const o = m0.options(0);
+      const dir = Object.keys(o).find((k) => o[k]);
+      if (dir) m0.input(0, dir);
+      await wait(350);
+    }
     m0.time = 0.1;
     // Waited for, not slept through: this page draws one frame a second under
     // a software rasteriser and the clock only moves when a frame does.
@@ -243,12 +254,32 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     press();
     await until(() => window.__bjj.match() !== m0);
     const m1 = window.__bjj.match();
+    const goes = m0.tape.filter((r) => r.k === 'press' && r.res === 'go');
+    const card = window.__bjj.hud.result;
+    // The thread from a finished match to the room next door, read here rather
+    // than in the gym block below: that one runs after a reload, and a reload
+    // is a fresh page with nothing behind it. The check passed for two runs on
+    // exactly that — «the match named nothing», every time.
+    window.__bjj.openGym();
+    const r0 = window.__bjj.gym().rows[0].tr;
     return {
+      pressed: goes.length, keys: goes.map((r) => r.key).slice(0, 3),
+      named: card && card.drill ? card.drill.key : null,
+      first: window.__bjj.gym().first,
+      top: `${r0.from}|${r0.role}|${r0.dir}`,
       over, shown, early, gone, paint,
       next: m1.state, fresh: m1 !== m0, saved: localStorage.getItem('bjj.progress'), belt0,
     };
   });
   check(ladder.over === 'over', 'the match ends on the clock', ladder.over);
+  check(ladder.pressed > 0, 'and the player got a move off in it',
+    `${ladder.pressed} presses went through: ${ladder.keys.join(', ') || 'none'}`);
+  // The one thread between losing a fight and doing something about it: the
+  // разбор names the move the player kept reaching for, and the room puts that
+  // move on its first row.
+  check(!!ladder.named && ladder.named === ladder.first && ladder.first === ladder.top,
+    'the move the разбор names is the room\u2019s first row',
+    `card ${ladder.named || 'named nothing'}, room ${ladder.top}`);
   check(!!ladder.shown, 'a win on your own rung puts the belt on the screen',
     ladder.shown ? `${ladder.shown.label} ПОЯС, выиграл у ${ladder.shown.beatOf}, дальше ${ladder.shown.nextMan}` : 'no card');
   check(ladder.early, 'and the first touch, in the same instant as the bell, does not wipe it');
@@ -294,6 +325,7 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     const g = window.__bjj;
     g.openGym();
     const rows = g.gym().rows.map((r) => ({ name: r.tr.name, from: r.tr.from }));
+
     g.startDrill(0);
     await new Promise((r) => setTimeout(r, 400));
     const d = g.drill();
@@ -310,6 +342,7 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
   check(gym.at === gym.want, 'and the pair starts where that drill starts',
     `${gym.at} vs ${gym.want}`);
   check(gym.back === 'gym' && !gym.after, 'and leaving one puts you back in the room');
+
 }
 
 // Fatigue is checked in pose-check, not here.

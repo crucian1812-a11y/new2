@@ -1398,9 +1398,20 @@ export class HUD {
         : `${r.beat} belt — ещё раз`;
       c.fillText(line, this.w / 2, base + 48);
     }
+    // And where to go about it. The разбор says what happened; this says what
+    // to do next, and the room next door has already put that move on its
+    // first row — see drillOrder.
+    const gym = r && r.drill && r.drill.tries > 1 ? r.drill : null;
+    if (gym) {
+      c.font = `600 10px ${FONT}`;
+      c.fillStyle = 'rgba(255,209,102,0.75)';
+      c.fillText(`в зале: ${gym.name.toLowerCase()} — ${plural(gym.tries, 'заход', 'захода', 'заходов')} за бой`,
+        this.w / 2, base + 64);
+    }
+    const push = gym ? 16 : 0;
     // Разбор: what this match was, in the game's own numbers.
     if (lines.length) {
-      const ly = base + 76;
+      const ly = base + 76 + push;
       c.strokeStyle = 'rgba(255,255,255,0.12)';
       c.lineWidth = 1;
       c.beginPath();
@@ -1415,7 +1426,7 @@ export class HUD {
     c.fillStyle = '#ffd166';
     c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
     c.fillText(r && !r.won ? 'КОСНИСЬ, ЧТОБЫ ПОПРОБОВАТЬ СНОВА' : 'КОСНИСЬ, ЧТОБЫ ВЫЙТИ НА СЛЕДУЮЩЕГО',
-      this.w / 2, base + 70 + extra);
+      this.w / 2, base + 70 + push + extra);
     c.globalAlpha = 1;
   }
 }
@@ -1479,6 +1490,14 @@ function arrow(c, x, y, dx, dy, col, s = 9) {
   c.fillStyle = col;
   c.fill();
   c.restore();
+}
+
+// Russian counts three ways and a result card is read once: «1 заход», «2
+// захода», «5 заходов», and the teens are all the third form.
+function plural(n, one, few, many) {
+  const t = n % 100, u = n % 10;
+  const w = t >= 11 && t <= 14 ? many : u === 1 ? one : u >= 2 && u <= 4 ? few : many;
+  return `${n} ${w}`;
 }
 
 function wrapText(c, text, x, y, maxW, lh) {

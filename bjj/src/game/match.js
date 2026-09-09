@@ -387,6 +387,11 @@ export class Match {
     if (i === 0) {
       this._tape('press', {
         dir, res: 'go', name: tr.name, pos: this.position,
+        // The move's name in the drill store, so the debrief can point at the
+        // room next door without the HUD having to work out which edge of the
+        // graph this press was. Three facts select a transition and skills.js
+        // keys on the same three.
+        key: `${tr.from}|${tr.role}|${tr.dir}`,
         points: tr.points | 0, chance: +this.chanceOf(tr, i).toFixed(2),
       });
     }
@@ -1526,6 +1531,33 @@ export class Match {
       mine: this.f[0].points, theirs: this.f[1].points,
       lines: [],
     };
+    // And what to take to the gym: the move gone for most this match, ties
+    // broken by the one that was least likely to work.
+    //
+    // Not «the move you failed at» — the tape does not record whether a press
+    // landed, and a debrief that guesses is worse than none. This is a count
+    // of what the player kept reaching for, which is exactly what a drill is
+    // for; and the chance beside it is the game's own number for how much of a
+    // long shot it was at the moment it was pressed.
+    //
+    // Counted over the presses the tape kept. Past 250 the records are spilled
+    // into buckets and the names are gone, which is fine: this is a claim
+    // about the tape, and tape-check holds it to that.
+    const tries = new Map();
+    for (const r of press) {
+      if (r.res !== 'go' || !r.key) continue;
+      const at = tries.get(r.key) || { key: r.key, name: r.name, n: 0, chance: 0 };
+      at.n++;
+      at.chance += r.chance || 0;
+      tries.set(r.key, at);
+    }
+    const ranked = [...tries.values()].sort((a, b) =>
+      (b.n - a.n) || (a.chance / a.n - b.chance / b.n));
+    d.drill = ranked.length
+      ? { key: ranked[0].key, name: ranked[0].name, tries: ranked[0].n,
+          chance: +(ranked[0].chance / ranked[0].n).toFixed(2) }
+      : null;
+
     // Where the other man's points came from, biggest first. The one thing on
     // this screen that is about him, and the one a beaten player asks first.
     const his = {};

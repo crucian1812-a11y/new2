@@ -31,7 +31,7 @@
 
 import { TRANSITIONS } from './positions.js';
 import { POSES } from './poses.js';
-import { SKILL_MAX } from './skills.js';
+import { SKILL_MAX, keyOf } from './skills.js';
 
 // The three rounds. `partner` is what the other man is allowed to do.
 export const ROUNDS = [
@@ -109,8 +109,16 @@ export const DRILLS = TRANSITIONS.map((tr, i) => ({ tr, i }));
 // are all worth four points. The graph's order walks standing, clinch, guard,
 // the passes, the top positions, the submissions — a page of it is a page of
 // one part of the fight, which is what a syllabus is.
-export function drillOrder(skills) {
+// `first` is a move's key — the one the last match's разбор named, if there was
+// one. It goes to the top of the list whatever its level, because a player who
+// has just been beaten and read «в зале: выход на спину» should find it on the
+// first row rather than on page four.
+export function drillOrder(skills, first = null) {
   return DRILLS.slice().sort((a, b) => {
+    if (first) {
+      const fa = keyOf(a.tr) === first, fb = keyOf(b.tr) === first;
+      if (fa !== fb) return fa ? -1 : 1;
+    }
     const la = skills.level(a.tr), lb = skills.level(b.tr);
     if (la !== lb) return la - lb;
     return a.i - b.i;

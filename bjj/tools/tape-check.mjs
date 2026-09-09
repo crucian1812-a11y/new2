@@ -62,6 +62,7 @@ function play(level, style) {
 const BUCKETS = ['go', 'queued', 'chained', 'none', 'nostam', 'deny', 'deny-miss', 'escape', 'escape-miss'];
 
 let worst = 0, lines = 0, empty = 0, longest = 0, longestLine = '';
+let badDrill = 0;
 let badScore = 0, badBucket = 0, orphan = 0, badClaim = 0, overflow = 0;
 const seen = new Set();
 
@@ -94,6 +95,25 @@ for (let i = 0; i < N; i++) {
   // The last one can still be in flight when the clock runs out, which is a
   // hold that never ended rather than one that vanished.
   if (ended !== arrive && ended !== arrive - 1) orphan++;
+
+  // 3b. what it sends to the gym is what the tape says was pressed
+  //
+  // The result card prints «в зале: выход на спину — 4 захода за бой» and the
+  // room puts that move on its first row. That is a claim about the match and
+  // it is counted here from the tape rather than taken from the debrief: the
+  // named move must be the most-pressed one, and the count must be its own.
+  if (d.drill) {
+    const goes = press.filter((r) => r.res === 'go' && r.key);
+    const n = goes.filter((r) => r.key === d.drill.key).length;
+    let top = 0;
+    for (const r of goes) {
+      const c = goes.filter((x) => x.key === r.key).length;
+      if (c > top) top = c;
+    }
+    if (n !== d.drill.tries || n !== top) badDrill++;
+  } else if (press.some((r) => r.res === 'go' && r.key)) {
+    badDrill++;
+  }
 
   // 4. every line that got printed is a line whose condition holds
   for (const line of d.lines) {
@@ -128,6 +148,8 @@ check(badBucket === 0 && seen.size === 0, 'every press lands in exactly one buck
   seen.size ? `unbucketed: ${[...seen].join(', ')}` : `${N} matches`);
 check(orphan === 0, 'every arrival ends in points or in an advantage',
   `${orphan} matches with a hold that vanished`);
+check(badDrill === 0, 'the move it sends you to the gym for is the one you kept pressing',
+  `${badDrill} of ${N} matches named the wrong move or the wrong count`);
 check(badClaim === 0, 'every line of the разбор is true of the tape',
   `${badClaim} false claims over ${lines} lines`);
 check(empty === 0, 'there is always something to say', `${empty} blank debriefs`);

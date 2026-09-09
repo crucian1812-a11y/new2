@@ -359,7 +359,11 @@ const GYM_ROWS = 6;
 // The position a drill starts in, in the same words the position bar uses.
 const POSE_LABEL = (id) => (POSES[id] && POSES[id].name) || id;
 const DRILL_TOTAL = drillOrder(skills).length;
-const gymList = () => drillOrder(skills);
+// What the last разбор said to work on, if it said anything. It rides at the
+// top of the room's list until the next match names something else — the one
+// thread between losing a fight and doing something about it.
+let gymFirst = null;
+const gymList = () => drillOrder(skills, gymFirst);
 const gymPages = () => Math.max(1, Math.ceil(gymList().length / GYM_ROWS));
 const gymRows = () => {
   const all = gymList();
@@ -499,6 +503,12 @@ function onMatchEvent(e) {
     // press that leaves this card, so a win over the white belt announced
     // «white belt взят · следующий: white».
     lastResult = { won, beat, next: myBelt(), climbed, champion: progress.champion };
+    // What to take next door. The разбор counts what the player kept reaching
+    // for; the room puts that on the first row.
+    const db = match.debrief();
+    gymFirst = db.drill ? db.drill.key : null;
+    lastResult.drill = db.drill;
+    gymPage = 0;
     // The belt comes before the scorecard. Not instead of it — the разбор is
     // the thing a beaten player actually needs — but a promotion that arrives
     // underneath a score is a promotion nobody sees.
@@ -1116,7 +1126,7 @@ window.__bjj = {
   // The room. A tool has to be able to open it, pick a drill, watch the reps go
   // by and read what the round was worth, without a screenshot of a menu.
   skills,
-  gym: () => ({ screen, page: gymPage % gymPages(), pages: gymPages(), rows: gymRows() }),
+  gym: () => ({ screen, page: gymPage % gymPages(), pages: gymPages(), rows: gymRows(), first: gymFirst }),
   openGym: () => { screen = 'gym'; gymPage = 0; },
   startDrill: (i) => { const all = drillOrder(skills); startDrill(all[i % all.length]); },
   drill: () => drill,
