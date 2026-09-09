@@ -203,6 +203,11 @@ const myBelt = () => LADDER[Math.min(LADDER.length - 1, progress.rank)];
 const selection = { belt: progress.rank, time: 5 };
 const oppBelt = () => FORCED || LADDER[selection.belt];
 let lastResult = null;   // what the result card has to say
+// The promotion, when there is one. A belt is the whole of what a career in
+// this sport is, and until now taking one was a grey line in the corner of the
+// result card: «blue belt взят · следующий: purple». The card that says what
+// you won has to be the card you cannot miss.
+let promo = null;
 
 // The first minute, when the address bar asks for it. `?tutorial` runs the
 // scripted lesson once and then drops into a real match; it is opt-in so the
@@ -290,6 +295,7 @@ const hudOpts = () => ({
     need: drill.need, reps: REPS, marks: drill.marks,
   } : null,
   drillOver,
+  promo,
 });
 
 // The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
@@ -303,11 +309,11 @@ const hudOpts = () => ({
 // blue — the white-vs-blue a televised bracket actually starts with — and the
 // rest keep their own hue so the ladder reads as five men.
 const ROSTER = {
-  white:  { name: 'МАРК',   giCol: [0.12, 0.23, 0.56], skinCol: [0.66, 0.50, 0.40] },
-  blue:   { name: 'ДЕНИС',  giCol: [0.06, 0.12, 0.36], skinCol: [0.58, 0.40, 0.30] },
-  purple: { name: 'РАФАЭЛ', giCol: [0.24, 0.15, 0.38], skinCol: [0.46, 0.31, 0.23] },
-  brown:  { name: 'АНДРЕЙ', giCol: [0.32, 0.25, 0.18], skinCol: [0.56, 0.41, 0.32] },
-  black:  { name: 'ОЛАВО',  giCol: [0.05, 0.06, 0.07], skinCol: [0.40, 0.26, 0.19] },
+  white:  { name: 'МАРК',   of: 'МАРКА',   giCol: [0.12, 0.23, 0.56], skinCol: [0.66, 0.50, 0.40] },
+  blue:   { name: 'ДЕНИС',  of: 'ДЕНИСА',  giCol: [0.06, 0.12, 0.36], skinCol: [0.58, 0.40, 0.30] },
+  purple: { name: 'РАФАЭЛ', of: 'РАФАЭЛА', giCol: [0.24, 0.15, 0.38], skinCol: [0.46, 0.31, 0.23] },
+  brown:  { name: 'АНДРЕЙ', of: 'АНДРЕЯ',  giCol: [0.32, 0.25, 0.18], skinCol: [0.56, 0.41, 0.32] },
+  black:  { name: 'ОЛАВО',  of: 'ОЛАВО',   giCol: [0.05, 0.06, 0.07], skinCol: [0.40, 0.26, 0.19] },
 };
 
 // What the menu shows: the belt's Russian label, its colour for the dot, and
@@ -449,7 +455,29 @@ function onMatchEvent(e) {
     if (won && onLadder && progress.rank === LADDER.length - 1) progress.champion = true;
     if (climbed) progress.rank++;
     saveProgress();
-    lastResult = { won, beat, next: oppBelt(), climbed, champion: progress.champion };
+    // «следующий» is the man at the rung you are on now, which after a
+    // promotion is not the man you just beat. It read oppBelt(), and oppBelt()
+    // asks the menu — and the menu is not put back on the ladder until the
+    // press that leaves this card, so a win over the white belt announced
+    // «white belt взят · следующий: white».
+    lastResult = { won, beat, next: myBelt(), climbed, champion: progress.champion };
+    // The belt comes before the scorecard. Not instead of it — the разбор is
+    // the thing a beaten player actually needs — but a promotion that arrives
+    // underneath a score is a promotion nobody sees.
+    if (climbed || (won && onLadder && progress.champion)) {
+      promo = {
+        belt: myBelt(), label: BELT_LABEL[myBelt()], col: BELT_COL[myBelt()],
+        // «выиграл у ДЕНИСА» — the card names the man, and a name in Russian
+        // has to be in the right case to be a sentence rather than a label.
+        // Five names, written out beside the five men in the roster.
+        beatOf: ROSTER[beat].of, beatBelt: BELT_LABEL[beat],
+        // Whoever is standing at the new rung, which after a promotion is the
+        // man wearing the belt just taken.
+        nextMan: ROSTER[myBelt()].name,
+        champion: progress.champion && progress.rank === LADDER.length - 1,
+        t: 0,
+      };
+    }
     fade();
     audio.bell();
     audio.duck(0.2, 3.5);
@@ -649,6 +677,12 @@ function frame(now) {
   // comes on and out as it breaks. `__crowd`/`__spot` are the measurement
   // overrides, the same as `__gas` and `__still`: a tool pins them so two
   // frames differ in one thing and nothing else.
+  if (promo) {
+    promo.t += dt;
+    // The room stays up for it. A promotion in a quiet hall is a promotion in
+    // an empty hall.
+    crowd.level = Math.max(crowd.level, Math.min(1, 0.55 + promo.t * 0.5));
+  }
   crowd.level = window.__crowd != null ? window.__crowd : Math.max(0, crowd.level - dt * 0.45);
   crowd.spot = window.__spot != null ? window.__spot
     : match.state === 'sub'
@@ -688,7 +722,12 @@ function frame(now) {
     // the next match out from under the menu the player is about to fold away.
     const onFs = input.pressAt && hud.fsHit(input.pressAt);
     if (drill || drillOver) { /* the drill owns its own buttons, below */ }
-    else if (match.state === 'over' && !onFs) {
+    else if (promo && !onFs) {
+      // The belt is dismissed by a press, and only after it has been up long
+      // enough to read: the bell, the crowd and the card all land in the same
+      // second, and a thumb still moving from the last exchange would skip it.
+      if (promo.t > 0.8) { promo = null; fade(); audio.click(); }
+    } else if (match.state === 'over' && !onFs) {
       selection.belt = progress.rank;
       newMatch();
       match.start();
@@ -1030,6 +1069,11 @@ window.__bjj = {
   drill: () => drill,
   drillOver: () => drillOver,
   endDrill,
+  // The belt card, so smoke can see that a promoting win puts it up and that a
+  // press takes it down. It is the one screen that appears by itself, without
+  // anybody having asked for it, and that is exactly the kind of screen that
+  // quietly stops appearing.
+  promo: () => promo,
   // The HUD is here for the same reason the rig is: a tool has to be able to
   // ask where the ring's buttons are without re-deriving the layout and
   // drifting from it. tools/tap-check.mjs taps them.

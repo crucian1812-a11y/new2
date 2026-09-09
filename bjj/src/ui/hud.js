@@ -47,7 +47,7 @@ export class HUD {
     // A drill has no score, no clock and no advantages. Drawing the scorebug
     // over one would put three empty numbers where the thing being practised
     // is supposed to be.
-    if (match.state !== 'ready' && !opts.drill) {
+    if (match.state !== 'ready' && !opts.drill && !opts.promo) {
       this._scorebug(match);
       this._positionBar(match);
     }
@@ -57,14 +57,21 @@ export class HUD {
     }
     if (match.deny && match.attempt) this._denyPrompt(match);
     if (match.state === 'sub') this._sub(match);
-    this._events(match, dt);
+    this._events(match, dt, !!opts.promo);
     if (match.state === 'ready') {
       if (opts.screen === 'gym') this._gym(opts);
       else this._title(opts);
     }
     if (opts.drill && (match.state === 'live' || match.state === 'sub')) this._drillBar(opts.drill);
     if (opts.drillOver) this._drillOver(opts.drillOver);
-    if (match.state === 'over') { this.result = opts.result; this._result(match); }
+    // The belt first, and by itself. It comes before the разбор rather than on
+    // top of it: the first version drew both, and the screenshot showed a
+    // scorebug, a score, three lines of debrief and «КОСНИСЬ, ЧТОБЫ ВЫЙТИ НА
+    // СЛЕДУЮЩЕГО» all reading through the ceremony at once. The scorecard is
+    // still there — it is what the same press hands back.
+    if (match.state === 'over') this.result = opts.result;
+    if (opts.promo) this._promo(opts.promo);
+    else if (match.state === 'over') this._result(match);
     // The first minute's coach, above everything except the result card.
     if (opts.tutorial) {
       if (opts.tutorial.done) this._tutorialDone();
@@ -628,14 +635,18 @@ export class HUD {
     c.globalAlpha = 1;
   }
 
-  _events(m, dt) {
+  // `hush` keeps the feed running without showing it. The belt card wants the
+  // screen to itself, and simply not calling this would stop the entries
+  // ageing — so «ВЫ — победа по очкам» would be sitting in the corner, still
+  // fresh, at whatever moment the player let the card go.
+  _events(m, dt, hush = false) {
     const c = this.ctx;
     c.textAlign = 'left';
     let y = this.h - 24;
     for (const e of m.events) {
       e.t += dt;
       const a = Math.max(0, 1 - Math.max(0, e.t - 2.6) / 1.2);
-      if (a <= 0) continue;
+      if (a <= 0 || hush) continue;
       c.globalAlpha = a;
       c.font = `600 11px ${FONT}`;
       c.fillStyle = COLORS[e.kind] || 'rgba(255,255,255,0.75)';
@@ -1109,6 +1120,149 @@ export class HUD {
     c.textAlign = 'left';
   }
 
+  // Where the belt is drawn, so a tool can read the picture at the pixel
+  // instead of re-deriving this arithmetic and drifting from it — the same
+  // reason the ring and the room hand out their layouts.
+  promoLayout(roll = 1) {
+    const bh = Math.round(Math.min(58, this.h * 0.13));
+    const bw = Math.min(this.w - 32, 460) * roll;
+    const bx = (this.w - bw) / 2;
+    const by = this.h / 2 - bh / 2;
+    const barW = Math.round(bh * 0.62);
+    return {
+      band: { x: bx, y: by, w: bw, h: bh },
+      bar: { x: bx + bw - barW * 2.6, y: by, w: barW, h: bh },
+    };
+  }
+
+  // The belt.
+  //
+  // Everything else on this screen is a number: points, time, a rank in a
+  // list. A belt is not a number — it is the one thing anybody outside the
+  // sport knows about it, and until now taking one was a grey half-line in the
+  // corner of the result card. So it gets the whole screen, for as long as the
+  // player wants to look at it, and it is drawn rather than written: a band of
+  // its own colour across the frame with the black bar at the end of it, which
+  // is the picture of a belt that needs no caption.
+  //
+  // Nothing here is a button. The press that dismisses it is any press, and
+  // the prompt at the bottom shows up at the moment the press starts working
+  // — main.js will not take a touch that lands inside the first eight tenths
+  // of a second, because the bell, the roar and this card all arrive together
+  // and a thumb still moving from the last exchange would wipe it away unseen.
+  _promo(p) {
+    const c = this.ctx;
+    const w = this.w, h = this.h;
+    // Two eases off the same clock: the band unrolls, and the words come up
+    // behind it a beat later.
+    const ease = (t) => 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3);
+    const roll = ease(p.t / 0.5);
+    const said = ease((p.t - 0.28) / 0.5);
+
+    c.fillStyle = 'rgba(3,5,9,0.82)';
+    c.fillRect(0, 0, w, h);
+
+    // A cone of light on the band, so the hall reads as a hall rather than as
+    // a dark rectangle with a belt drawn on it.
+    const mid = h * 0.5;
+    const glow = c.createRadialGradient(w / 2, mid, 0, w / 2, mid, Math.max(w, h) * 0.55);
+    glow.addColorStop(0, `rgba(${(p.col[0] * 255) | 0},${(p.col[1] * 255) | 0},${(p.col[2] * 255) | 0},0.22)`);
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    c.fillStyle = glow;
+    c.fillRect(0, 0, w, h);
+
+    /* --- the band ------------------------------------------------------- */
+    const L = this.promoLayout(roll);
+    const { x: bx, y: by, w: bw, h: bh } = L.band;
+    // It sits on something. Without the shadow the band is a progress bar.
+    c.fillStyle = 'rgba(0,0,0,0.45)';
+    c.fillRect(bx + 3, by + 5, bw, bh);
+    c.fillStyle = rgb(p.col);
+    c.fillRect(bx, by, bw, bh);
+    // Cloth: a highlight along the top edge and a shadow under it, which is
+    // the whole of what makes a flat rectangle look like something woven.
+    //
+    // The highlight is scaled by the belt's own lightness rather than being a
+    // fixed amount of white. Source-over is arithmetic, so this is a number
+    // and not a taste: a flat 0.20 of white over the black belt's own
+    // rgb(10,10,12) lifts its top edge to 59, six times the cloth under it,
+    // while on blue it is a lift of half again. Scaled, the black belt's edge
+    // comes out at 24 and the sheen stays a sheen on every colour. The card is
+    // read at the pixel by smoke, on the band and on the bar both.
+    const lum = 0.2126 * p.col[0] + 0.7152 * p.col[1] + 0.0722 * p.col[2];
+    const hi = 0.05 + 0.17 * lum;
+    const shade = c.createLinearGradient(0, by, 0, by + bh);
+    shade.addColorStop(0, `rgba(255,255,255,${hi.toFixed(3)})`);
+    shade.addColorStop(0.45, 'rgba(255,255,255,0.02)');
+    shade.addColorStop(1, 'rgba(0,0,0,0.34)');
+    c.fillStyle = shade;
+    c.fillRect(bx, by, bw, bh);
+    // Two rows of stitching down its length, the way a belt is actually sewn.
+    c.strokeStyle = 'rgba(0,0,0,0.22)';
+    c.lineWidth = 1;
+    for (const f of [0.3, 0.7]) {
+      c.beginPath();
+      c.moveTo(bx, Math.round(by + bh * f) + 0.5);
+      c.lineTo(bx + bw, Math.round(by + bh * f) + 0.5);
+      c.stroke();
+    }
+    // The rank bar. Black on every belt but the black one, where it is red —
+    // that is the IBJJF's own rule and the one detail a practitioner checks.
+    if (bw > L.bar.w * 3.2) {
+      c.fillStyle = p.belt === 'black' ? BAR_RED : BAR_BLACK;
+      c.fillRect(L.bar.x, L.bar.y, L.bar.w, L.bar.h);
+      c.fillStyle = 'rgba(255,255,255,0.10)';
+      c.fillRect(L.bar.x, L.bar.y, L.bar.w, Math.round(bh * 0.16));
+    }
+
+    /* --- what it is ----------------------------------------------------- */
+    c.textAlign = 'center';
+    c.globalAlpha = said;
+
+    // The name of the belt, as big as it goes. «КОРИЧНЕВЫЙ ПОЯС» is fourteen
+    // letters and the screen is a phone held sideways, so the size is measured
+    // against the text rather than picked and hoped for.
+    const title = `${p.label} ПОЯС`;
+    let size = Math.round(Math.min(34, h * 0.075));
+    c.font = `800 ${size}px ${FONT}`;
+    const room = Math.min(w - 40, 460);
+    const got = c.measureText(title).width;
+    if (got > room) {
+      size = Math.max(14, Math.floor(size * room / got));
+      c.font = `800 ${size}px ${FONT}`;
+    }
+    const titleY = by - 22 - size / 2;
+    c.fillStyle = '#fff';
+    c.fillText(title, w / 2, titleY);
+
+    // And what kind of moment this is, above it — measured off the title's own
+    // size, because the first version put it at a fixed offset and the two
+    // lines landed on top of each other.
+    c.font = `700 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.fillText(p.champion ? 'ЛЕСТНИЦА ПРОЙДЕНА' : 'НОВЫЙ ПОЯС', w / 2, titleY - size / 2 - 12);
+
+    // Who it came off, and who is next. Two short lines under the band,
+    // because a belt with nobody's name on it is a trophy for nothing.
+    c.font = `600 12px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.72)';
+    c.fillText(`выиграл у ${p.beatOf}`, w / 2, by + bh + 28);
+    c.font = `600 11px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.45)';
+    c.fillText(p.champion ? 'дальше некого' : `дальше — ${p.nextMan}`, w / 2, by + bh + 48);
+    c.globalAlpha = 1;
+
+    // The way out, and it appears exactly when it starts working.
+    if (p.t > 0.8) {
+      c.font = `600 11px ${FONT}`;
+      c.fillStyle = '#ffd166';
+      c.globalAlpha = 0.5 + 0.5 * Math.sin(this.pulse * 3);
+      c.fillText('КОСНИСЬ, ЧТОБЫ ПРОДОЛЖИТЬ', w / 2, h - 34);
+      c.globalAlpha = 1;
+    }
+    c.textAlign = 'left';
+  }
+
   _result(m) {
     const c = this.ctx;
     c.fillStyle = 'rgba(4,6,10,0.78)';
@@ -1172,6 +1326,11 @@ export class HUD {
     c.globalAlpha = 1;
   }
 }
+
+// The rank bar at the end of the belt: black on every belt but the black one,
+// where the IBJJF makes it red. Named because smoke reads them off the card.
+const BAR_BLACK = '#0b0d10';
+const BAR_RED = '#8d1116';
 
 const COLORS = {
   points: '#ffd166', big: '#ffd166', sub: '#ff6a55', win: '#fff',
