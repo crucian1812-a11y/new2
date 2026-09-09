@@ -1319,7 +1319,7 @@ export class Match {
       this.f[by].points += this.hold.points;
       this._tape('paid', { by, pos: this.hold.pos, points: this.hold.points, note: this.hold.note });
       this.emit(`${this.f[by].name}: +${this.hold.points} (${this.hold.note})`, 'points');
-      this.onEvent({ kind: 'points', by, points: this.hold.points });
+      this.onEvent({ kind: 'points', by, points: this.hold.points, note: this.hold.note });
       this.hold = null;
     }
   }

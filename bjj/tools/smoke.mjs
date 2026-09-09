@@ -88,6 +88,83 @@ const bright = lum.filter((v) => v > 12).length;
 check(bright >= 10, 'the mat is actually lit', `${bright}/16 samples above black`);
 check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length / 1024) | 0}kb`);
 
+/* ---------------------------------------------------- what a score looks like */
+
+// Three points used to arrive as a grey line in the corner, in the same size
+// and the same place as «стоп». The pill says the number and what it was for,
+// in the colour of whoever it belongs to — so what is checked here is that it
+// appears at all, that it is the right man's colour, and that it goes: a thing
+// that pops up on its own and clears itself is a thing that can quietly stop
+// doing either.
+{
+  const punch = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const g = window.__bjj;
+    const cv = g.hud.canvas, c2 = cv.getContext('2d');
+    const dpr = cv.width / cv.clientWidth;
+    const L = g.hud.punchLayout();
+    // What the pill puts on the glass: the fill under its middle, and which
+    // way the colour leans across the whole of it. Both read off the HUD's own
+    // layout rather than off numbers copied out of it.
+    const read = () => {
+      const x0 = Math.round((L.x - 70) * dpr), x1 = Math.round((L.x + 70) * dpr);
+      const y0 = Math.round((L.y - L.h / 2) * dpr), y1 = Math.round((L.y + L.h / 2) * dpr);
+      const d = c2.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      let green = 0, red = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 40) continue;
+        if (d[i + 1] > d[i] + 30) green++;
+        if (d[i] > d[i + 1] + 30) red++;
+      }
+      const mid = c2.getImageData(Math.round(L.x * dpr), Math.round(L.y * dpr), 1, 1).data;
+      return { green, red, mid: [mid[0], mid[1], mid[2], mid[3]] };
+    };
+    const held = (fn, ms = 20000) => {
+      const t0 = Date.now();
+      return (async () => { while (!fn() && Date.now() - t0 < ms) await wait(80); return fn(); })();
+    };
+    const m = g.match();
+    const before = read();
+    // The same call the match makes when a hold is paid off.
+    m.onEvent({ kind: 'points', by: 0, points: 4, note: 'прошёл гард' });
+    await held(() => g.punch() && g.punch().t > 0.25);
+    const mine = read();
+    await held(() => !g.punch());
+    const after = read();
+    m.onEvent({ kind: 'points', by: 1, points: 2, note: 'свип' });
+    await held(() => g.punch() && g.punch().t > 0.25);
+    const his = read();
+    await held(() => !g.punch());
+    return { before, mine, after, his };
+  });
+  check(punch.mine.mid[3] > 200 && punch.before.mid[3] < 200,
+    'a score puts a pill on the glass', `alpha ${punch.before.mid[3]} → ${punch.mine.mid[3]}`);
+  check(punch.after.mid[3] < 200, 'and it clears itself', `alpha back to ${punch.after.mid[3]}`);
+  check(punch.mine.green > punch.mine.red && punch.his.red > punch.his.green,
+    'and it is the colour of whoever scored',
+    `yours ${punch.mine.green}g/${punch.mine.red}r, his ${punch.his.red}r/${punch.his.green}g`);
+}
+
+// And the half-second of slow motion a four-point moment buys. The cut and the
+// roar were always there; what was missing was time to see the pass happen.
+{
+  const beat = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const g = window.__bjj;
+    const m = g.match();
+    const idle = g.slow();
+    m.onEvent({ kind: 'position', tr: { big: true, dir: 'left' }, to: m.position });
+    const lit = g.slow();
+    const t0 = Date.now();
+    while (g.slow() > 0 && Date.now() - t0 < 20000) await wait(60);
+    return { idle, lit, spent: g.slow(), took: (Date.now() - t0) / 1000 };
+  });
+  check(beat.idle === 0 && beat.lit > 0.3, 'a four-point moment buys a beat of slow motion',
+    `${beat.lit.toFixed(2)}s`);
+  check(beat.spent === 0 && beat.took < 4, 'and the beat is spent, not held',
+    `gone after ${beat.took.toFixed(1)}s of wall clock`);
+}
+
 /* ------------------------------------------------- the shell round a match */
 
 // Title, match, result, and the next man out — without a reload, and with the
@@ -182,6 +259,14 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
   check(ladder.gone, 'a touch takes it away once it has been up long enough to read');
   check(ladder.fresh && ladder.next !== 'over', 'a touch puts the next man on the mat', ladder.next);
   check(!!ladder.saved, 'the ladder is written down', ladder.saved || 'nothing in localStorage');
+  {
+    // And who it was written against. The ladder says how far you got; the
+    // record beside each name says which of the five you own.
+    const rec = ladder.saved && JSON.parse(ladder.saved).rec;
+    check(!!rec && rec.white && rec.white[0] === 1 && rec.white[1] === 0,
+      'and so is the record against the man you beat',
+      rec ? `white ${rec.white && rec.white.join('—')}` : 'no record kept');
+  }
   const kept = await page.evaluate(() => localStorage.getItem('bjj.progress'));
   await page.reload({ waitUntil: 'load' });
   await page.waitForTimeout(2000);

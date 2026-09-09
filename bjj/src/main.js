@@ -16,7 +16,7 @@ import { Camera } from './game/camera.js';
 import { Referee } from './game/referee.js';
 import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
-import { HUD } from './ui/hud.js';
+import { HUD, PUNCH_LIFE } from './ui/hud.js';
 import { POSES } from './game/poses.js';
 import { clamp, v3, qEuler } from './core/m4.js';
 
@@ -182,12 +182,23 @@ function loadProgress() {
     if (raw) {
       const p = JSON.parse(raw);
       if (typeof p.rank === 'number') {
+        // The record against each man, kept beside the overall one. Read
+        // defensively — it is the newest field in the oldest save, so most
+        // stores on disk do not have it — and only for the five names the
+        // ladder knows.
+        const rec = {};
+        for (const b of LADDER) {
+          const r = p.rec && p.rec[b];
+          rec[b] = [Array.isArray(r) ? r[0] | 0 : 0, Array.isArray(r) ? r[1] | 0 : 0];
+        }
         return { rank: Math.max(0, Math.min(LADDER.length - 1, p.rank | 0)),
-                 wins: p.wins | 0, losses: p.losses | 0, champion: !!p.champion };
+                 wins: p.wins | 0, losses: p.losses | 0, champion: !!p.champion, rec };
       }
     }
   } catch { /* no store, or somebody else's data in it */ }
-  return { rank: 0, wins: 0, losses: 0, champion: false };
+  const rec = {};
+  for (const b of LADDER) rec[b] = [0, 0];
+  return { rank: 0, wins: 0, losses: 0, champion: false, rec };
 }
 function saveProgress() {
   if (FORCED) return;
@@ -208,6 +219,13 @@ let lastResult = null;   // what the result card has to say
 // result card: «blue belt взят · следующий: purple». The card that says what
 // you won has to be the card you cannot miss.
 let promo = null;
+// The last score, for as long as it is worth saying out loud, and the beat of
+// slow motion a pass is given. Both are presentation and neither reaches the
+// rules: the punch is a pill the HUD draws, and the slow beat scales the
+// frame's own dt and nothing else.
+let punch = null;
+let slow = 0;
+const SLOW_BEAT = 0.5, SLOW_RATE = 0.45;
 
 // The first minute, when the address bar asks for it. `?tutorial` runs the
 // scripted lesson once and then drops into a real match; it is opt-in so the
@@ -281,6 +299,7 @@ document.addEventListener('webkitfullscreenchange', layout);
 const hudOpts = () => ({
   level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut,
   selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
+  records: LADDER.map((b) => (progress.rec && progress.rec[b]) || [0, 0]),
   fullscreen: isFullscreen(), fsHint,
   // The room, and whatever is going on in it.
   screen,
@@ -296,6 +315,7 @@ const hudOpts = () => ({
   } : null,
   drillOver,
   promo,
+  punch,
 });
 
 // The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
@@ -410,6 +430,13 @@ function onMatchEvent(e) {
     camera.impulse(e.tr.big ? 0.8 : 0.35);
     if (e.tr.big) camera.cut(e.tr.dir === 'left' ? -1 : 1);
     crowd.level = Math.max(crowd.level, e.tr.big ? 0.85 : 0.5);
+    // A pass, a sweep, a throw, a back take: the four-point moments get half a
+    // second of slow motion. The cut and the roar were already here and both
+    // land in the same instant the move does — the thing that was missing is
+    // time to see it. Half a second at 45% is what the blend needs to read as
+    // a movement rather than a change of pose, and the whole match pays about
+    // two seconds of wall clock for the six or seven of them it contains.
+    if (e.tr.big) slow = SLOW_BEAT;
   } else if (e.kind === 'points') {
     // Whose points. The room is the player's club, and it does not cheer for
     // the man scoring on him — see audio.score.
@@ -418,6 +445,11 @@ function onMatchEvent(e) {
     audio.confirm();
     audio.score(mine, false);
     crowd.level = mine ? 1 : 0.35;
+    // And what they were for, in the words the graph already keeps: «прошёл
+    // гард», «вышел на спину», «бросок». The scoreboard changing by three with
+    // one grey line in the corner to explain it was the whole of the feedback
+    // for the best thing that happens in this game.
+    punch = { n: e.points, mine, note: e.note || '', t: 0 };
   } else if (e.kind === 'submission') {
     const mine = e.by === 0;
     camera.cut(Math.random() < 0.5 ? -1 : 1);
@@ -448,6 +480,12 @@ function onMatchEvent(e) {
     const beat = oppBelt();
     const won = e.winner === 0;
     if (won) progress.wins++; else progress.losses++;
+    // And against whom. Five belts is five men, and «3—1» beside a name is the
+    // whole of what a career looks like from the outside — which of them you
+    // own and which one still owns you. The ladder alone could only ever say
+    // how far you got, never that the purple belt has beaten you four times.
+    const rec = progress.rec[beat] || (progress.rec[beat] = [0, 0]);
+    rec[won ? 0 : 1]++;
     // The ladder only moves when the man in front of you goes down. A win
     // against somebody you already beat is training, not a promotion.
     const onLadder = !FORCED && selection.belt === progress.rank;
@@ -670,13 +708,28 @@ function frame(now) {
   const elapsed = (now - last) / 1000;
   const raw = Math.min(0.05, elapsed);
   last = now;
-  const dt = raw;
+  // The slow beat. It scales the sim's own dt, so everything downstream of it
+  // slows together — the blend, the clock, the crowd, the pill — which is what
+  // makes it read as slow motion rather than as a stutter in one layer.
+  //
+  // It is spent in wall clock and not in the capped dt above. Spending it in
+  // dt makes its length depend on the frame rate: smoke runs the page on a
+  // software rasteriser at two frames a second, where a frame can only ever
+  // pay 50ms of it, and measured a half-second beat lasting six and a half
+  // seconds. Half a second is half a second on any machine, and a stuttering
+  // one is the last that should be held in slow motion.
+  if (slow > 0) slow = Math.max(0, slow - elapsed);
+  const dt = raw * (slow > 0 ? SLOW_RATE : 1);
 
   // The room's mood decays on its own: a roar fades over a couple of seconds,
   // and the spotlight follows the submission state, snapping up as the lock
   // comes on and out as it breaks. `__crowd`/`__spot` are the measurement
   // overrides, the same as `__gas` and `__still`: a tool pins them so two
   // frames differ in one thing and nothing else.
+  if (punch) {
+    punch.t += dt;
+    if (punch.t > PUNCH_LIFE) punch = null;
+  }
   if (promo) {
     promo.t += dt;
     // The room stays up for it. A promotion in a quiet hall is a promotion in
@@ -1074,6 +1127,11 @@ window.__bjj = {
   // anybody having asked for it, and that is exactly the kind of screen that
   // quietly stops appearing.
   promo: () => promo,
+  // The score pill and the slow beat, for the same reason: both appear on
+  // their own, live for a moment and then are gone, which is the shape of a
+  // thing that quietly stops happening.
+  punch: () => punch,
+  slow: () => slow,
   // The HUD is here for the same reason the rig is: a tool has to be able to
   // ask where the ring's buttons are without re-deriving the layout and
   // drifting from it. tools/tap-check.mjs taps them.
