@@ -101,13 +101,26 @@ function setRoute(key, route) {
   writeFileSync(ARCS_PATH, src.replace(m[0], `export const VIAS = {\n${body}\n};`));
 }
 
-// The post-arc number, from a process that has not imported arcs.js before.
+// The post-arc numbers, from a process that has not imported arcs.js before.
 // Re-importing it here would hand back the copy this process loaded at start.
+//
+// Two of them, and the second was learned the hard way. A route is chosen on
+// depth, and depth is not the only thing anybody ships on: pose-check also
+// insists that a throw gathers and then goes — the hips' fastest moment before
+// forty-five per cent of the way — because a movement that peaks late reads as
+// easing in and out rather than as a throw. Two routes picked purely on depth
+// (HALF_GUARD>BACK_X 14cm to 9, KNEE_ON_BELLY>ARMBAR 12 to 8) pushed that peak
+// to 64% and turned the battery red on a check in a different file.
+//
+// So the peak is measured here, the same way pose-check measures it — real
+// time, the rig's own lag off, the hips of A over 0.55s — and a candidate that
+// breaks the line is not a candidate.
 function measureFresh(key) {
   const [from, to] = key.split('>');
   const code = `
     import { PairRig } from '${join(here, '../src/game/rig.js')}';
     import { Overlap } from '${join(here, '../src/game/collide.js')}';
+    import { BONE_INDEX } from '${join(here, '../src/render/skeleton.js')}';
     import { JUDGE_STEPS as S } from '${join(here, 'grid.mjs')}';
     const rig = new PairRig(), ov = new Overlap();
     rig.live = false;
@@ -118,10 +131,33 @@ function measureFresh(key) {
       const d = ov.measure(rig.skel.A, rig.skel.B).deepest;
       if (d > worst) worst = d;
     }
-    console.log(worst);`;
+    const STEP = 1 / 60, LEN = 0.55;
+    rig.heldId = null;
+    rig.lag = false;
+    rig.origin[0] = 0; rig.origin[2] = 0;
+    rig.rewind();
+    rig.live = true;
+    rig.apply('${from}', '${to}', 0, STEP);
+    let last = null, peak = 0, peakT = 0;
+    for (let i = 0; i <= Math.round(LEN / STEP) + 24; i++) {
+      const t = Math.min(1, (i * STEP) / LEN);
+      rig.apply('${from}', '${to}', t, STEP);
+      const m = rig.skel.A.world[BONE_INDEX.hips];
+      const p = [m[12], m[13], m[14]];
+      if (last) {
+        const v = Math.hypot(p[0] - last[0], p[1] - last[1], p[2] - last[2]) / STEP;
+        if (v > peak) { peak = v; peakT = t; }
+      }
+      last = p;
+    }
+    console.log(worst + ' ' + peakT);`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' });
-  return parseFloat(r.stdout.trim());
+  const [worst, peak] = r.stdout.trim().split(' ').map(parseFloat);
+  return { worst, peak };
 }
+
+// Where pose-check draws the line on a throw that peaks late.
+const PEAK_LINE = 0.45;
 
 function solve(key) {
   const r = spawnSync(process.execPath, [join(here, 'arc-solve.mjs'), '--write', '--fresh', '--only', key],
@@ -220,10 +256,12 @@ for (const key of ONLY) {
   for (const route of shortlist) {
     setRoute(key, route);
     if (!solve(key)) continue;
-    const worst = measureFresh(key);
-    console.log(`  ${(route || 'straight').padEnd(24)} ${(worst * 100).toFixed(0).padStart(3)}cm`);
-    if (!best || worst < best.worst) {
-      best = { route, worst, file: readFileSync(ARCS_PATH, 'utf8') };
+    const { worst, peak } = measureFresh(key);
+    const late = peak >= PEAK_LINE;
+    console.log(`  ${(route || 'straight').padEnd(24)} ${(worst * 100).toFixed(0).padStart(3)}cm` +
+      (late ? `   (peaks at ${(peak * 100).toFixed(0)}% — a throw that eases in, not a candidate)` : ''));
+    if (!late && (!best || worst < best.worst)) {
+      best = { route, worst, peak, file: readFileSync(ARCS_PATH, 'utf8') };
     }
   }
   if (best) {
