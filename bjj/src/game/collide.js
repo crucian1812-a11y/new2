@@ -239,7 +239,18 @@ export class Overlap {
   // moved the number by nothing. pose-check judges declared contact loosely
   // and only knew about `hold`; this is how it asks the same question of a
   // grip.
-  contains(sk, p) {
+  // Which capsules a point is inside, and with a margin, which ones it is
+  // pressed against.
+  //
+  // The margin is for grips. A grip point is a *place on the surface* — a
+  // lapel is on the outside of a chest, a hip point is twenty centimetres out
+  // to the side — so asking which capsules strictly contain it answers «none»
+  // for almost every grip in the library: four of four in the mount, three of
+  // four in side control. The hand that is put there is four centimetres
+  // thick and its forearm is seven, so what actually touches is whatever lies
+  // within a palm of the point. Nothing in the game passes a margin; it is the
+  // tools that need it, and they say so.
+  contains(sk, p, margin = 0) {
     this._gather(sk, this.caps[0]);
     const out = [];
     for (const c of this.caps[0]) {
@@ -253,7 +264,7 @@ export class Overlap {
       const nz = p[2] - (c.p[2] + dz * u);
       const d = Math.hypot(nx, ny, nz);
       const r = radiusToward(c, u, d > 1e-6 ? nx / d : 0, d > 1e-6 ? ny / d : 1, d > 1e-6 ? nz / d : 0);
-      if (d < r) out.push(c.a);
+      if (d < r + margin) out.push(c.a);
     }
     return out;
   }
