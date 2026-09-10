@@ -135,7 +135,7 @@ function skinNow() {
 // unchanged, so a search on the maximum alone wanders forever.
 function penetration(skA, skB, grips = null) {
   const all = overlap.all(skA, skB);
-  let sum = 0, worst = 0, where = null;
+  let sum = 0, worst = 0, where = null, raw = 0;
   for (const p of all) {
     // A contact the pose asked for is allowed to be deep. See grip-pairs.mjs:
     // a hand on a neck reports eight centimetres against a head capsule wide
@@ -149,8 +149,14 @@ function penetration(skA, skB, grips = null) {
     // reads off this tool should be about the pose and not about the shape of
     // a capsule.
     if (!asked && p.pen > worst) { worst = p.pen; where = p.where; }
+    // And the deepest of all, grips included. blend-check judges a hold loop
+    // against its ends measured exactly this way, so a term aiming at that
+    // judgement has to know the same number: asking the loop to be 4.3cm when
+    // the checker allows 6.9 is asking for something nobody wants, and every
+    // step towards it was being refused for what it cost the pose.
+    if (p.pen > raw) raw = p.pen;
   }
-  return { sum, worst, where };
+  return { sum, worst, where, raw };
 }
 
 // How far each joint may be turned from rest, in degrees. The generous end of
@@ -601,9 +607,13 @@ function cost(id) {
     // tangles it runs between, and blend-check gives a loop three centimetres
     // more. A transition is judged by the same shape here, so that one term
     // charges for both.
-    const line = Math.max(pen.worst, ALLOW) + 0.02;
+    const line = Math.max(pen.raw, ALLOW) + 0.02;
     if (POSES[id].variantOf && POSES[POSES[id].variantOf]) {
-      const over = blendDepth(POSES[id].variantOf, id, 7) - line;
+      // Sixteen samples here too. Eight stepped 0.125 at a time and the half
+      // guard's loop does its damage at t=0.93, between the last sample and
+      // the end — the term watched the pose it was solving get better while
+      // the number it was aiming at did not move at all.
+      const over = blendDepth(POSES[id].variantOf, id) - line;
       // Twenty thousand looks absurd until the units are read: this is metres
       // squared, and the thing being charged for is a centimetre. At 400 the
       // whole term was worth five hundredths of a cost whose intent alone is
