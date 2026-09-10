@@ -401,6 +401,64 @@ function hoverCost(count = false) {
   return c;
 }
 
+// The deepest moment of a blend, measured the way blend-check measures it.
+//
+// Two terms want this. A hold loop asks about the blend a variant makes with
+// its own base; a targeted run asks about the blends a named pose is an end of.
+// Both want the same thing measured the same way: planted, because that is what
+// the player sees, and with the arc, because the arc is what ships.
+//
+// Taking the arc off was tried first and it aims at the wrong moment. The
+// straight line between the mount and the mirrored guard is 32cm deep at
+// t=0.51 — and the arc already handles that; what is left after it is 12cm at
+// t=0.06, somewhere else entirely. Optimising the line the game does not play
+// would have spent the pose on a problem that is already solved.
+//
+// The arc is stale while this runs, since it was solved for the poses as they
+// were, and it is re-solved the moment this finishes. That is an approximation
+// and it is the honest one: it is exactly the number blend-check would print
+// today.
+//
+// Sixteen samples, not eight. The eight-sample version stepped 0.125 at a time
+// and never looked before t=0.125 — which is where two of the three transitions
+// this was written for do their damage.
+function blendDepth(from, to, n = 15) {
+  let worst = 0;
+  for (let i = 1; i <= n; i++) {
+    rig.rewind();
+    rig.plantFeet = true;
+    rig.applyAt(from, to, i / (n + 1), 0.016);
+    const d = overlap.measure(rig.skel.A, rig.skel.B).deepest;
+    if (d > worst) worst = d;
+  }
+  return worst;
+}
+
+// Blends this run is trying to make shallower, named on the command line:
+//
+//   EDGES='MOUNT>HALF_GUARD,CLOSED_GUARD>MOUNT_X' pose-relax.mjs --write MOUNT
+//
+// For the handful of transitions where the arc has nothing left to give. Two of
+// the three left on blend-check's list do their damage in the first tenth of
+// the blend, where a correction that is zero at the ends cannot reach: the pair
+// goes from 1.9cm of overlap in the mount to 10.7 five hundredths of the way
+// in. That is the ends, and the ends are poses.
+//
+// Off by default and it has to be: it costs seven rig applies per named edge on
+// every evaluation, and a pose solved against one transition is a pose the
+// other nine are not being consulted about. The guard is the same one every
+// other term answers to — nothing anybody ships on may get worse.
+const EDGES = (process.env.EDGES || '').split(',').map((e) => e.trim()).filter(Boolean);
+const EDGE_W = +(process.env.EDGE_W || 2000);
+// Which named edges this pose is an end of, its mirrors counted as itself: a
+// mirrored pose is generated, so the only way to move MOUNT_X is to move MOUNT.
+function edgesFor(id) {
+  return EDGES.filter((key) => {
+    const [from, to] = key.split('>');
+    return [from, to].some((e) => e === id || (POSES[e] && POSES[e].mirrorOf === id));
+  });
+}
+
 function cost(id) {
   rig.effort.A = rig.effort.B = 0;
   rig.slack.A = rig.slack.B = 0;
@@ -537,31 +595,38 @@ function cost(id) {
   // for. It costs eight rig applies on every evaluation and it only runs on
   // the nineteen variant poses, which is the price of a term that can see the
   // one thing the pose itself cannot.
-  if (POSES[id].variantOf && POSES[POSES[id].variantOf]) {
-    const base = POSES[id].variantOf;
-    let mid = 0;
-    for (let i = 1; i <= 7; i++) {
-      rig.rewind();
-      // As it plays, planting included — and this is the one place in this
-      // file where that is right. The pose itself is solved with the IK off,
-      // because with it on the solver reads the IK's answer instead of the
-      // pose; a blend is a different question. blend-check judges the loop the
-      // way the game runs it, so a term aiming at blend-check's number has to
-      // measure the same thing. Measured with the IK off, this loop reads
-      // 4.4cm — the poses' own — and there is nothing to fix; with it on, 7.5.
-      rig.plantFeet = !!POSES[id].ground;
-      rig.applyAt(base, id, i / 8, 0.016);
-      const d = overlap.measure(rig.skel.A, rig.skel.B).deepest;
-      if (d > mid) mid = d;
+  const mine = edgesFor(id);
+  if ((POSES[id].variantOf && POSES[POSES[id].variantOf]) || mine.length) {
+    // Against the pose's own depth: a blend is allowed to be as deep as the
+    // tangles it runs between, and blend-check gives a loop three centimetres
+    // more. A transition is judged by the same shape here, so that one term
+    // charges for both.
+    const line = Math.max(pen.worst, ALLOW) + 0.02;
+    if (POSES[id].variantOf && POSES[POSES[id].variantOf]) {
+      const over = blendDepth(POSES[id].variantOf, id, 7) - line;
+      // Twenty thousand looks absurd until the units are read: this is metres
+      // squared, and the thing being charged for is a centimetre. At 400 the
+      // whole term was worth five hundredths of a cost whose intent alone is
+      // weighted four hundred, and the search — correctly — ignored it.
+      if (over > 0) c += over * over * 20000;
     }
-    // Against the pose's own depth: a loop is allowed to be as deep as the
-    // tangle it runs between, and blend-check gives it three centimetres more.
-    const over = mid - Math.max(pen.worst, ALLOW) - 0.02;
-    // Twenty thousand looks absurd until the units are read: this is metres
-    // squared, and the thing being charged for is a centimetre. At 400 the
-    // whole term was worth five hundredths of a cost whose intent alone is
-    // weighted four hundred, and the search — correctly — ignored it.
-    if (over > 0) c += over * over * 20000;
+    // A named transition is charged more gently, and it is clamped.
+    //
+    // A hold loop is a couple of centimetres out at worst, so a steep price on
+    // it can only ever buy a couple of centimetres. A transition can be eight
+    // out, and at the loop's weight that is worth a hundred and twenty-eight
+    // against an intent term of four hundred and a mat term of one: the first
+    // run of this bought four centimetres of blend with eight centimetres of
+    // leg through the floor and eleven of body inside body, and the guard threw
+    // the whole answer away. The pose is not for sale. This is a nudge — worth
+    // about what four millimetres of broken intent is worth — and it saturates
+    // at three centimetres, so a blend that is hopeless cannot bid higher and
+    // higher for the pose it runs from.
+    for (const key of mine) {
+      const [from, to] = key.split('>');
+      const over = Math.min(0.03, blendDepth(from, to) - line);
+      if (over > 0) c += over * over * EDGE_W;
+    }
     // The samples left the rig on the last of them; put the pose back so
     // everything below this reads the pose and not the blend.
     rig.rewind();
@@ -764,6 +829,12 @@ for (const id of ids) {
   const lookBefore = lookCost(id);
   const hovBefore = hoverPlayed(id);
   const hangBefore = hoverPlayed(id, true);
+  // And the blends this run was asked about, so the line says what it bought.
+  // Without this the report is silent about the one number the run is for.
+  const edgeBefore = edgesFor(id).map((key) => {
+    const [from, to] = key.split('>');
+    return { key, was: blendDepth(from, to) };
+  });
   // What the pose was, so a search that trades can be refused.
   //
   // The sixth time this project learns the same sentence. arc-solve has a
@@ -842,6 +913,10 @@ for (const id of ids) {
     kept = true;
   }
   const hangAfter = hoverPlayed(id, true);
+  const edgeAfter = edgeBefore.map((e) => {
+    const [from, to] = e.key.split('>');
+    return `${e.key} ${(e.was * 100).toFixed(0)}→${(blendDepth(from, to) * 100).toFixed(0)}cm`;
+  });
   const mark = after.worst > 0.08 || matAfter.worst > 0.03 ? '!' : ' ';
   console.log(
     `${mark} ${id.padEnd(16)} overlap ${(before.worst * 100).toFixed(0).padStart(3)} -> ` +
@@ -850,7 +925,8 @@ for (const id of ids) {
     `weight out ${(balBefore * 100).toFixed(0).padStart(3)} -> ${(balAfter * 100).toFixed(0).padStart(3)}cm  ` +
     `hangs ${String(hangBefore).padStart(2)} -> ${String(hangAfter).padStart(2)}  ` +
     `${kept ? ` (kept what it had: ${refused.join(', ')})` : ''}` +
-    `${matAfter.worst > 0.03 ? ' ' + matAfter.where : ''}${after.worst > 0.05 ? ' ' + after.where : ''}`
+    `${matAfter.worst > 0.03 ? ' ' + matAfter.where : ''}${after.worst > 0.05 ? ' ' + after.where : ''}` +
+    `${edgeAfter.length ? '\n     ' + edgeAfter.join('   ') : ''}`
   );
   changed.push(id);
 }

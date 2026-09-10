@@ -39,6 +39,9 @@ export const GRIP_ALLOW = 0.12;
 
 const _t = v3();
 
+// How far from a grip point a capsule still counts as under the hand.
+const PALM = 0.05;
+
 // Both orderings folded into one key: the collider reports «A.foreL in B.head»
 // and which of the two it names first is its business.
 export const pairKey = (where) => (where || '').replace(' in ', '|').split('|').sort().join('|');
@@ -66,7 +69,13 @@ export function declaredPairs(skel, id, overlap) {
     // hand capsule is four centimetres and stops at the point, a forearm ends
     // at the hand and so has its own tip in there too, seven centimetres wide.
     const arm = g.hand === 'L' ? ['handL', 'foreL'] : ['handR', 'foreR'];
-    for (const bone of overlap.contains(skel[held], _t)) {
+    // Within a palm of the point, not strictly inside it. A grip point is a
+    // place on somebody's surface — a lapel, a hip, a sleeve — and asking which
+    // capsules strictly contain it answered «none» for four of the mount's four
+    // grips and three of side control's four. The hand is four centimetres
+    // thick and the forearm seven; five is what a hand laid on a place is
+    // pressed against.
+    for (const bone of overlap.contains(skel[held], _t, PALM)) {
       for (const own of arm) out.add([`${g.role}.${own}`, `${held}.${bone}`].sort().join('|'));
     }
   }
