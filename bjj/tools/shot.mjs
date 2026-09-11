@@ -1,5 +1,6 @@
 // Screenshot driver. Usage:
 //   node bjj/tools/shot.mjs out.png [--w 900 --h 420 --wait 2500 --pose MOUNT --scene]
+//   --blend FROM,TO,t   freeze one moment of a transition instead of a pose
 //   --clip x,y,w,h   just that rectangle of the page, at the same device scale,
 //                    which is how you look closely at a hand rather than
 //                    squinting at a whole match.
@@ -15,6 +16,11 @@ const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[
 const W = +flag('w', 900), H = +flag('h', 420), WAIT = +flag('wait', 2500);
 const PORT = +flag('port', 8099);
 const POSE = flag('pose', null);
+// One moment of one transition, as the game plays it — arc, route and all.
+// The numbers say a blend is fourteen centimetres deep at t = 0.61; they do not
+// say whether that is a head visibly inside an arm or a shoulder pressed into
+// a shoulder from behind, and those are different jobs.
+const BLEND = flag('blend', null);   // FROM,TO,t
 const PLAY = +flag('play', 0);   // seconds of a real match before the shutter
 const PATH = flag('path', '/bjj/index.html');
 const CLIP = flag('clip', null);
@@ -40,6 +46,11 @@ await page.goto(`http://127.0.0.1:${PORT}${PATH}`, { waitUntil: 'load' });
 await page.waitForTimeout(WAIT);
 if (POSE) {
   await page.evaluate((p) => { window.__bjj.match().start(); window.__bjj.setPose(p); }, POSE);
+  await page.waitForTimeout(1400);
+}
+if (BLEND) {
+  const [from, to, t] = BLEND.split(',');
+  await page.evaluate(([f, g, tt]) => { window.__bjj.match().start(); window.__bjj.setBlend(f, g, +tt); }, [from, to, t]);
   await page.waitForTimeout(1400);
 }
 if (PLAY) {
