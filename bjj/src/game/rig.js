@@ -58,7 +58,7 @@ function planFor(key) {
 }
 import { GRIP_POINTS } from '../render/body.js';
 import {
-  Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone,
+  Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone, clampHinges,
   HAND_REST, HAND_GRIP, TIP_REST, TIP_GRIP,
 } from '../render/skeleton.js';
 import { quat, qEuler, qMul, qSlerp, v3, v3set, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
@@ -608,6 +608,23 @@ export class PairRig {
       this._ground(sk, role, dt);
       this._step(role, sk, dt, !POSES[to].ground && !POSES[from].ground);
     }
+
+    // An elbow is a hinge and a knee is very nearly one, so any roll a person
+    // does not have is taken back — before the grips, not after.
+    //
+    // After was the obvious place and it is wrong, because a grip point is an
+    // offset from a bone rather than a point on it: a hand holds `kneeL`,
+    // which hangs off the shin a few centimetres to one side, so rolling that
+    // shin carries the knee out from under the hand that is already welded to
+    // it. pose-check caught it at once — turtle's working variant left a hand
+    // eight centimetres off the knee it was holding. Cleaned first, the grips
+    // solve against bones that are not going to move again.
+    //
+    // The arms are cleaned a second time inside the two-bone solve itself,
+    // where it costs nothing: turning a forearm about its own length leaves
+    // the wrist exactly where it was, because the wrist sits on that length.
+    clampHinges(this.skel.A);
+    clampHinges(this.skel.B);
 
     // Grips are resolved after both skeletons are posed, because a grip on the
     // opponent needs the opponent to already be where they are going to be.

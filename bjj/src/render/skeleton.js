@@ -14,7 +14,7 @@
 // stays welded through the whole move even while everything else interpolates.
 
 import {
-  quat, qIdent, qEuler, qMul, qSlerp, qCopy, qBetween, m4, m4compose, m4mul,
+  quat, qIdent, qEuler, qMul, qSlerp, qCopy, qBetween, qFromAxisAngle, m4, m4compose, m4mul,
   m4invRigid, m4dir, v3, v3set, v3copy, v3sub, v3norm, v3len, v3dot, v3cross, clamp,
 } from '../core/m4.js';
 
@@ -311,8 +311,82 @@ export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1)
     qSlerp(sk.local[iL], _kL, sk.local[iL], weight);
   }
   sk.poseFrom(iU);
+  unroll(sk, iU, iL, lower.startsWith('fore') ? ROLL_FORE : ROLL_SHIN);
   return iE;
 }
+
+// The roll a hinge does not have.
+//
+// Both aims above are shortest-arc turns, and a shortest arc adds no twist of
+// its own — but two of them in a chain do, because the second bone's roll is
+// read against a parent the first one has already turned. Nothing noticed,
+// because nothing measured roll: `joint-check` asks how far a joint is folded
+// and deliberately not which way. A player looking at an overhead mount noticed
+// instead, and tools/twist-check.mjs put a number on it — 212 of 760 joints
+// past what a person can do with the grips on, 2 of 120 with them off. The
+// solver, not the author.
+//
+// A forearm's roll against the upper arm is pronation and a person has about
+// eighty-five degrees of it either way; a shin has almost none. Past that, the
+// excess is taken back out.
+//
+// This costs the chain nothing. Turning a bone about its own length leaves its
+// direction alone, and the next joint's head sits on that length — so the hand
+// ends up on the same lapel it was welded to, holding it the right way round.
+const ROLL_FORE = (85 * Math.PI) / 180;
+const ROLL_SHIN = (40 * Math.PI) / 180;
+const _rAxis = v3(), _qRoll = quat();
+
+// The four hinges, applied as the last word of a frame.
+//
+// Doing it inside the two-bone solve fixes what the solve did and nothing
+// else, and the solve is not the only thing that rolls a bone: a blend between
+// two poses whose forearms are rolled differently slerps straight through the
+// middle, and the middle can be past the limit even when both ends are inside
+// it. That took the count from 212 joints to 170 and left fifteen still
+// reading as a break. Run last, over all four hinges, and it is the frame's
+// answer that gets checked rather than one step of it.
+const HINGES = [['armL', 'foreL', 1], ['armR', 'foreR', 1], ['thighL', 'shinL', 0], ['thighR', 'shinR', 0]];
+
+export function clampHinges(sk) {
+  for (const [up, lo, isArm] of HINGES) {
+    unroll(sk, BONE_INDEX[up], BONE_INDEX[lo], isArm ? ROLL_FORE : ROLL_SHIN);
+  }
+}
+
+function unroll(sk, iU, iL, limit) {
+  m4dir(_rAxis, sk.world[iL], sk.axis[iL]);
+  v3norm(_rAxis, _rAxis);
+  // Swing and twist, separated properly.
+  //
+  // The first version took one column of each bone's world matrix, flattened
+  // both across the lower bone's length and measured the angle between them.
+  // That is not the roll: with the joint bent, the relative rotation carries
+  // swing as well as twist, and different columns give different answers — X
+  // said one thing and Z another about the same elbow. The decomposition below
+  // is the standard one and has no such choice in it: the part of the relative
+  // rotation that lies along the axis is the twist, and everything else is not.
+  quatFromMat(_qU2, sk.world[iU]);
+  quatFromMat(_qL2, sk.world[iL]);
+  _qInv2[0] = -_qU2[0]; _qInv2[1] = -_qU2[1]; _qInv2[2] = -_qU2[2]; _qInv2[3] = _qU2[3];
+  qMul(_qRel, _qL2, _qInv2);
+  const d = _qRel[0] * _rAxis[0] + _qRel[1] * _rAxis[1] + _qRel[2] * _rAxis[2];
+  const ang = 2 * Math.atan2(d, _qRel[3]);
+  const wrapped = Math.atan2(Math.sin(ang), Math.cos(ang));
+  if (Math.abs(wrapped) <= limit) return;
+  const back = (Math.abs(wrapped) - limit) * (wrapped > 0 ? -1 : 1);
+  qFromAxisAngle(_qRoll, _rAxis[0], _rAxis[1], _rAxis[2], back);
+  const p = sk.parent[iL];
+  if (p < 0) return;
+  quatFromMat(_q2, sk.world[p]);
+  const inv = _qInv;
+  inv[0] = -_q2[0]; inv[1] = -_q2[1]; inv[2] = -_q2[2]; inv[3] = _q2[3];
+  qMul(_qA, inv, _qRoll);
+  qMul(_qB, _qA, _q2);
+  qMul(sk.local[iL], _qB, sk.local[iL]);
+  sk.poseFrom(iL);
+}
+const _qU2 = quat(), _qL2 = quat(), _qInv2 = quat(), _qRel = quat();
 
 function rotAbout(out, v, axis, ang) {
   const c = Math.cos(ang), s = Math.sin(ang);

@@ -27,8 +27,9 @@
 import { PairRig } from '../src/game/rig.js';
 import { POSES, POSITION_IDS, HOLD_LOOPS } from '../src/game/poses.js';
 import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
-import { BONE_INDEX } from '../src/render/skeleton.js';
+import { BONE_INDEX, quatFromMat } from '../src/render/skeleton.js';
 import { JUDGE_STEPS } from './grid.mjs';
+import { quat, qMul, v3, v3norm, m4dir } from '../src/core/m4.js';
 
 const ALL = process.argv.includes('--all');
 // The grips are inverse kinematics: they weld a hand to a lapel and are free to
@@ -43,28 +44,39 @@ const LIMIT = { fore: 85, shin: 40 };
 // right angle beyond its limit is not pronation, it is a break.
 const FAIL = { fore: 130, shin: 75 };
 
+// Half a degree of slack, because the rig clamps to exactly these numbers and
+// a joint sitting on the line comes back at 85.0001 as often as 84.9999.
+const SLACK = 0.5;
+
 const PAIRS = [['armL', 'foreL'], ['armR', 'foreR'], ['thighL', 'shinL'], ['thighR', 'shinR']];
 const limitOf = (lo) => (lo.startsWith('fore') ? LIMIT.fore : LIMIT.shin);
 const failOf = (lo) => (lo.startsWith('fore') ? FAIL.fore : FAIL.shin);
 
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const crs = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const nrm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
-// The rotation part of a world matrix, as its three basis columns. A bone
-// points down its own Y in this skeleton, so column 1 is the length.
-const col = (m, i) => [m[i * 4], m[i * 4 + 1], m[i * 4 + 2]];
-
-// Roll of the lower bone about its own length, against the upper bone.
+// Swing and twist, separated the only way that has no choice in it.
 //
-// Both X axes are flattened onto the plane across that length and the angle
-// between what is left is taken. Anything the two bones share — where the limb
-// points, how far the joint is folded — lies along the axis and drops out.
-function roll(mUp, mLo) {
-  const axis = nrm(col(mLo, 1));
-  const flat = (v) => nrm([v[0] - dot(v, axis) * axis[0], v[1] - dot(v, axis) * axis[1], v[2] - dot(v, axis) * axis[2]]);
-  const a = flat(col(mUp, 0)), b = flat(col(mLo, 0));
-  return (Math.atan2(dot(crs(a, b), axis), Math.max(-1, Math.min(1, dot(a, b)))) * 180) / Math.PI;
+// The first version of this file flattened one column of each bone's world
+// matrix across the lower bone's length and took the angle between them. That
+// is not the roll: with the joint bent, the relative rotation carries swing as
+// well as twist, and X and Z then disagree about the same elbow. It reported
+// 212 joints past the limit and a worst of 180 degrees, and both numbers were
+// its own arithmetic.
+//
+// What follows is the standard swing-twist decomposition. The relative
+// rotation between the two bones is taken as a quaternion; the part of its
+// vector that lies along the axis is the twist, and the angle comes straight
+// out of it.
+function roll(mUp, mLo, axis) {
+  quatFromMat(_qU, mUp);
+  quatFromMat(_qL, mLo);
+  _qI[0] = -_qU[0]; _qI[1] = -_qU[1]; _qI[2] = -_qU[2]; _qI[3] = _qU[3];
+  qMul(_qR, _qL, _qI);
+  const d = _qR[0] * axis[0] + _qR[1] * axis[1] + _qR[2] * axis[2];
+  const a = 2 * Math.atan2(d, _qR[3]);
+  return (Math.atan2(Math.sin(a), Math.cos(a)) * 180) / Math.PI;
 }
+const _qU = quat(), _qL = quat(), _qI = quat(), _qR = quat();
+
+const _axis = v3();
 
 const rig = new PairRig();
 // The path, not a performance of it: the step planner and the inertia both
@@ -82,8 +94,10 @@ function look(id, kind, from, to, t) {
   for (const role of ['A', 'B']) {
     const sk = rig.skel[role];
     for (const [up, lo] of PAIRS) {
-      const deg = roll(sk.world[BONE_INDEX[up]], sk.world[BONE_INDEX[lo]]);
-      rows.push({ id, kind, role, joint: lo, deg, over: Math.abs(deg) - limitOf(lo), t });
+      const iL = BONE_INDEX[lo];
+      v3norm(_axis, m4dir(_axis, sk.world[iL], sk.axis[iL]));
+      const deg = roll(sk.world[BONE_INDEX[up]], sk.world[iL], _axis);
+      rows.push({ id, kind, role, joint: lo, deg, over: Math.abs(deg) - limitOf(lo) - SLACK, t });
     }
   }
 }
