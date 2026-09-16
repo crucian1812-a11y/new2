@@ -20,7 +20,8 @@
 // both, and with them mixed thirteen torsos of thirty looked broken when the
 // forward half of the number was doing nothing wrong.
 //
-// Split properly: the trunk's direction against the hips' own frame gives the
+// Split properly, in tools/torso.mjs so that pose-relax pays for exactly what
+// this judges: the trunk's direction against the hips' own frame gives the
 // forward bend and the sideways bend separately, and the chest's rotation about
 // the trunk's length gives the twist.
 //
@@ -38,51 +39,10 @@
 import { PairRig } from '../src/game/rig.js';
 import { POSITION_IDS, HOLD_LOOPS } from '../src/game/poses.js';
 import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
-import { BONE_INDEX, quatFromMat } from '../src/render/skeleton.js';
 import { JUDGE_STEPS } from './grid.mjs';
-import { quat, qMul } from '../src/core/m4.js';
+import { readTorso, TORSO_LIM as LIM, torsoOver as over, torsoWhy } from './torso.mjs';
 
 const ALL = process.argv.includes('--all');
-
-// What a person's spine does, in degrees, one side each.
-const LIM = { fwd: 80, back: 30, side: 35, tw: 45 };
-
-const P = (sk, b) => { const m = sk.world[BONE_INDEX[b]]; return [m[12], m[13], m[14]]; };
-const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const nrm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const crs = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const _qU = quat(), _qL = quat(), _qI = quat(), _qR = quat();
-
-// Rotation of the chest on the hips, about the trunk's own length.
-function twistOn(mUp, mLo, up) {
-  quatFromMat(_qU, mUp);
-  quatFromMat(_qL, mLo);
-  _qI[0] = -_qU[0]; _qI[1] = -_qU[1]; _qI[2] = -_qU[2]; _qI[3] = _qU[3];
-  qMul(_qR, _qL, _qI);
-  const a = 2 * Math.atan2(_qR[0] * up[0] + _qR[1] * up[1] + _qR[2] * up[2], _qR[3]);
-  return (Math.atan2(Math.sin(a), Math.cos(a)) * 180) / Math.PI;
-}
-
-function read(sk) {
-  // The hips' frame taken from the body rather than from matrix columns: up
-  // the pelvis, across between the hip joints, forward from the two.
-  const up = nrm(sub(P(sk, 'spine'), P(sk, 'hips')));
-  const left = nrm(sub(P(sk, 'thighL'), P(sk, 'thighR')));
-  const fwd = nrm(crs(left, up));
-  const trunk = nrm(sub(P(sk, 'neck'), P(sk, 'spine')));
-  const cf = dot(trunk, fwd), cs = dot(trunk, left), cu = dot(trunk, up);
-  return {
-    fwd: (Math.atan2(cf, cu) * 180) / Math.PI,
-    side: (Math.atan2(cs, Math.hypot(cu, cf)) * 180) / Math.PI,
-    tw: twistOn(sk.world[BONE_INDEX.hips], sk.world[BONE_INDEX.chest], up),
-  };
-}
-
-const over = (r) => Math.max(
-  r.fwd - LIM.fwd, -r.fwd - LIM.back,
-  Math.abs(r.side) - LIM.side, Math.abs(r.tw) - LIM.tw,
-);
 
 const rig = new PairRig();
 // The path, not a performance of it — the same line every judge here carries.
@@ -94,7 +54,7 @@ function look(id, kind, from, to, t) {
   rig.slack.A = rig.slack.B = 0;
   rig.rewind();
   rig.applyAt(from, to, t, 0.016);
-  for (const role of ['A', 'B']) rows.push({ id, kind, role, t, ...read(rig.skel[role]) });
+  for (const role of ['A', 'B']) rows.push({ id, kind, role, t, ...readTorso(rig.skel[role]) });
 }
 
 for (const id of POSITION_IDS) look(id, 'pose', id, id, 1);
@@ -128,12 +88,7 @@ const bad = list.filter((r) => over(r) > 0);
 
 for (const r of (ALL ? bad : bad.slice(0, 12))) {
   const at = r.kind === 'pose' ? '' : ` at t=${r.t.toFixed(2)}`;
-  const why = [
-    r.fwd > LIM.fwd ? 'forward' : null,
-    -r.fwd > LIM.back ? 'backward' : null,
-    Math.abs(r.side) > LIM.side ? 'sideways' : null,
-    Math.abs(r.tw) > LIM.tw ? 'twisted' : null,
-  ].filter(Boolean).join('+');
+  const why = torsoWhy(r);
   console.log(`  ${r.id.padEnd(30)} ${r.role}  fwd ${r.fwd.toFixed(0).padStart(4)}°  ` +
     `side ${r.side.toFixed(0).padStart(4)}°  twist ${r.tw.toFixed(0).padStart(4)}°   ${why}${at}`);
 }

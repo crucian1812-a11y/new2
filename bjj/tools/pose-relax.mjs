@@ -32,6 +32,10 @@ import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { intentCost } from '../src/game/intent.js';
 import { declaredPairs, pairKey, GRIP_ALLOW } from './grip-pairs.mjs';
+import { readTorso, torsoCost, torsoOver } from './torso.mjs';
+
+// How many degrees past a person the worse of the two spines is.
+const spineNow = () => Math.max(torsoOver(readTorso(rig.skel.A)), torsoOver(readTorso(rig.skel.B)));
 
 const WRITE = process.argv.includes('--write');
 const ONLY = process.argv.filter((a) => !a.startsWith('-') && POSES[a]);
@@ -47,6 +51,9 @@ const JOINT_LIMIT = +(process.env.JOINT_LIMIT || 22);
 // worth against everything else in this cost» is a measurement rather than a
 // constant.
 const HOVER_W = +(process.env.HOVER_W || 80);
+// What a spine past its range costs. A knob because the limits themselves are a
+// textbook person rather than a measurement — see tools/torso.mjs.
+const TORSO_W = +(process.env.TORSO_W || 200);
 const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 
 const rig = new PairRig();
@@ -669,6 +676,19 @@ function cost(id) {
     }
   }
 
+  // And a spine that does what a spine does.
+  //
+  // A player looked at knee-on-belly and said the top man reads wrong. He does:
+  // bent 54 degrees backwards against a limit of 30, 46 sideways against 35 and
+  // twisted 47 against 45, all three at once. Nothing in this cost mentioned
+  // the trunk, so the solver was free to buy depth with a backbend — and ten
+  // transitions start or end on that pose, so it was paying for it ten times.
+  //
+  // tools/torso.mjs holds the reading, because torso-check judges on exactly
+  // this and a solver that pays for a different number is the oldest mistake
+  // in this folder.
+  for (const role of ['A', 'B']) c += torsoCost(readTorso(rig.skel[role])) * TORSO_W;
+
   // And a head that is looking at something.
   c += lookCost(id) * 6;
 
@@ -839,6 +859,7 @@ for (const id of ids) {
   const lookBefore = lookCost(id);
   const hovBefore = hoverPlayed(id);
   const hangBefore = hoverPlayed(id, true);
+  const spineBefore = spineNow();
   // And the blends this run was asked about, so the line says what it bought.
   // Without this the report is silent about the one number the run is for.
   const edgeBefore = edgesFor(id).map((key) => {
@@ -861,6 +882,7 @@ for (const id of ids) {
   let balAfter = balance(rig.skel.A, rig.skel.B);
   let lookAfter = lookCost(id);
   let hovAfter = hoverPlayed(id);
+  let spineAfter = spineNow();
   let kept = false;
   // Half a centimetre of slack on each, and not because strictness is
   // uncomfortable: with an exact comparison the guard threw away the rear naked
@@ -894,6 +916,9 @@ for (const id of ids) {
     refused.push(`weight ${(balBefore * 100).toFixed(1)}→${(balAfter * 100).toFixed(1)}cm`);
   }
   if (lookAfter > lookBefore + 0.05) refused.push('look');
+  // And the spine, on the same guard as everything else: a search may not buy
+  // depth with a backbend.
+  if (spineAfter > spineBefore + 1) refused.push(`spine ${spineBefore.toFixed(0)}→${spineAfter.toFixed(0)}°`);
   // Hover, in the same units as everything else it is being weighed against.
   //
   // The cost is a sum of squared gaps, and the guard compared it to a bare
@@ -920,6 +945,7 @@ for (const id of ids) {
     balAfter = balance(rig.skel.A, rig.skel.B);
     lookAfter = lookCost(id);
     hovAfter = hoverPlayed(id);
+    spineAfter = spineNow();
     kept = true;
   }
   const hangAfter = hoverPlayed(id, true);
@@ -934,6 +960,7 @@ for (const id of ids) {
     `${(matBefore.worst * 100).toFixed(0).padStart(3)} -> ${(matAfter.worst * 100).toFixed(0).padStart(3)}cm ` +
     `weight out ${(balBefore * 100).toFixed(0).padStart(3)} -> ${(balAfter * 100).toFixed(0).padStart(3)}cm  ` +
     `hangs ${String(hangBefore).padStart(2)} -> ${String(hangAfter).padStart(2)}  ` +
+    `spine ${Math.max(0, spineBefore).toFixed(0).padStart(2)} -> ${Math.max(0, spineAfter).toFixed(0).padStart(2)}°  ` +
     `${kept ? ` (kept what it had: ${refused.join(', ')})` : ''}` +
     `${matAfter.worst > 0.03 ? ' ' + matAfter.where : ''}${after.worst > 0.05 ? ' ' + after.where : ''}` +
     `${edgeAfter.length ? '\n     ' + edgeAfter.join('   ') : ''}`
