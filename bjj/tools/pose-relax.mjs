@@ -46,14 +46,33 @@ const MAT_Y = 0.05;
 const ALLOW = 0.02;
 // How far a joint and a root are allowed to move from what was authored.
 const JOINT_LIMIT = +(process.env.JOINT_LIMIT || 22);
-// What a hovering limb costs. A knob because the fifteen that are left are the
+// What a hovering limb costs.
+//
+// Three hundred rather than the eighty it was tuned to, and the turtle is why.
+// At eighty the spine term could buy its twenty degrees with squash and two
+// floating limbs and the guards let both through — the squash inside the trade
+// written below, the hover inside its own centimetre and a half of slack. At
+// three hundred the search stops taking that route and finds an answer that
+// costs neither: same twenty degrees, overlap unchanged at three centimetres,
+// nothing left in the air. A weight that lets a solver pay in a currency it
+// was not being charged much for is a weight that is too low.
+//
+// A knob because the fifteen that are left are the
 // price of pulling the legs out of the mat, and «how much is a floating shin
 // worth against everything else in this cost» is a measurement rather than a
 // constant.
-const HOVER_W = +(process.env.HOVER_W || 80);
+const HOVER_W = +(process.env.HOVER_W || 300);
 // What a spine past its range costs. A knob because the limits themselves are a
 // textbook person rather than a measurement — see tools/torso.mjs.
-const TORSO_W = +(process.env.TORSO_W || 200);
+//
+// Six hundred rather than the two hundred it opened with, and it costs the
+// already-solved library nothing: the term is zero inside the limits and every
+// pose but one is inside them. What it buys is the one that is not. At two
+// hundred the turtle's answer wanted two and a half centimetres of squash for
+// its twenty degrees; at six hundred the search leans harder on the spine and
+// finds the same twenty for one and three quarters, which is inside what the
+// trade below allows.
+const TORSO_W = +(process.env.TORSO_W || 600);
 const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 
 const rig = new PairRig();
@@ -896,7 +915,27 @@ for (const id of ids) {
   // knowing — what it was refused for — was the thing not printed. Four poses
   // sat on that line for two rounds.
   const refused = [];
-  if (after.worst > before.worst + SLACK) refused.push(`overlap ${(before.worst * 100).toFixed(1)}→${(after.worst * 100).toFixed(1)}cm`);
+  // A spine is worth some squash, and it is worth understanding why before
+  // loosening anything.
+  //
+  // The turtle was the one pose the spine term could not straighten for free.
+  // Its own `hold` says the top man's chest rides sixteen centimetres above the
+  // bottom man's; straighten the bottom man's back and his chest comes up into
+  // the man lying on it. The squash is not the search being careless, it is
+  // what the pose means — a man resting his weight on a man's back — and every
+  // setting tried lands on the same trade.
+  //
+  // So it is allowed, bounded the way the mat-for-hover trade below is bounded:
+  // by the thing being bought, and by the line the number itself ships on. Half
+  // a centimetre per five degrees of spine won, and never past six centimetres
+  // — two clear of the eight where pose-check stops calling squash contact.
+  const spineWon = Math.max(0, spineBefore - spineAfter);
+  const squashAllowed = Math.min(0.03, (spineWon / 5) * 0.005);
+  const straightening = spineWon >= 5 && after.worst <= 0.06;
+  if (after.worst > before.worst + SLACK + (straightening ? squashAllowed : 0)) {
+    refused.push(`overlap ${(before.worst * 100).toFixed(1)}→${(after.worst * 100).toFixed(1)}cm` +
+      (straightening ? ` against ${spineWon.toFixed(0)}° of spine` : ''));
+  }
   if (matAfter.worst > matBefore.worst + SLACK) refused.push(`mat ${(matBefore.worst * 100).toFixed(1)}→${(matAfter.worst * 100).toFixed(1)}cm`);
   // Balance, and not on a waypoint. The cost does not ask a waypoint to keep
   // its weight over its base — the middle of falling into a guard is a pair
