@@ -51,6 +51,7 @@ import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { SOLVE_STEPS } from './grid.mjs';
 import { SUNK, skinUnder } from './mat-model.mjs';
+import { readTorso, torsoCost, torsoOver } from './torso.mjs';
 
 const WRITE = process.argv.includes('--write');
 const FRESH = process.argv.includes('--fresh');
@@ -111,6 +112,17 @@ const FOLD_OK = 148;
 const FOLD_FAIL = 155;
 // How many lobes a correction is made of. See the note in rig.js.
 const LOBES = +(process.env.ARC_LOBES || 2);
+// What a spine past its range costs mid-flight.
+//
+// Every pose in the library now has a human back, and the middle of a blend
+// does not inherit that: a slerp between two poses inside the range passes
+// outside it, and torso-check counted 29 torsos of 190 doing exactly that.
+// Nothing here mentioned the trunk, so a correction was free to buy depth with
+// a backbend the same way the pose solver was before it was told not to.
+//
+// The reading is tools/torso.mjs, the same one torso-check judges on and
+// pose-relax pays for. Three files, one definition.
+const TORSO_W = +(process.env.ARC_TORSO || 300);
 
 const rig = new PairRig();
 // Measuring the path, not a performance of it: the step planner and the
@@ -161,7 +173,7 @@ function fold(sk, upper, mid, low) {
 }
 
 function measure(from, to) {
-  let sum = 0, worst = 0, where = null, deepestFold = 0, deepestSink = 0;
+  let sum = 0, worst = 0, where = null, deepestFold = 0, deepestSink = 0, worstSpine = 0;
   const low = new Array(STEPS);
   for (let i = 0; i < STEPS; i++) {
     const t = i / (STEPS - 1);
@@ -214,6 +226,14 @@ function measure(from, to) {
     // to cross. Above the ship line the charge is two orders of magnitude
     // steeper, so an arc that folds an elbow past what an elbow does is not an
     // answer whatever it fixes.
+    // Nor into a spine that cannot exist, for the same reason and on the same
+    // terms as the fold above.
+    for (const role of ['A', 'B']) {
+      const tor = readTorso(rig.skel[role]);
+      sum += torsoCost(tor) * TORSO_W;
+      const past = torsoOver(tor);
+      if (past > worstSpine) worstSpine = past;
+    }
     for (const role of ['A', 'B']) {
       for (const [upper, mid, low] of CHAINS) {
         const a = fold(rig.skel[role], upper, mid, low);
@@ -248,7 +268,7 @@ function measure(from, to) {
     // with all of them has to be large.
     if (up > 0) { sum += up * up * 60; lift = Math.max(lift, low[i] - base); }
   }
-  return { sum, worst, where, lift, fold: deepestFold, sink: deepestSink };
+  return { sum, worst, where, lift, fold: deepestFold, sink: deepestSink, spine: worstSpine };
 }
 
 // The graph's transitions, and the loops a held position runs inside itself.
@@ -594,6 +614,14 @@ for (const key of keys) {
   // hand went on diving ten centimetres through the floor of a transition that
   // had just been re-solved to stop it. Worsen nothing anybody measures.
   const worseSink = after.sink > incoming[key].sink + 1e-9;
+  // And the sixth: how far past a person's spine the trunk goes mid-flight.
+  //
+  // The same sentence a sixth time, and this one was written before it cost
+  // anything, because the fold's turn taught that much. torso-check reports it,
+  // so an arc may not spend it. Half a degree of slack: the trunk reading is a
+  // pair of arctangents off bone positions and lands a hair either side of the
+  // line on a grid.
+  const worseSpine = after.spine > incoming[key].spine + 0.5;
   // And one exception, which is the point of the whole rule rather than a hole
   // in it. The guard exists to stop a trade spending something the battery
   // ships on — and an arc that is *already* over one of those lines is not
@@ -607,7 +635,7 @@ for (const key of keys) {
   const shippable = (m) => m.fold <= FOLD_FAIL && m.worst <= SHIP_DEPTH
     && m.lift <= SHIP_LIFT && m.sink <= SHIP_SINK;
   const rescue = !shippable(incoming[key]) && shippable(after);
-  if (!rescue && (worseCost || worseDepth || worseLift || worseFold || worseSink)) {
+  if (!rescue && (worseCost || worseDepth || worseLift || worseFold || worseSink || worseSpine)) {
     if (shipped[key]) ARCS[key] = JSON.parse(JSON.stringify(shipped[key]));
     else delete ARCS[key];
     after = measure(from, to);

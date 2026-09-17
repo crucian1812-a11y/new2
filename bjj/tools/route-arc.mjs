@@ -122,14 +122,24 @@ function measureFresh(key) {
     import { Overlap } from '${join(here, '../src/game/collide.js')}';
     import { BONE_INDEX } from '${join(here, '../src/render/skeleton.js')}';
     import { JUDGE_STEPS as S } from '${join(here, 'grid.mjs')}';
+    import { readTorso, torsoOver } from '${join(here, 'torso.mjs')}';
     const rig = new PairRig(), ov = new Overlap();
     rig.live = false;
-    let worst = 0;
+    let worst = 0, spine = 0;
     for (let i = 1; i < S - 1; i++) {
       rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
       rig.applyAt('${from}', '${to}', i / (S - 1), 0.016);
       const d = ov.measure(rig.skel.A, rig.skel.B).deepest;
       if (d > worst) worst = d;
+      // And the spine, for the same reason arc-solve now charges for it: a
+      // route is a *path*, and a path between two poses with human backs can
+      // still bend one past a person halfway along. Chosen on depth alone, a
+      // route that is a centimetre shallower and twenty degrees more twisted
+      // wins, and nothing says so.
+      for (const role of ['A', 'B']) {
+        const over = torsoOver(readTorso(rig.skel[role]));
+        if (over > spine) spine = over;
+      }
     }
     const STEP = 1 / 60, LEN = 0.55;
     rig.heldId = null;
@@ -150,10 +160,10 @@ function measureFresh(key) {
       }
       last = p;
     }
-    console.log(worst + ' ' + peakT);`;
+    console.log(worst + ' ' + peakT + ' ' + spine);`;
   const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' });
-  const [worst, peak] = r.stdout.trim().split(' ').map(parseFloat);
-  return { worst, peak };
+  const [worst, peak, spine] = r.stdout.trim().split(' ').map(parseFloat);
+  return { worst, peak, spine };
 }
 
 // Where pose-check draws the line on a throw that peaks late.
@@ -256,18 +266,25 @@ for (const key of ONLY) {
   for (const route of shortlist) {
     setRoute(key, route);
     if (!solve(key)) continue;
-    const { worst, peak } = measureFresh(key);
+    const { worst, peak, spine } = measureFresh(key);
     const late = peak >= PEAK_LINE;
     console.log(`  ${(route || 'straight').padEnd(24)} ${(worst * 100).toFixed(0).padStart(3)}cm` +
+      (spine > 0.5 ? `  spine +${spine.toFixed(0)}°` : '') +
       (late ? `   (peaks at ${(peak * 100).toFixed(0)}% — a throw that eases in, not a candidate)` : ''));
-    if (!late && (!best || worst < best.worst)) {
-      best = { route, worst, peak, file: readFileSync(ARCS_PATH, 'utf8') };
+    // Shallowest wins, and a tie on depth is broken by the spine. Not the
+    // other way round: depth is what blend-check ships on and the trunk is a
+    // work list, so the spine may settle a draw and never overrule.
+    const better = !best || worst < best.worst - 0.005
+      || (Math.abs(worst - best.worst) <= 0.005 && spine < best.spine - 0.5);
+    if (!late && better) {
+      best = { route, worst, peak, spine, file: readFileSync(ARCS_PATH, 'utf8') };
     }
   }
   if (best) {
     writeFileSync(ARCS_PATH, best.file);
     safe = best.file;
-    console.log(`  -> ${best.route || 'the straight line'} at ${(best.worst * 100).toFixed(0)}cm`);
+    console.log(`  -> ${best.route || 'the straight line'} at ${(best.worst * 100).toFixed(0)}cm` +
+      (best.spine > 0.5 ? `, spine +${best.spine.toFixed(0)}°` : ', spine inside a person'));
   } else {
     writeFileSync(ARCS_PATH, safe);
     console.log('  -> nothing solved; left as it was');
