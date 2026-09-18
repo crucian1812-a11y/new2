@@ -61,8 +61,18 @@ export const torsoSlack = (r) => Math.min(
   TORSO_LIM.side - Math.abs(r.side), TORSO_LIM.tw - Math.abs(r.tw),
 );
 
+// Half a degree of slack, and the same half-degree twist-check carries for the
+// same reason: a solver whose cost had a zero at the limit parks its answer on
+// the limit, and a pose written to sit at 35 comes back through the rig's own
+// arithmetic at 35.06 as often as at 34.94. Six rows of a fifteen-row work list
+// were the turtle at six hundredths of a degree, read once per blend that ends
+// on it, and a report where the same rounding hides the nine real entries is
+// not doing its job. The solvers are stricter than this: arc-solve guards on
+// half a degree of *change*, pose-relax on one.
+export const TORSO_SLACK = 0.5;
+
 // How many degrees past a person this torso is, on its worst axis.
-export const torsoOver = (r) => Math.max(
+export const torsoOver = (r) => -TORSO_SLACK + Math.max(
   r.fwd - TORSO_LIM.fwd, -r.fwd - TORSO_LIM.back,
   Math.abs(r.side) - TORSO_LIM.side, Math.abs(r.tw) - TORSO_LIM.tw,
 );
@@ -113,10 +123,11 @@ export function torsoCost(r, margin = TORSO_MARGIN) {
 
 // The names a report uses for what is wrong.
 export function torsoWhy(r) {
+  const S = TORSO_SLACK;
   return [
-    r.fwd > TORSO_LIM.fwd ? 'forward' : null,
-    -r.fwd > TORSO_LIM.back ? 'backward' : null,
-    Math.abs(r.side) > TORSO_LIM.side ? 'sideways' : null,
-    Math.abs(r.tw) > TORSO_LIM.tw ? 'twisted' : null,
+    r.fwd > TORSO_LIM.fwd + S ? 'forward' : null,
+    -r.fwd > TORSO_LIM.back + S ? 'backward' : null,
+    Math.abs(r.side) > TORSO_LIM.side + S ? 'sideways' : null,
+    Math.abs(r.tw) > TORSO_LIM.tw + S ? 'twisted' : null,
   ].filter(Boolean).join('+');
 }
