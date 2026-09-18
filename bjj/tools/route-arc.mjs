@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PairRig } from '../src/game/rig.js';
-import { POSITION_IDS, WAYPOINT_IDS } from '../src/game/poses.js';
+import { POSITION_IDS, WAYPOINT_IDS, HOLD_LOOPS } from '../src/game/poses.js';
 import { VIAS } from '../src/game/arcs.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
@@ -169,6 +169,24 @@ function measureFresh(key) {
 // Where pose-check draws the line on a throw that peaks late.
 const PEAK_LINE = 0.45;
 
+// And on what it draws it, which is not everything this tool is pointed at.
+//
+// pose-check runs that check over TRANSITIONS and nothing else, because the
+// claim is about a throw: gather, then go. A hold loop is the sway a man makes
+// while he holds a position — there is no throw in it to ease into, and a
+// symmetric there-and-back peaks in the middle by construction.
+//
+// This tool applied the line to both, and it cost an answer: BACK>BACK_WORK
+// had four candidates at six centimetres against an incumbent at eight, and
+// all four were thrown away for peaking at 52%. A guard refusing answers on a
+// rule the judge never applies is the same failure arc-solve's rescue clause
+// was written for — there it was holding a red check in place, here it was
+// holding two centimetres of somebody's forearm.
+const isHold = (key) => {
+  const [from, to] = key.split('>');
+  return (HOLD_LOOPS[from] || []).includes(to);
+};
+
 function solve(key) {
   const r = spawnSync(process.execPath, [join(here, 'arc-solve.mjs'), '--write', '--fresh', '--only', key],
     { encoding: 'utf8', env: { ...process.env, ARC_LOBES: LOBES } });
@@ -267,7 +285,7 @@ for (const key of ONLY) {
     setRoute(key, route);
     if (!solve(key)) continue;
     const { worst, peak, spine } = measureFresh(key);
-    const late = peak >= PEAK_LINE;
+    const late = peak >= PEAK_LINE && !isHold(key);
     console.log(`  ${(route || 'straight').padEnd(24)} ${(worst * 100).toFixed(0).padStart(3)}cm` +
       (spine > 0.5 ? `  spine +${spine.toFixed(0)}°` : '') +
       (late ? `   (peaks at ${(peak * 100).toFixed(0)}% — a throw that eases in, not a candidate)` : ''));
