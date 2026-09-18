@@ -87,6 +87,30 @@ function walk(from, to) {
 
 // Rewrite the VIAS block with one route changed. The arcs half of the file is
 // left exactly as it is — arc-solve owns that half and this must not touch it.
+// Setting a route leaves the previous candidate's arc in the file, and that is
+// not an oversight to tidy away — it was measured.
+//
+// arc-solve reads arcs.js, searches, and refuses an answer worse than what it
+// found there. So the second candidate is solved against the first candidate's
+// arc, the third against the second's, and a candidate can come out of the
+// child with «kept what it had» — a route this tool just wrote, carrying a
+// correction solved for a different one.
+//
+// Two things follow and both matter to whoever reads a number here.
+//
+// The carry-over *helps*. KNEE_ON_BELLY>ARMBAR and MOUNT>ARMBAR were found at
+// 10 and 8 centimetres inside a run, and re-solved from the committed file,
+// same routes, same lobe count, they come back at 12 and 11 — the leftover arc
+// is a warm start and a cold one is worse. So this is left as it stands.
+//
+// But a number printed beside a candidate is «what this route measures with
+// the arc that happened to be in the file», not «the best arc for this route»,
+// and it depends on the order the shortlist came in. The winner is still
+// exactly what it says: `best.file` is the whole of arcs.js as it stood the
+// moment that candidate was measured, so the pair that ships is the pair that
+// was judged. What cannot be done is to rebuild a winner from its route alone
+// — that was tried, after a working copy was overwritten, and it does not come
+// back.
 function setRoute(key, route) {
   const src = readFileSync(ARCS_PATH, 'utf8');
   const m = /export const VIAS = \{\n([\s\S]*?)\n\};/.exec(src);
