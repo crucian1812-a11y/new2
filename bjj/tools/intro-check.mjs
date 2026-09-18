@@ -18,6 +18,13 @@
 //                planted — the definition in pose-check, word for word, because
 //                a man crossing a mat with his soles glued to it is the most
 //                visible wrong thing a frame can hold
+//   встреча      whether the two right hands actually make contact during the
+//                greeting, and how deep. Judged exactly the way pose-check
+//                judges a contact a pose declared: it has to happen at all, and
+//                it may be as deep as GRIP_ALLOW and no deeper. The first
+//                version of this measured fingertip to fingertip and read 7 cm
+//                for two hands that were already clasped — a distance between
+//                two points inside each other is not a gap.
 //   стык         the jump into the first frame of the fight
 //
 // The fourth is the one worth explaining. A seam there is the single jerk every
@@ -30,11 +37,12 @@
 //
 //   node bjj/tools/intro-check.mjs           the four numbers
 //   node bjj/tools/intro-check.mjs --frames  what happens when
-import { Walkout, INTRO_TIME } from '../src/game/intro.js';
+import { Walkout, INTRO_TIME, PHASES } from '../src/game/intro.js';
 import { PairRig } from '../src/game/rig.js';
 import { BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { SUNK, skinUnder } from './mat-model.mjs';
+import { pairKey, GRIP_ALLOW } from './grip-pairs.mjs';
 
 const FRAMES = process.argv.includes('--frames');
 const DT = 1 / 60;
@@ -59,6 +67,21 @@ let still = 0, feet = 0;
 // which is what the seam is judged against.
 let busiest = 0, busiestAt = 0;
 const footPrev = {};
+// And the greeting: the closest the two right hands come while it is happening.
+// Measured on the fingertip rather than the wrist, because what has to touch is
+// the hand and the wrist of a clasped hand is a palm's width away from the
+// other man's.
+let meet = 0, meetAt = 0;
+const GREET_FROM = PHASES.in;
+const GREET_TO = PHASES.in + PHASES.slap + PHASES.bump;
+// The contact the greeting is for. Everything on either right hand, against
+// everything on the other's — one declared pair, the same idea grip-pairs.mjs
+// carries for a pose that says which hand is holding what.
+const HAND = new Set(['handR', 'fingR', 'handRTip']);
+const isGreeting = (where) => {
+  const [a, b] = (where || '').replace(' in ', '|').split('|');
+  return HAND.has((a || '').slice(2)) && HAND.has((b || '').slice(2));
+};
 
 const rows = [];
 // One frame past the end, so the last sample is the picture that actually hands
@@ -107,8 +130,18 @@ for (let i = 0; i < STEPS; i++) {
       }
     }
   }
-  const ov = overlap.measure(walk.a.skel, walk.b.skel);
-  if (ov.deepest > inside) { inside = ov.deepest; insideAt = now; insideWhere = ov.where; }
+  // Everything touching everything, split into the one contact this thing is
+  // for and all the ones it is not — the same split pose-check makes between a
+  // grip a pose declared and two bodies simply inside each other.
+  const greeting = now >= GREET_FROM && now <= GREET_TO;
+  for (const p of overlap.all(walk.a.skel, walk.b.skel)) {
+    if (greeting && isGreeting(p.where)) {
+      if (p.pen > meet) { meet = p.pen; meetAt = now; }
+    } else if (p.pen > inside) {
+      inside = p.pen; insideAt = now; insideWhere = p.where;
+    }
+  }
+  const ov = { deepest: inside, where: insideWhere };
   if (FRAMES && i % 12 === 0) {
     rows.push(`   t=${now.toFixed(2)}  z ${walk.a.z.toFixed(2)} / ${walk.b.z.toFixed(2)}` +
       `   apart ${(walk.b.z - walk.a.z).toFixed(2)}m   inside ${(ov.deepest * 100).toFixed(1)}cm`);
@@ -162,6 +195,11 @@ if (!say(inside <= 0.08, 'внутри',
 if (!say(median < 0.15 && planted > 0.35, 'скольжение',
   `the supporting foot moves ${median.toFixed(2)} m/s and a foot is planted ` +
   `${(planted * 100).toFixed(0)}% of the time (lines 0.15 and 35%)`)) bad++;
+if (!say(meet > 0 && meet <= GRIP_ALLOW, 'встреча',
+  meet > 0
+    ? `the hands meet, ${(meet * 100).toFixed(1)}cm of one in the other at t=${meetAt.toFixed(2)} ` +
+      `(may be as deep as ${(GRIP_ALLOW * 100).toFixed(0)}cm, the same as a grip a pose declares)`
+    : 'the hands never touch — two men greeting the air')) bad++;
 if (!say(seam <= busiest, 'стык',
   `the handover moves a joint ${(seam * 100).toFixed(1)}cm, against ${(busiest * 100).toFixed(1)}cm ` +
   `in the walk's own busiest frame (t=${busiestAt.toFixed(2)})` +

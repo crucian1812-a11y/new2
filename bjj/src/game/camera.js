@@ -40,12 +40,11 @@ const SHOTS = {
   // The title card: low, close and off the shoulder, the way a promo still is
   // framed. Nothing is happening yet, so the shot has to do the work.
   hero: { dist: 2.9, height: 1.06, aimY: 1.06, fov: 32 },
-  // The walk on: the standing shot, a little further back and a little longer,
-  // because it has to hold two men five metres apart at the top of it and the
-  // same two men at arm's length by the end. It does not have to do that by
-  // itself — `spread` opens the lens while they are far apart and lets it back
-  // to this as they close, which is the shot easing in on its own.
-  walkout: { dist: 4.4, height: 1.55, aimY: 1.02, fov: 33 },
+  // The walk on: a hall camera on the middle of the mat, wide enough to hold
+  // the two of them once they are there and no wider. It is handed no spread —
+  // see main.js — so they start outside the frame and walk into it, which is
+  // what makes an entrance read as one.
+  walkout: { dist: 3.6, height: 1.38, aimY: 0.98, fov: 34 },
   stand: { dist: 4.1, height: 1.52, aimY: 1.06, fov: 36 },
   ground: { dist: 2.6, height: 1.0, aimY: 0.44, fov: 34 },
   sub: { dist: 2.35, height: 0.82, aimY: 0.38, fov: 30 },

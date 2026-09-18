@@ -31,7 +31,8 @@
 // what is left.
 
 import {
-  Skeleton, poseToQuats, blendQuats, BONE_COUNT, BONE_INDEX, HAND_REST, TIP_REST,
+  Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT, BONE_INDEX,
+  HAND_REST, TIP_REST,
 } from '../render/skeleton.js';
 import { makeFeet, plantFeet, groundFeet } from './step.js';
 import { POSES } from './poses.js';
@@ -126,6 +127,32 @@ const ENTER = 2.55;
 // 0.8 asks for 0.65 m, which the leg does at 1.7 m/s.
 const ENTRY_GAIT = { STRIDE: 0.32, SWING: 0.38, LIFT: 0.06, LEAD: 0.8 };
 
+// How close they stand to touch hands, and where the hands meet.
+//
+// Not the same as where they stand to fight, and that is the whole point. The
+// standing pose puts them 1.32 m apart, and at that distance two men cannot
+// reach each other: the shoulder sits about 0.55 m from the middle and the arm
+// is 0.52 long, so even with both arms straight the fingertips stay a hand's
+// breadth apart — the judge measured 27.8 cm with the arms as authored, two men
+// greeting the air. So they close to a metre to say hello and take the extra
+// half-step back as they settle into their stance, which is what two people
+// actually do.
+//
+// And the hands are put on a point rather than aimed at one. Both men reach for
+// the same place, so wherever the pose leaves the arm the two hands arrive
+// together — the same two-bone solver the grips use, and for the same reason:
+// the pose is the intent, the solver makes it true.
+//
+// The two targets are not the same point, and the first version's were. Both
+// hands aimed at dead centre meet exactly — and then keep going, because each
+// arm is solving for a point the other hand is already occupying: the judge
+// read A's forearm 8.8 cm inside B's fingers. Palms meet at the middle, so each
+// hand stops a palm's width short of it, on its own side.
+const MEET = 0.52;
+const PALM = 0.055;
+const SLAP_AT = 1.30;
+const BUMP_AT = 1.22;
+
 const _bq = quat();
 function addEuler(sk, bone, x, y, z) {
   const i = BONE_INDEX[bone];
@@ -147,6 +174,10 @@ class Entrant {
     this.endZ = end.p[2];
     this.endY = end.p[1];
     this.yaw = end.r[1];
+    // Where he stops to say hello, which is nearer than where he stands to
+    // fight. See MEET.
+    this.meetZ = Math.sign(end.p[2] || 1) * MEET;
+    this._palm = v3(0, 0, 0);
     // Which way he comes from is which side he ends on.
     this.fromZ = Math.sign(end.p[2] || 1) * ENTER;
     // Which way his knees bend: forwards, in the direction he is facing. The
@@ -166,8 +197,19 @@ class Entrant {
   // Everything above the hips, as one blend across the three authored poses and
   // then into the standing pose. One expression rather than a switch, because
   // the seam at the end of it is the thing that has to be continuous.
+  // The middle of the mat at a given height, a palm's width back on his own
+  // side of it.
+  palmAt(y) {
+    this._palm[0] = 0;
+    this._palm[1] = y;
+    this._palm[2] = Math.sign(this.endZ || 1) * PALM;
+    return this._palm;
+  }
+
   _upper(t) {
     const { in: tIn, slap, bump } = PHASES;
+    this.reach = 0;
+    this.reachAt = null;
     if (t < tIn) {
       // Walking: the arms swing off the feet, added on top rather than written
       // into the pose, so the walk pose keeps its own shoulders.
@@ -178,12 +220,18 @@ class Entrant {
       // Into the hand, and out of it again: a greeting is a reach and a return,
       // not a pose held for three quarters of a second.
       const u = (t - tIn) / slap;
-      blendQuats(this.q, QUATS.walk, QUATS.slap, Math.sin(u * Math.PI));
+      const w = Math.sin(u * Math.PI);
+      blendQuats(this.q, QUATS.walk, QUATS.slap, w);
+      this.reach = w;
+      this.reachAt = this.palmAt(SLAP_AT);
       return 0;
     }
     if (t < tIn + slap + bump) {
       const u = (t - tIn - slap) / bump;
-      blendQuats(this.q, QUATS.walk, QUATS.bump, Math.sin(u * Math.PI));
+      const w = Math.sin(u * Math.PI);
+      blendQuats(this.q, QUATS.walk, QUATS.bump, w);
+      this.reach = w;
+      this.reachAt = this.palmAt(BUMP_AT);
       return 0;
     }
     // And the last of it: into exactly what the rig will take over with.
@@ -196,13 +244,17 @@ class Entrant {
     // Where he is on the mat. He walks in over the first phase and stands still
     // for the rest of it; the ease is a cubic in and out, so he arrives without
     // stopping dead and leaves without a lurch.
+    const settle = this._upper(t);
+    // Where he is on the mat: in to the greeting distance over the first phase,
+    // still while they say hello, and the half-step back into his stance over
+    // the settle. Both eases are cubic, so he arrives without stopping dead and
+    // steps back without a lurch.
     const u = Math.min(1, t / PHASES.in);
     const s = u * u * (3 - 2 * u);
+    const back = settle * settle * (3 - 2 * settle);
     const wasZ = this.z;
-    this.z = this.fromZ + (this.endZ - this.fromZ) * s;
+    this.z = this.fromZ + (this.meetZ - this.fromZ) * s + (this.endZ - this.meetZ) * back;
     this.vz = dt > 0 ? (this.z - wasZ) / dt : 0;
-
-    const settle = this._upper(t);
     for (let i = 0; i < BONE_COUNT; i++) {
       const q = this.skel.local[i], v = this.q[i];
       q[0] = v[0]; q[1] = v[1]; q[2] = v[2]; q[3] = v[3];
@@ -234,6 +286,11 @@ class Entrant {
     this.skel.rootPos[2] = this.z;
     qEuler(this.skel.rootRot, 0, this.yaw, 0);
     this.skel.pose();
+    // The hand on the other man's. Both reach for the same point, so wherever
+    // the pose leaves the arm the two of them arrive together.
+    if (this.reach > 0.01) {
+      solveTwoBone(this.skel, 'armR', 'foreR', 'handR', this.reachAt, null, this.reach);
+    }
     // And letting go of both. The held feet and the lift onto the tatami are
     // the two things about him that are not in the pose, so both fade out over
     // the settle — otherwise the last frame of the walk is the pose plus a foot
