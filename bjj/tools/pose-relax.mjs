@@ -31,7 +31,7 @@ import { GRIP_POINTS } from '../src/render/body.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { intentCost } from '../src/game/intent.js';
-import { declaredPairs, pairKey, GRIP_ALLOW } from './grip-pairs.mjs';
+import { declaredPairs, pairKey, GRIP_ALLOW, GRIP_MARGIN } from './grip-pairs.mjs';
 import { readTorso, torsoCost, torsoOver, torsoSlack } from './torso.mjs';
 
 // How many degrees past a person the worse of the two spines is. The guard
@@ -176,7 +176,10 @@ function penetration(skA, skB, grips = null) {
     // search to undo the grips the same pose declares, against an intent term
     // weighted four hundred to keep them.
     const asked = grips && grips.has(pairKey(p.where));
-    const over = p.pen - (asked ? GRIP_ALLOW : ALLOW);
+    // Charged from inside the line, not at it. See GRIP_MARGIN: the
+    // undeclared contact is charged from two and judged at eight, and the
+    // declared one was charged and judged at the same twelve.
+    const over = p.pen - (asked ? GRIP_ALLOW - GRIP_MARGIN : ALLOW);
     if (over > 0) sum += over * over;
     // The worst is reported without the grips too, because the number a person
     // reads off this tool should be about the pose and not about the shape of

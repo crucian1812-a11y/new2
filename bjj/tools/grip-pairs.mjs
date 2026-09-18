@@ -37,6 +37,21 @@ import { m4point, v3 } from '../src/core/m4.js';
 // everywhere else. Past this an arm is through a skull rather than against it.
 export const GRIP_ALLOW = 0.12;
 
+// And how far inside that line a solver is asked to land.
+//
+// The undeclared contact already has this and nobody noticed: pose-check ships
+// at eight centimetres and pose-relax charges from two, so the search lands six
+// clear of the line it is judged on. The declared contact had the charge and
+// the judgement on the same number, and a cost that is zero inside a line and
+// grows outside it parks its answers *on* the line. ARMBAR_WORK came back from
+// a re-solve 1.8mm past twelve and failed the battery on it.
+//
+// A centimetre, and the size is measured rather than chosen: of thirty-nine
+// poses exactly three sit within a centimetre of this line — the one that went
+// over, and ARMBAR and TURTLE_WORK five millimetres inside it. Everything else
+// is three centimetres clear and will never feel this.
+export const GRIP_MARGIN = 0.01;
+
 const _t = v3();
 
 // How far from a grip point a capsule still counts as under the hand.
