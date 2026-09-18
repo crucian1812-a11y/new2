@@ -1080,7 +1080,17 @@ function drawFrame(now, real) {
       audio.cloth(0.8, manAtSkel(walkout.a.skel, 'handR'));
     }
     const focusW = walkout.focus(focus);
-    camera.update(step, focusW, 'walkout', 0, walkout.spread());
+    // Framed on the middle of the mat and *not* on how far apart they are.
+    //
+    // Everywhere else the camera is handed the pair's spread so the lens opens
+    // wide enough to hold them, which is right for a fight: what falls out of a
+    // tight frame is the hands, and the hands are the technique. Here it is
+    // wrong. Five metres apart, that rule opens the lens to its stop and pulls
+    // the tripod back until the two of them are specks on an empty tatami —
+    // measured, and it looks exactly as bad as it sounds. So the shot holds the
+    // middle of the mat and they walk into it, which is the shot a hall camera
+    // actually takes and the reason an entrance reads as an entrance.
+    camera.update(step, focusW, 'walkout', 0, 0);
     audio.listen(camera.eye, camera.at);
     const fa = match.f[0], fb = match.f[1];
     renderer.render({
@@ -1225,6 +1235,11 @@ window.__bjj = {
   // drifting from it. tools/tap-check.mjs taps them.
   hud,
   rig, renderer, camera, referee, input, POSES, BONE_INDEX,
+  // The walk onto the mat, so a tool can start one and step it frame by frame.
+  // `beginMatch` is what the title card's start button does, and the getter is
+  // how a tool knows whether it is still going — the match state says 'ready'
+  // throughout, on purpose.
+  beginMatch, walkout: () => walkout,
   // The transition fade, so a tool can watch it rise and clear without a
   // screenshot racing the compositor.
   veil, fade,
