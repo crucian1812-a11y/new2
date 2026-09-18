@@ -18,6 +18,7 @@ import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { HUD, PUNCH_LIFE } from './ui/hud.js';
 import { POSES } from './game/poses.js';
+import { Walkout } from './game/intro.js';
 import { clamp, v3, qEuler } from './core/m4.js';
 
 const glCanvas = document.getElementById('gl');
@@ -300,7 +301,7 @@ const hudOpts = () => ({
   level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut,
   selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
   records: LADDER.map((b) => (progress.rec && progress.rec[b]) || [0, 0]),
-  fullscreen: isFullscreen(), fsHint,
+  fullscreen: isFullscreen(), fsHint, walkout: !!walkout,
   // The room, and whatever is going on in it.
   screen,
   gym: { drilled: skills.drilled, total: DRILL_TOTAL, page: gymPage % gymPages(), pages: gymPages() },
@@ -399,6 +400,35 @@ function newMatch() {
   camera.orbit = 0.7;
 }
 newMatch();
+
+// The walk onto the mat, between the menu and the first press.
+//
+// It is not a state of the match: `match.state` stays 'ready' throughout, and
+// the only thing that knows is this variable and the two places that draw. That
+// is deliberate — the match is a rulebook and a scoreboard, and a man walking
+// across a mat is neither. See src/game/intro.js.
+let walkout = null;
+// Which of the walkout's one-off sounds have already been played.
+const walkoutSaid = { slap: false, bump: false };
+// Where a bone is, on a skeleton that is not the rig's — the walkout's men are
+// their own skeletons and `manAt` reads the pair.
+const _atW = v3(0, 0, 0);
+const manAtSkel = (sk, bone) => {
+  const m = sk.world[BONE_INDEX[bone]];
+  _atW[0] = m[12]; _atW[1] = m[13]; _atW[2] = m[14];
+  return _atW;
+};
+
+// Everything a new fight starts with, in one place, so the title card and the
+// result card cannot drift apart about what starting means.
+function beginMatch() {
+  newMatch();
+  walkout = new Walkout();
+  walkout.reset();
+  // The room drops while they come on and comes back up on the bell.
+  audio.duck(0.4, 2.4);
+  fade();
+}
 
 // Start one drill. A fresh match, because a drill is not the fight it was
 // interrupting — and the same match object, because it is the same rig, the
@@ -576,12 +606,17 @@ function control0() {
 // The bell, the whistle and the track that runs under the round. The bell is
 // the hall's; the whistle is the referee's, and they are half a second apart
 // because that is the order they happen in.
-function startBell() {
+// `cut` is whether the bell also cuts the picture. It always did, and after a
+// walkout it must not: the last frame of the walk and the first frame of the
+// fight are the same two men in the same pose — that is the whole point of the
+// seam intro-check measures — and half a second of black over it would throw
+// away the one continuous thing on this screen.
+function startBell(cut = true) {
   referee.gesture('call', 1.6);
   audio.bell();
   audio.duck(0.25, 2.2);
   setTimeout(() => audio.whistle(), 520);
-  fade();
+  if (cut) fade();
   beeped = 0;
 }
 
@@ -792,16 +827,12 @@ function frame(now) {
       if (promo.t > 0.8) { promo = null; fade(); audio.click(); }
     } else if (match.state === 'over' && !onFs) {
       selection.belt = progress.rank;
-      newMatch();
-      match.start();
-      startBell();
+      beginMatch();
     } else if (tut && tut.done && !onFs) {
       // The lesson is over; the next touch brings out a real opponent.
       selection.belt = progress.rank;
       tut = null;
-      newMatch();
-      match.start();
-      startBell();
+      beginMatch();
     }
   }
 
@@ -879,10 +910,8 @@ function frame(now) {
         selection.time = hit.value; audio.click();
       } else {
         // The match on the title card is the boot-time one; build the one the
-        // menu actually chose, then ring the bell on it.
-        newMatch();
-        match.start();
-        startBell();
+        // menu actually chose, and walk them out to it.
+        beginMatch();
       }
     } else if (!input.tapLeft) {
       ringTap();
@@ -1029,6 +1058,55 @@ function drawFrame(now, real) {
   // On the real clock, not the nominal one: at four frames a second a
   // sixtieth of a second per frame takes six seconds to stand him up.
   referee.update(real ?? dt, match.state, POSES[match.position].ground, match.origin, camera.orbit);
+
+  // The walk on. Two men, the referee and the empty mat, and no HUD over any of
+  // it — the only thing on this screen is what is happening on it.
+  if (walkout) {
+    const step = window.__still != null ? 0 : dt;
+    walkout.update(step);
+    // The three sounds it has. Footsteps land on the step rather than every so
+    // many centimetres, the slap and the bump land on the frame the reach is at
+    // full stretch, and all three are placed where the body is so the ear that
+    // follows the camera hears them from the right side of the mat.
+    for (const e of [walkout.a, walkout.b]) {
+      if (e.landed) audio.step(0.35 + Math.random() * 0.2, manAtSkel(e.skel, 'footL'));
+    }
+    if (walkout.slapped && !walkoutSaid.slap) {
+      walkoutSaid.slap = true;
+      audio.tap(0.7, manAtSkel(walkout.a.skel, 'handR'));
+    }
+    if (walkout.bumped && !walkoutSaid.bump) {
+      walkoutSaid.bump = true;
+      audio.cloth(0.8, manAtSkel(walkout.a.skel, 'handR'));
+    }
+    const focusW = walkout.focus(focus);
+    camera.update(step, focusW, 'walkout', 0, walkout.spread());
+    audio.listen(camera.eye, camera.at);
+    const fa = match.f[0], fb = match.f[1];
+    renderer.render({
+      camera, time: now / 1000, focus: focusW,
+      fighters: [
+        { skeleton: walkout.a.skel, gpu: gpuYou, giCol: fa.giCol, beltCol: fa.beltCol,
+          skinCol: fa.skinCol, flash: 0, gas: 0 },
+        { skeleton: walkout.b.skel, gpu: gpuOpp || gpuYou, giCol: fb.giCol, beltCol: fb.beltCol,
+          skinCol: fb.skinCol, flash: 0, gas: 0 },
+        { skeleton: referee.skel, gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT,
+          skinCol: REF_SKIN, flash: 0, gas: 0 },
+      ],
+      score: [0, 0], clock: match.time, crowd,
+    });
+    hud.draw(match, input, 1 / 60, hudOpts());
+    // And the handover. No fade: the last frame of the walk and the first frame
+    // of the fight are the same two men in the same pose, which is the one
+    // thing on this screen worth not cutting. See intro-check's «стык».
+    if (walkout.done) {
+      walkout = null;
+      walkoutSaid.slap = walkoutSaid.bump = false;
+      match.start();
+      startBell(false);
+    }
+    return;
+  }
 
   // Before the bell, the screen belongs to one fighter and the empty mat.
   if (hero && match.state === 'ready') {
