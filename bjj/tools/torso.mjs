@@ -53,6 +53,14 @@ export function readTorso(sk) {
   };
 }
 
+// How much room this torso has left before the nearest limit. Negative means
+// past it. The solver is asked to keep this above the margin; the judge only
+// asks for it to be positive.
+export const torsoSlack = (r) => Math.min(
+  TORSO_LIM.fwd - r.fwd, r.fwd + TORSO_LIM.back,
+  TORSO_LIM.side - Math.abs(r.side), TORSO_LIM.tw - Math.abs(r.tw),
+);
+
 // How many degrees past a person this torso is, on its worst axis.
 export const torsoOver = (r) => Math.max(
   r.fwd - TORSO_LIM.fwd, -r.fwd - TORSO_LIM.back,
@@ -69,19 +77,36 @@ export function torsoExcess(r) {
     + Math.max(0, Math.abs(r.tw) - TORSO_LIM.tw);
 }
 
+// How far inside the limit a solver is asked to land.
+//
+// A cost that is zero inside a limit and grows outside it parks its answers
+// *on* the limit, because that is the cheapest point that satisfies it. Two
+// answers parked on the limit are fine one at a time and not fine together:
+// the turtle and its working variant both came out at exactly 35 degrees
+// sideways and 45 of twist, and the slerp between them bulged to 56 and 57.
+// Every one of six routes came back with the same twenty degrees over, which
+// is what a path between two boundary points looks like — the bulge is in the
+// interpolation, not in the route.
+//
+// So the charge starts a margin inside, and the answers land with room. The
+// same reasoning arc-solve already writes for the elbow: joint-check ships at
+// 155 and the solver is charged from 148, «so the answer arrives with a little
+// room rather than on the line».
+export const TORSO_MARGIN = 10;
+
 // What a solver pays. Each axis squared on its own and then added: summing the
 // degrees first and squaring once lets a big backbend hide behind a small
 // sideways lean, and knee-on-belly was past three of the four at once.
 // Radians, so the number sits in the same range as the metre-based terms
 // around it.
-export function torsoCost(r) {
+export function torsoCost(r, margin = TORSO_MARGIN) {
   const d = Math.PI / 180;
   let c = 0;
   for (const e of [
-    r.fwd - TORSO_LIM.fwd,
-    -r.fwd - TORSO_LIM.back,
-    Math.abs(r.side) - TORSO_LIM.side,
-    Math.abs(r.tw) - TORSO_LIM.tw,
+    r.fwd - (TORSO_LIM.fwd - margin),
+    -r.fwd - (TORSO_LIM.back - margin),
+    Math.abs(r.side) - (TORSO_LIM.side - margin),
+    Math.abs(r.tw) - (TORSO_LIM.tw - margin),
   ]) if (e > 0) c += (e * d) * (e * d);
   return c;
 }

@@ -32,10 +32,17 @@ import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { intentCost } from '../src/game/intent.js';
 import { declaredPairs, pairKey, GRIP_ALLOW } from './grip-pairs.mjs';
-import { readTorso, torsoCost, torsoOver } from './torso.mjs';
+import { readTorso, torsoCost, torsoOver, torsoSlack } from './torso.mjs';
 
-// How many degrees past a person the worse of the two spines is.
+// How many degrees past a person the worse of the two spines is. The guard
+// watches this — it is the number torso-check prints and the one that ships.
 const spineNow = () => Math.max(torsoOver(readTorso(rig.skel.A)), torsoOver(readTorso(rig.skel.B)));
+// And how much room the tighter of the two has left, which is what the *cost*
+// is actually pulling on. Reported separately because a run that moves a torso
+// from sitting on the line to sitting ten degrees inside it shows up as 0 → 0
+// on the number above, and a report that cannot see the work being done is how
+// a knob gets called useless.
+const roomNow = () => Math.min(torsoSlack(readTorso(rig.skel.A)), torsoSlack(readTorso(rig.skel.B)));
 
 const WRITE = process.argv.includes('--write');
 const ONLY = process.argv.filter((a) => !a.startsWith('-') && POSES[a]);
@@ -879,6 +886,7 @@ for (const id of ids) {
   const hovBefore = hoverPlayed(id);
   const hangBefore = hoverPlayed(id, true);
   const spineBefore = spineNow();
+  const roomBefore = roomNow();
   // And the blends this run was asked about, so the line says what it bought.
   // Without this the report is silent about the one number the run is for.
   const edgeBefore = edgesFor(id).map((key) => {
@@ -902,6 +910,7 @@ for (const id of ids) {
   let lookAfter = lookCost(id);
   let hovAfter = hoverPlayed(id);
   let spineAfter = spineNow();
+  let roomAfter = roomNow();
   let kept = false;
   // Half a centimetre of slack on each, and not because strictness is
   // uncomfortable: with an exact comparison the guard threw away the rear naked
@@ -985,6 +994,7 @@ for (const id of ids) {
     lookAfter = lookCost(id);
     hovAfter = hoverPlayed(id);
     spineAfter = spineNow();
+    roomAfter = roomNow();
     kept = true;
   }
   const hangAfter = hoverPlayed(id, true);
@@ -1000,6 +1010,7 @@ for (const id of ids) {
     `weight out ${(balBefore * 100).toFixed(0).padStart(3)} -> ${(balAfter * 100).toFixed(0).padStart(3)}cm  ` +
     `hangs ${String(hangBefore).padStart(2)} -> ${String(hangAfter).padStart(2)}  ` +
     `spine ${Math.max(0, spineBefore).toFixed(0).padStart(2)} -> ${Math.max(0, spineAfter).toFixed(0).padStart(2)}°  ` +
+    `room ${roomBefore.toFixed(0).padStart(3)} -> ${roomAfter.toFixed(0).padStart(3)}°  ` +
     `${kept ? ` (kept what it had: ${refused.join(', ')})` : ''}` +
     `${matAfter.worst > 0.03 ? ' ' + matAfter.where : ''}${after.worst > 0.05 ? ' ' + after.where : ''}` +
     `${edgeAfter.length ? '\n     ' + edgeAfter.join('   ') : ''}`
