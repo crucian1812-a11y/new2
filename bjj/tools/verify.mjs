@@ -22,6 +22,12 @@ const steps = [
   // that was out by twelve centimetres, and nothing subtracted one from the
   // other until this existed.
   ['one mat, one ruler', 'ruler-check.mjs', []],
+  // And the walk onto the mat, which is the one piece of motion neither of the
+  // two above covers: they both start from two bodies in contact driven by
+  // paired poses, and two men walking towards each other are neither. Judged on
+  // the same four things anyway — the mat, each other, the supporting foot, and
+  // the seam into the first frame of the fight.
+  ['the walk on', 'intro-check.mjs', []],
   // And whether every arc in that file is earning its place. An arc that
   // changes nothing is invisible to blend-check — a blend it does not move
   // is a blend that reads fine — and it is not free: STANDING>STANDING_WORK

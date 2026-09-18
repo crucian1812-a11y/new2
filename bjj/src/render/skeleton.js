@@ -218,7 +218,7 @@ const _g = v3();
 const _kU = quat();
 const _kL = quat();
 
-export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1) {
+export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1, poleDecides = false) {
   const iU = BONE_INDEX[upper];
   const iL = BONE_INDEX[lower];
   const iE = BONE_INDEX[end];
@@ -271,6 +271,20 @@ export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1)
   // where the pose put it wins. It needs no anatomy and no per-joint table, and
   // it is what the paragraph above always meant: the pose decides how the arm
   // is bent, IK decides where the hand ends up.
+  //
+  // Unless the caller says the pole decides, and then it does. The rule above
+  // reads the side off the pose, and for an arm reaching a lapel that is
+  // exactly right — the grips pass their pole precisely so that all three
+  // passes solve the *same* shape of arm, and the side still comes from where
+  // the pose put the elbow. For a leg swinging through a stride it is exactly
+  // wrong: the pose's knee stays where the walk pose put it while the line from
+  // hip to foot rotates past it, the two candidates become equally near half
+  // way through the step, and the knee snaps twenty-eight centimetres backwards
+  // once per pace. That is what the walkout's judge found on its first run.
+  //
+  // So it is a separate thing to ask for rather than a new meaning for the
+  // pole: asking for it here changed one arc in the graph by a millimetre of
+  // mat, which is a fight changing because a title card was written.
   rotAbout(_f, _d, _e, angU);
   rotAbout(_g, _d, _e, -angU);
   const near = (v) => {
@@ -279,7 +293,11 @@ export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1)
     const ez = _a[2] + v[2] * lenU - _b[2];
     return ex * ex + ey * ey + ez * ez;
   };
-  if (near(_g) < near(_f)) v3copy(_f, _g);
+  if (poleDecides && poleDir) {
+    // Which candidate puts the joint on the side the caller asked for.
+    const side = (v) => v[0] * poleDir[0] + v[1] * poleDir[1] + v[2] * poleDir[2];
+    if (side(_g) > side(_f)) v3copy(_f, _g);
+  } else if (near(_g) < near(_f)) v3copy(_f, _g);
 
   // Solved whole, then eased into — rather than each bone eased separately.
   //

@@ -62,7 +62,11 @@ export class HUD {
     if (match.deny && match.attempt) this._denyPrompt(match);
     if (match.state === 'sub') this._sub(match);
     this._events(match, dt, !!opts.promo);
-    if (match.state === 'ready') {
+    // The menu is up while the match is waiting — but not while the two of them
+    // are walking out to it. The state is still 'ready' all the way to the
+    // bell, and a belt picker across a man crossing the mat is the clutter the
+    // scorebug above was taken off the title card for.
+    if (match.state === 'ready' && !opts.walkout) {
       if (opts.screen === 'gym') this._gym(opts);
       else this._title(opts);
     }
