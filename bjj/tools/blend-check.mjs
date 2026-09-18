@@ -196,7 +196,21 @@ for (const r of rows) {
   // forearm wrapped round a throat reads as overlap and always will. The
   // question worth asking of the path between them is whether it introduces
   // anything the two poses do not already have.
-  const limit = r.kind === 'hold' ? r.ends + 0.02 : LIMIT;
+  //
+  // A transition is judged the same way, and it took a round of work to notice
+  // that it was not. Its ends are poses that passed pose-check too, and a pose
+  // may hold a declared grip twelve centimetres deep — so a blend that ends on
+  // one of those poses reads eleven or twelve at the very last sample and goes
+  // on the work list for a contact that is not the path's doing and that no
+  // route and no arc can touch, because the correction is zero exactly where
+  // the depth is. Measured: of nine transitions on the list, MOUNT>ARMBAR and
+  // BACK>ARMBAR had their deepest moment *at* an end, to the millimetre.
+  //
+  // So: as deep as eleven centimetres, or as deep as its own ends, whichever
+  // is more — and no deeper. The loosening is bounded by pose-check, which
+  // stops at twelve, so this can never give a transition more than a
+  // centimetre over the flat line.
+  const limit = r.kind === 'hold' ? r.ends + 0.02 : Math.max(LIMIT, r.ends);
   const fail = r.kind === 'hold' ? r.ends + 0.03 : FAIL;
   const flag = r.worst > limit || r.sunk > SUNK_LIMIT || r.lift > LIFT_LIMIT;
   const bucket = r.kind === 'hold' ? 'hold' : 'move';
