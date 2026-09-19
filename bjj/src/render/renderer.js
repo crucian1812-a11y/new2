@@ -71,6 +71,12 @@ float wrapDiffuse(float ndl, float w) {
 // Not a stylistic flourish. A smooth ramp shows every wobble a generated mesh
 // has in its normals; three flat steps show the form and nothing else, so the
 // figure reads as a figure instead of as a lumpy approximation of one.
+//
+// Tried at seven steps on skin, on the theory that a face reads by the gradient
+// off a cheekbone into the hollow beside it and three steps is where that
+// gradient went. It is not: with the fill below in place it moved the crushed
+// fraction of that face by one point in two hundred and fifteen levels of
+// spread. Three everywhere, and the middle of a face was never in the banding.
 float band(float v) {
   float s = v * 3.0;
   float f = floor(s);
@@ -78,7 +84,7 @@ float band(float v) {
   return (f + smoothstep(0.42, 0.58, r)) / 3.0;
 }
 
-vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap, float ao) {
+vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap, float ao, float amb) {
   vec3 V = normalize(u_camPos - world);
   vec3 L = u_sunDir;
   float ndl = dot(N, L);
@@ -90,7 +96,7 @@ vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap,
   // mat's own colour. This is the whole of the indirect lighting and it is
   // enough because the room is dark on purpose.
   float hemi = N.y * 0.5 + 0.5;
-  diff += mix(u_gndCol, u_skyCol, hemi) * ao;
+  diff += mix(u_gndCol, u_skyCol, hemi) * ao * amb;
 
   vec3 H = normalize(L + V);
   float ndh = max(dot(N, H), 0.0);
@@ -398,6 +404,13 @@ uniform float u_folds;
 //   x  face relief      y  eyes as their own material
 //   z  the baked AO     w  the identity pass
 uniform vec4 u_tool;
+// How much fill the skin gets over the hall's own: one everywhere but the title
+// card, where a face is the subject rather than a detail of a wide shot. See
+// the fill argument to render(). Its own uniform rather than a fifth slot in
+// u_tool,
+// because u_tool is the switch board the picture tools drive and this is a
+// lighting value the game itself sets.
+uniform float u_fill;
 #define u_face u_tool.x
 #define u_eyes u_tool.y
 #define u_ao   u_tool.z
@@ -693,7 +706,12 @@ void main() {
   // not black, and an unbounded product turns the inside of every tangle into
   // a hole.
   ao *= mix(1.0, 0.28 + 0.72 * contactAO(v_world), u_contact);
-  vec3 c = shade(v_world, N, albedo, rough, spec, wrap, ao);
+  // Skin gets a finer ramp than cloth. See band(): three steps is what makes a
+  // sleeve read as cloth and what makes a face read as a mask.
+  // The portrait fill, on skin and nothing else. See the fill argument to
+  // render().
+  float amb = (m == 0 || m == 6 || m == 7 || m == 8) ? u_fill : 1.0;
+  vec3 c = shade(v_world, N, albedo, rough, spec, wrap, ao, amb);
   c += vec3(1.0, 0.45, 0.3) * u_flash * 0.6;
   // Belt and braces: anything that is not a sane positive number never reaches
   // the bloom buffer.
@@ -1005,7 +1023,7 @@ void main() {
   // every lumen, and everything round it — floor, boards, stands, crowd — dims
   // so the only thing left to look at is the two men.
   float house = 1.0 - u_spot * (m == 0 ? 0.0 : 0.55);
-  outColor = vec4((shade(v_world, N, albedo, rough, spec, 0.15, ao) + emis) * house, 1.0);
+  outColor = vec4((shade(v_world, N, albedo, rough, spec, 0.15, ao, 1.0) + emis) * house, 1.0);
 }`;
 
 const SHADOW_VS_SKIN = COMMON + `
@@ -1456,12 +1474,34 @@ export class Renderer {
     m4lookAt(this.view, camera.eye, camera.at, [0, 1, 0]);
     m4mul(this.viewProj, this.proj, this.view);
 
+    // How much fill the room throws back, as a multiplier on the hemisphere.
+    //
+    // The plan is one hard key and a dark hall, and against a key of 1.9 the
+    // fill of 0.17 is a ratio of eleven to one. On a gi at three metres that is
+    // the look; on a face it is the whole reason the title card shows a pale
+    // oval with two dark smudges — measured, a sixth of the bare skin on that
+    // head sits below a tenth of its own brightest pixel, and the shadow side
+    // of a face has nothing in it at all.
+    //
+    // A portrait is lit differently from a hall, so the title card asks for
+    // more of it. Nothing in a match passes this, so nothing in a match moves:
+    // a face was made readable on the one screen where it is the subject, not
+    // by relighting the fight.
+    //
+    // And it reaches the skin only. Multiplying the whole hemisphere by six
+    // was tried and measured: the face's crushed fifth fell to eight per cent
+    // and the gi went with it — a white kimono lit by a fill that strong is one
+    // flat pale mass with the folds gone, which is the thing look-check's
+    // `relief` exists to catch. The shadow side of a *face* is what has nothing
+    // in it; the cloth was never the complaint.
+    const fill = scene.fill || 1;
     const setLights = (pr) => {
       gl.uniform3fv(pr.u.u_camPos, camera.eye);
       gl.uniform3f(pr.u.u_sunDir, sunDir[0], sunDir[1], sunDir[2]);
       gl.uniform3f(pr.u.u_sunCol, 1.92, 1.84, 1.66);
       gl.uniform3f(pr.u.u_skyCol, 0.145, 0.17, 0.235);
       gl.uniform3f(pr.u.u_gndCol, 0.036, 0.04, 0.052);
+      if (pr.u.u_fill) gl.uniform1f(pr.u.u_fill, fill);
       gl.uniform3f(pr.u.u_rimA, 0.34, 0.46, 0.72);
       gl.uniform3f(pr.u.u_rimB, 0.5, 0.38, 0.28);
       gl.uniformMatrix4fv(pr.u.u_lightVP, false, this.lightVP);

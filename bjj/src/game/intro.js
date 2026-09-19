@@ -97,6 +97,29 @@ const P = {
   },
 };
 
+//
+// And the man on the title card, who is not in a fight yet.
+//
+// He used to be held in the library's own STANDING pose — hands up at head
+// height, elbows in, the frame a man takes when somebody is about to grab him.
+// That is the right pose for the first frame of a match and the wrong one for a
+// portrait: on a screen where nothing is happening he reads as flinching at the
+// menu. Arms down, weight even, chin level. Everything above the waist is
+// authored here; the legs stay the standing pose's, because the step planner
+// holds the feet and the stance is what makes him a grappler rather than a man
+// queueing.
+const TITLE = {
+  root: { p: [0, 0.961, 0], r: [0, 0, 0] },
+  j: {
+    ...HANDS,
+    hips: [-4, 0, 0], spine: [5, 0, 0], chest: [3, 0, 0], neck: [-5, 0, 0], head: [4, 0, 0],
+    clavL: [0, 0, 7], armL: [-13, 9, -11], foreL: [-30, 0, 0], handL: [-7, 0, 0],
+    clavR: [0, 0, -7], armR: [-13, -9, 11], foreR: [-30, 0, 0], handR: [-7, 0, 0],
+    thighL: [-5, 6, 4], shinL: [9, 0, 0], footL: [-4, 0, 0],
+    thighR: [-5, -6, -4], shinR: [9, 0, 0], footR: [-4, 0, 0],
+  },
+};
+
 const QUATS = {};
 for (const k in P) QUATS[k] = poseToQuats(Array.from({ length: BONE_COUNT }, () => quat()), P[k]);
 // And the one pose that is not authored here: where the fight begins. Taken
@@ -403,7 +426,7 @@ export class TitleIdle {
   constructor(role = 'A') {
     this.skel = new Skeleton();
     this.feet = makeFeet();
-    this.q = poseToQuats(Array.from({ length: BONE_COUNT }, () => quat()), POSES.STANDING[role]);
+    this.q = poseToQuats(Array.from({ length: BONE_COUNT }, () => quat()), TITLE);
     this.t = 0;
     this.base = v3(0, POSES.STANDING[role].root.p[1], 0);
     this.yaw = 0;

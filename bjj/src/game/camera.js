@@ -39,7 +39,14 @@ const DEG = Math.PI / 180;
 const SHOTS = {
   // The title card: low, close and off the shoulder, the way a promo still is
   // framed. Nothing is happening yet, so the shot has to do the work.
-  hero: { dist: 2.9, height: 1.06, aimY: 1.06, fov: 32 },
+  //
+  // Closer than it was, and the reason is the face. At 2.9 m and 32 degrees his
+  // head is about forty pixels on a phone, and forty pixels of face is a pale
+  // oval whatever the shading does — look-check measures the man on this card
+  // now, and the head it has to measure was a third the size of the one a match
+  // frame gives it in close. From 2.2 and aimed at the chest he is in frame
+  // from the knees up and the head is worth looking at.
+  hero: { dist: 2.2, height: 1.44, aimY: 1.40, fov: 30 },
   // The walk on: a hall camera on the middle of the mat, wide enough to hold
   // the two of them once they are there and no wider. It is handed no spread —
   // see main.js — so they start outside the frame and walk into it, which is
