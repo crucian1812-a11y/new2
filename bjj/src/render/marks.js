@@ -562,7 +562,12 @@ export const MAT_MARKS = {
 // first attempt: u 0.60 reads like the middle of the chest and is the ribs.
 export const GI_PATCHES = [
   { cell: 'aresPatch', u: -1.88, du: 0.77, v: 9.75, dv: 1.04, face: 180 },  // upper back, 19×26 cm
-  { cell: 'olavoRound', u: 0.88, du: 0.20, v: 8.90, dv: 0.28, face: 30 },   // left chest, 7 cm
+  // Moved in from 0.88 when the trunk was given a waist: the jacket narrowed
+  // under it and the collar came into the rectangle. Note what broke and what
+  // did not — `fitPatches` measures the *size* off whichever body wears it, so
+  // the crest stayed a crest, and the *position* is authored, so it did not
+  // follow the cloth. That asymmetry is the whole of this line.
+  { cell: 'olavoRound', u: 0.84, du: 0.20, v: 8.90, dv: 0.28, face: 30 },   // left chest, 7 cm
   { cell: 'wordmark', u: 0.30, du: 0.446, v: 5.05, dv: 0.11, face: 80 },    // left thigh, 15×3 cm
 ];
 

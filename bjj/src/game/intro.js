@@ -104,19 +104,36 @@ const P = {
 // height, elbows in, the frame a man takes when somebody is about to grab him.
 // That is the right pose for the first frame of a match and the wrong one for a
 // portrait: on a screen where nothing is happening he reads as flinching at the
-// menu. Arms down, weight even, chin level. Everything above the waist is
-// authored here; the legs stay the standing pose's, because the step planner
-// holds the feet and the stance is what makes him a grappler rather than a man
-// queueing.
+// menu.
+//
+// And then, with the arms down, he read as unnatural in a way that took a
+// second look to name: he was a mirror of himself. Both arms at the same angle,
+// both knees the same bend, the pelvis square, the head dead level — which is
+// the one thing a standing human never is. Weight goes on one leg; the pelvis
+// tips up on that side and the shoulders tip the other way to keep the head
+// over the feet; the free knee softens and turns out; the head is a few degrees
+// off the line of the shoulders. That is what makes a figure read as a person
+// standing rather than as a figure posed, and none of it costs anything.
+//
+// So: weight on his right, free knee on the left, the shoulder line counter to
+// the hips, and nothing in the pose the same on both sides.
 const TITLE = {
   root: { p: [0, 0.961, 0], r: [0, 0, 0] },
   j: {
     ...HANDS,
-    hips: [-4, 0, 0], spine: [5, 0, 0], chest: [3, 0, 0], neck: [-5, 0, 0], head: [4, 0, 0],
-    clavL: [0, 0, 7], armL: [-13, 9, -11], foreL: [-30, 0, 0], handL: [-7, 0, 0],
-    clavR: [0, 0, -7], armR: [-13, -9, 11], foreR: [-30, 0, 0], handR: [-7, 0, 0],
-    thighL: [-5, 6, 4], shinL: [9, 0, 0], footL: [-4, 0, 0],
-    thighR: [-5, -6, -4], shinR: [9, 0, 0], footR: [-4, 0, 0],
+    // The pelvis carries the weight on the right, so it rolls up on that side
+    // and turns a few degrees with it.
+    hips: [-4, 5, -6],
+    // And the spine takes it back: a counter-curve, not a lean.
+    spine: [6, -3, 4], chest: [3, -4, 3], neck: [-5, 3, -1], head: [3, 7, 2],
+    // The free arm hangs; the weight-side arm is a touch straighter and a
+    // touch behind, the way an arm is when the shoulder above it is dropped.
+    clavL: [0, 0, 8], armL: [-17, 11, -13], foreL: [-38, 0, 0], handL: [-9, 2, 0],
+    clavR: [-2, 0, -6], armR: [-9, -8, 10], foreR: [-23, 0, 0], handR: [-5, -2, 0],
+    // The free leg: knee softer and turned out, the foot a little forward.
+    thighL: [-9, 9, 7], shinL: [16, 0, 0], footL: [-7, 0, 0],
+    // The weight leg: under him and nearly straight.
+    thighR: [-3, -4, -3], shinR: [5, 0, 0], footR: [-2, 0, 0],
   },
 };
 
