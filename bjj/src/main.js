@@ -1041,6 +1041,9 @@ const REF_BELT = new Float32Array([0.03, 0.03, 0.04]);
 const REF_SKIN = new Float32Array([0.55, 0.39, 0.30]);
 
 const HERO_FOCUS = v3(0.34, 0.95, 0.1);
+// How much more fill the title card gets than the hall. Picked by measurement —
+// see look-check's «crushed» on the TITLE row.
+const HERO_FILL = 5.5;
 // Measured once, at the widest he gets. He moves now, but two centimetres of
 // weight shift does not change what the lens has to hold, and a framing that
 // breathed with him would be a camera operator with the shakes.
@@ -1120,6 +1123,8 @@ function drawFrame(now, real) {
     renderer.render({
       camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero],
       score: [match.f[0].points, match.f[1].points], clock: match.time,
+      // A portrait, not a hall frame. See `fill` in renderer.js.
+      fill: HERO_FILL,
     });
     hud.draw(match, input, 1 / 60, hudOpts());
     return;
@@ -1236,6 +1241,16 @@ window.__bjj = {
   // how a tool knows whether it is still going — the match state says 'ready'
   // throughout, on purpose.
   beginMatch, walkout: () => walkout,
+  // The man on the title card. He is not the rig — he is his own skeleton with
+  // his own idle — so anything measuring a head has to be told where his is.
+  // look-check judges the title card through this, and it is the frame where a
+  // face is biggest and looked at longest.
+  heroSkel: () => (heroIdle ? heroIdle.skel : null),
+  // And back to it. A tool that has already looked at a match frame is in a
+  // live match, and the title card is a screen rather than a pose — there was
+  // no way to ask for it, so look-check measured the standing frame twice and
+  // reported it as the title card.
+  toTitle: () => { walkout = null; screen = 'title'; newMatch(); },
   // The transition fade, so a tool can watch it rise and clear without a
   // screenshot racing the compositor.
   veil, fade,

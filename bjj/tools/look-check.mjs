@@ -39,7 +39,14 @@ if (dump) mkdirSync(dump, { recursive: true });
 
 // The frames worth judging: the position the match lives in most, the two
 // tangles that read worst, and a standing frame for the close-up materials.
-const SHOTS = ['MOUNT', 'SIDE_CONTROL', 'CLOSED_GUARD', 'BACK', 'STANDING'];
+const SHOTS = ['MOUNT', 'SIDE_CONTROL', 'CLOSED_GUARD', 'BACK', 'STANDING', 'TITLE'];
+// The title card is a frame the game ships and the first one anybody sees, and
+// until now nothing measured it. It is also the frame where a face is biggest —
+// the head is a couple of hundred pixels across against the forty a match frame
+// gives it — so every number about a face is worth more here than anywhere
+// else. It is not a pose: the man on it is his own skeleton with his own idle,
+// so the head has to be found through `heroSkel` rather than through the rig.
+const TITLE = 'TITLE';
 // Two brightness values within this of each other, either side of the line
 // where two bodies meet, are the same value to an eye at arm's length.
 const SAME = 6;
@@ -72,8 +79,17 @@ async function look(pose) {
   return page.evaluate(async (p) => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const m = window.__bjj.match();
-    if (m.state === 'ready') m.start();
-    window.__bjj.setPose(p);
+    const title = p === 'TITLE';
+    if (title) {
+      // Back to the screen, not to a pose. Without this the tool is still in
+      // whatever match the last shot started and measures the standing frame a
+      // second time — which is exactly what the first run of this did, right
+      // down to reporting the same pixel count.
+      window.__bjj.toTitle();
+    } else {
+      if (m.state === 'ready') m.start();
+      window.__bjj.setPose(p);
+    }
     // The rig has to settle: grips are solved after the blend and the pose
     // arrives over a few frames.
     await wait(700);
@@ -122,6 +138,12 @@ async function look(pose) {
     // 0 skin, 5 hair, 6 the drawn face, 7 eyeballs, 8 lashes and brows; the
     // rest is cloth.
     const skinPx = new Uint8Array(w * h);
+    // And bare skin on its own. The set above is everything a face is made of,
+    // which is the right set for "what is the shading doing to this head" and
+    // the wrong one for "is there any tone left in the skin": lashes, brows and
+    // a pupil are *meant* to be near black, and counting them as crushed skin
+    // measures how many eyelashes the man has.
+    const barePx = new Uint8Array(w * h);
     for (let i = 0, k = 0; i < shaded.length; i += 4, k++) {
       L[k] = lum(shaded, i);
       L0[k] = lum(off, i);
@@ -132,6 +154,7 @@ async function look(pose) {
       La[k] = lum(noAO, i);
       who[k] = id[i] > 127 ? 1 : id[i + 1] > 127 ? 2 : id[i + 2] > 127 ? 3 : 0;
       skinPx[k] = mat[i] === 0 || mat[i] === 6 || mat[i] === 7 || mat[i] === 8 ? 1 : 0;
+      barePx[k] = mat[i] === 0 || mat[i] === 6 ? 1 : 0;
     }
 
     // Who is actually against the other man, asked of the shader rather than
@@ -367,7 +390,8 @@ async function look(pose) {
       return [((cx / cw) * 0.5 + 0.5) * w, ((cy / cw) * 0.5 + 0.5) * h];
     };
     const headLook = (role, val, mask) => {
-      const sk = window.__bjj.rig.skel[role];
+      const sk = title ? window.__bjj.heroSkel() : window.__bjj.rig.skel[role];
+      if (!sk) return null;
       const mm = sk.world[window.__bjj.BONE_INDEX.head];
       const c = project(mm[12], mm[13], mm[14]);
       // A head is about eleven centimetres across; the radius comes from the
@@ -378,7 +402,7 @@ async function look(pose) {
       const RR = Math.hypot(s2[0] - c[0], s2[1] - c[1]) * 1.25;
       if (!(RR > 5)) return null;
       let dEye = 0, dFace = 0, dAO = 0, noise = 0, cn = 0;
-      const vs = [], cav = [];
+      const vs = [], cav = [], bare = [];
       for (let y = Math.max(0, c[1] - RR | 0); y < Math.min(h, c[1] + RR); y++) {
         for (let x = Math.max(0, c[0] - RR | 0); x < Math.min(w, c[0] + RR); x++) {
           const k = y * w + x;
@@ -388,6 +412,7 @@ async function look(pose) {
           if (!mask[k] || who[k] !== val || !skinPx[k]) continue;
           if (Math.hypot(x - c[0], y - c[1]) > RR) continue;
           vs.push(L[k]);
+          if (barePx[k]) bare.push(L[k]);
           dEye += Math.abs(L[k] - Le[k]);
           // As a fraction of the brightness that is there, not in levels.
           // Two levels off a head lit to twenty is a quarter of it and reads
@@ -405,8 +430,30 @@ async function look(pose) {
       if (cn < 60) return null;
       vs.sort((a, b) => a - b);
       cav.sort((a, b) => a - b);
+      // And what tone the face is actually in, which is a different question
+      // from what the occlusion does to it. A face can have every hollow the
+      // baker found and still read as a mask if the key light has pushed the
+      // cheekbones to white and the sockets to black: the shading is working
+      // and the picture has no face in it. Two fractions and a spread, on the
+      // skin pixels of the head:
+      //
+      //   crushed  below a tenth of what the brightest part of this face is.
+      //            Not an absolute floor — on the ground a whole man is dark,
+      //            and a floor would call that a fault.
+      //   blown    within five levels of white, where nothing is left to see.
+      //   spread   between the 5th and 95th, which is the range a face has to
+      //            draw with.
+      bare.sort((a, b) => a - b);
+      const hi = vs[Math.floor(vs.length * 0.95)];
+      let crushed = 0, blown = 0;
+      for (const v of bare) {
+        if (v < hi * 0.10) crushed++;
+        if (v > 250) blown++;
+      }
+      const bn = bare.length || 1;
       return {
         n: cn, r: RR, eyes: dEye / cn, drawn: dFace / cn, cavity: dAO / cn, noise: noise / cn,
+        crushed: crushed / bn, blown: blown / bn, features: 1 - bn / cn,
         // What it does where it does the most, which is the socket and the
         // under-jaw. A face reads by the difference between a cheek and the
         // hollow beside it, and a mean over the whole of a head averages the
@@ -439,7 +486,9 @@ async function look(pose) {
       // first man in the render list, and whether that is the player's mesh or
       // the opponent's depends on who is on top.
       wears: { A: m.roleOf.indexOf('A') === 0 ? 'you' : 'opp', B: m.roleOf.indexOf('B') === 0 ? 'you' : 'opp' },
-      heads: { A: headLook('A', 1, inner), B: headLook('B', 2, innerB) },
+      heads: title
+        ? { A: headLook('A', 1, inner), B: null }
+        : { A: headLook('A', 1, inner), B: headLook('B', 2, innerB) },
     };
     if (window.__dump) { out.shaded = Array.from(shaded); out.id = Array.from(id); }
     return out;
@@ -447,7 +496,7 @@ async function look(pose) {
 }
 
 console.log('  frame            of A  |pressed| darkened near / away |  seam  merged | fold  cav | relief on/off' +
-  '        | head: cavity/deep eyes');
+  '        | head: cavity/deep eyes crushed/blown spread features');
 const rows = [];
 for (const pose of SHOTS) {
   if (dump) await page.evaluate(() => { window.__dump = true; });
@@ -465,7 +514,12 @@ for (const pose of SHOTS) {
     }).join(' ')}` +
     ` | ${['A', 'B'].map((k) => {
       const f = r.heads[k];
-      return f ? `${r.wears[k]} ${(f.cavity * 100).toFixed(0).padStart(3)}%/${(f.deep * 100).toFixed(0)}% ${f.eyes.toFixed(1).padStart(4)}` : `${r.wears[k]}    --   --`;
+      return f
+        ? `${r.wears[k]} ${(f.cavity * 100).toFixed(0).padStart(3)}%/${(f.deep * 100).toFixed(0)}% ` +
+          `${f.eyes.toFixed(1).padStart(4)} ${(f.crushed * 100).toFixed(0).padStart(3)}%/` +
+          `${(f.blown * 100).toFixed(0)}% sp${f.spread.toFixed(0).padStart(3)} ` +
+          `ft${(f.features * 100).toFixed(0).padStart(3)}%`
+        : `${r.wears[k]}    --   --`;
     }).join('  ')}`
   );
   if (dump) {
