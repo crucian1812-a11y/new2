@@ -35,9 +35,22 @@
 // blend-check makes about a transition and its ends, and it is here for the
 // same reason.
 //
-//   node bjj/tools/intro-check.mjs           the four numbers
+// And the other half of the same wrapper: the man on the title card, who used
+// to be a photograph. Three numbers there, and the two that matter are opposite
+// complaints — he has to move, and he must not shake.
+//
+//   живой        the busiest joint's travel. A still is zero, and a still of a
+//                rendered man is the first thing a player sees of this game
+//   дрожь        reversals per second per joint-axis, shake-check's definition
+//                and shake-check's shipped line. A breath is one reversal a
+//                second; a tremor is six
+//   на месте     he shifts his weight, he does not wander: the supporting foot
+//                by pose-check's definition again, and how far his hips get
+//                from the mark the title card's framing was built around
+//
+//   node bjj/tools/intro-check.mjs           every number
 //   node bjj/tools/intro-check.mjs --frames  what happens when
-import { Walkout, INTRO_TIME, PHASES } from '../src/game/intro.js';
+import { Walkout, TitleIdle, INTRO_TIME, PHASES } from '../src/game/intro.js';
 import { PairRig } from '../src/game/rig.js';
 import { BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
@@ -207,4 +220,100 @@ if (!say(seam <= busiest, 'стык',
 
 console.log();
 console.log(`${INTRO_TIME.toFixed(2)}s of walkout, judged on what the rest of the game is judged on`);
+
+/* ------------------------------------------------------------ the title card */
+
+// A minute of him, which is longer than his longest cycle by three times, so
+// nothing here is an artefact of where the loop happened to be cut.
+const IDLE_SECONDS = 60;
+const idle = new TitleIdle('A').place(0.34, 0.961 + 0.05, 0.1, 26);
+const HERE = [idle.skel.rootPos[0], idle.skel.rootPos[2]];
+
+// shake-check's two numbers, its constants, and its rule: a reversal counts
+// only when the joint actually went somewhere between one and the next.
+const SHAKE_MM = 1.5;
+const nB = BONE_COUNT;
+const prevP = new Float64Array(nB * 3);
+const sgn = new Int8Array(nB * 3);
+const run = new Float64Array(nB * 3);
+let have = false, revs = 0, axisSeconds = 0;
+let travel = 0, travelBone = '';
+const perBone = new Float64Array(nB);
+const idleSpeeds = [];
+let idleStill = 0, idleFeet = 0, drift = 0;
+const idleFootPrev = {};
+
+const N = Math.round(IDLE_SECONDS / DT);
+for (let i = 0; i < N; i++) {
+  idle.update(DT);
+  const sk = idle.skel;
+  drift = Math.max(drift, Math.hypot(sk.rootPos[0] - HERE[0], sk.rootPos[2] - HERE[1]));
+  for (let b = 0; b < nB; b++) {
+    const w = sk.world[b];
+    const o = b * 3;
+    const xyz = [w[12], w[13], w[14]];
+    if (have) {
+      const d = Math.hypot(xyz[0] - prevP[o], xyz[1] - prevP[o + 1], xyz[2] - prevP[o + 2]);
+      perBone[b] += d;
+      for (let k = 0; k < 3; k++) {
+        const v = (xyz[k] - prevP[o + k]) / DT;
+        const s2 = v > 0.002 ? 1 : v < -0.002 ? -1 : 0;
+        if (s2 !== 0 && sgn[o + k] !== 0 && s2 !== sgn[o + k]) {
+          if (run[o + k] * 1000 >= SHAKE_MM) revs++;
+          run[o + k] = 0;
+        }
+        if (s2 !== 0) sgn[o + k] = s2;
+        run[o + k] += Math.abs(xyz[k] - prevP[o + k]);
+        axisSeconds += DT;
+      }
+    }
+    prevP[o] = xyz[0]; prevP[o + 1] = xyz[1]; prevP[o + 2] = xyz[2];
+  }
+  have = true;
+  for (const b of ['footL', 'footR']) {
+    const m = sk.world[BONE_INDEX[b]];
+    const was = idleFootPrev[b];
+    if (was) idleFootPrev[b + 'v'] = Math.hypot(m[12] - was[0], m[14] - was[2]) / DT;
+    idleFootPrev[b] = [m[12], m[13], m[14]];
+  }
+  if (i > 2) {
+    const vs = ['footL', 'footR'].map((b) => idleFootPrev[b + 'v']).filter((v) => v != null);
+    if (vs.length === 2) {
+      idleSpeeds.push(Math.min(vs[0], vs[1]));
+      idleFeet += 2;
+      for (const v of vs) if (v < 0.15) idleStill++;
+    }
+  }
+}
+for (let b = 0; b < nB; b++) {
+  if (perBone[b] > travel) {
+    travel = perBone[b];
+    travelBone = Object.keys(BONE_INDEX).find((k) => BONE_INDEX[k] === b) || String(b);
+  }
+}
+idleSpeeds.sort((a, b) => a - b);
+const idleMedian = idleSpeeds[idleSpeeds.length >> 1] ?? 0;
+const idlePlanted = idleFeet ? idleStill / idleFeet : 0;
+const cmPerSec = (travel / IDLE_SECONDS) * 100;
+const revHz = axisSeconds ? revs / axisSeconds : 0;
+
+console.log();
+console.log('=== the title card ===');
+console.log();
+// A line written after the measurement rather than before it, the way this
+// project writes every other one: a man breathing moves his chest about a
+// centimetre a second, so half of that is the floor under «not a photograph».
+if (!say(cmPerSec >= 0.5, 'живой',
+  `the busiest joint travels ${cmPerSec.toFixed(2)} cm/s (${travelBone}); a photograph is 0.00 ` +
+  '(line 0.5)')) bad++;
+if (!say(revHz <= 2.5, 'дрожь',
+  `${revHz.toFixed(2)} reversals a second per joint-axis over ${SHAKE_MM} mm each ` +
+  "(line 2.5, shake-check's own; a tremor is six)")) bad++;
+if (!say(idleMedian < 0.15 && idlePlanted > 0.35 && drift < 0.06, 'на месте',
+  `the supporting foot moves ${idleMedian.toFixed(2)} m/s, a foot is planted ` +
+  `${(idlePlanted * 100).toFixed(0)}% of the time, and his hips stay within ` +
+  `${(drift * 100).toFixed(1)}cm of the mark (lines 0.15, 35%, 6cm)`)) bad++;
+
+console.log();
+console.log(`${IDLE_SECONDS}s of title card, three times his longest cycle`);
 if (bad) process.exitCode = 1;

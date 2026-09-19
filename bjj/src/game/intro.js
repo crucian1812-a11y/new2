@@ -371,3 +371,98 @@ export class Walkout {
 }
 
 const _focus = v3(0, 0, 0);
+
+// And the man on the title card, who was a photograph.
+//
+// He is the match fighter held in the game's own standing pose, posed once at
+// load and never touched again — which is the right mesh and the wrong thing to
+// do with it. The first picture anybody sees of this game was a still, and a
+// still of a rendered man reads as a bug rather than as a portrait: everything
+// else on the screen moves, the hall lights flicker, the crowd hums, and he
+// does not blink.
+//
+// What he does now is what a man waiting to fight does. He breathes, he shifts
+// his weight from one foot to the other, and every so often he looks somewhere
+// else. Nothing here is a new mechanism: the breath is the referee's, added on
+// top of the pose rather than written over a joint; the weight shift moves the
+// hips and lets the step planner hold the feet where they are, which is what a
+// weight shift *is*; and the look is a few degrees on the neck.
+//
+// The three cycles are deliberately incommensurate — 4.6, 11.3 and 17.9
+// seconds — so the loop never lands on itself. A title card is on screen for as
+// long as somebody is deciding, and a figure that visibly repeats every four
+// seconds is worse than one that does not move at all.
+const IDLE_BREATH = 4.6;
+const IDLE_SWAY = 11.3;
+const IDLE_LOOK = 17.9;
+// How far the weight goes across. Two centimetres of hip: enough that the
+// silhouette changes, small enough that the feet never have to step.
+const SWAY = 0.022;
+
+export class TitleIdle {
+  constructor(role = 'A') {
+    this.skel = new Skeleton();
+    this.feet = makeFeet();
+    this.q = poseToQuats(Array.from({ length: BONE_COUNT }, () => quat()), POSES.STANDING[role]);
+    this.t = 0;
+    this.base = v3(0, POSES.STANDING[role].root.p[1], 0);
+    this.yaw = 0;
+  }
+
+  // Where he stands and which way he faces. Separate from the constructor
+  // because the title card's framing is the title card's business.
+  place(x, y, z, yawDeg) {
+    this.base[0] = x; this.base[1] = y; this.base[2] = z;
+    this.yaw = yawDeg;
+    this.update(0);
+    return this;
+  }
+
+  update(dt) {
+    this.t += dt;
+    for (let i = 0; i < BONE_COUNT; i++) {
+      const q = this.skel.local[i], v = this.q[i];
+      q[0] = v[0]; q[1] = v[1]; q[2] = v[2]; q[3] = v[3];
+    }
+    const br = Math.sin((this.t / IDLE_BREATH) * Math.PI * 2);
+    addEuler(this.skel, 'chest', br * 1.3, 0, 0);
+    addEuler(this.skel, 'spine', br * 0.7, 0, 0);
+    addEuler(this.skel, 'neck', -br * 0.6, 0, 0);
+    // The weight, and the roll that goes with it. A man moving his hips two
+    // centimetres to the left leans his shoulders the other way to stay over
+    // his feet, which is the half of this that makes it read as weight rather
+    // than as a wobble.
+    const sw = Math.sin((this.t / IDLE_SWAY) * Math.PI * 2);
+    addEuler(this.skel, 'hips', 0, 0, sw * 1.6);
+    addEuler(this.skel, 'chest', 0, 0, -sw * 2.2);
+    // And where he is looking. Slow, small, and off its own clock.
+    const lk = Math.sin((this.t / IDLE_LOOK) * Math.PI * 2);
+    addEuler(this.skel, 'neck', 0, lk * 5, 0);
+    addEuler(this.skel, 'head', lk * 1.5, lk * 3, 0);
+
+    const c = Math.cos((this.yaw * Math.PI) / 180), s = Math.sin((this.yaw * Math.PI) / 180);
+    const dx = sw * SWAY;
+    this.skel.rootPos[0] = this.base[0] + dx * c;
+    this.skel.rootPos[1] = this.base[1];
+    this.skel.rootPos[2] = this.base[2] - dx * s;
+    qEuler(this.skel.rootRot, 0, this.yaw, 0);
+    this.skel.pose();
+    // The feet stay where they are and the legs take up the difference, which
+    // is the whole of what shifting your weight looks like. Two centimetres is
+    // nowhere near the planner's stride, so he never steps.
+    plantFeet(this.skel, this.feet, dt, 0, 0, ENTRY_GAIT, null);
+    this.skel.finishSkin();
+  }
+
+  // How far he reaches from a point, so the title camera can open its lens
+  // enough to hold him. It used not to be passed at all, and the shot cut him
+  // off at the shin.
+  spread(at) {
+    let far = 0;
+    for (const w of this.skel.world) {
+      const d = Math.hypot(w[12] - at[0], w[13] - at[1], w[14] - at[2]);
+      if (d > far) far = d;
+    }
+    return far;
+  }
+}

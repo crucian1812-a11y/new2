@@ -5,7 +5,7 @@ import { Renderer } from './render/renderer.js';
 import { buildFighterMesh } from './render/body.js';
 import { loadFighter } from './render/asset.js';
 import { PairRig } from './game/rig.js';
-import { Skeleton, poseToQuats, BONE_INDEX } from './render/skeleton.js';
+import { BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { seedRandom } from './game/rng.js';
 import { AI } from './game/ai.js';
@@ -18,8 +18,8 @@ import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { HUD, PUNCH_LIFE } from './ui/hud.js';
 import { POSES } from './game/poses.js';
-import { Walkout } from './game/intro.js';
-import { clamp, v3, qEuler } from './core/m4.js';
+import { Walkout, TitleIdle } from './game/intro.js';
+import { clamp, v3 } from './core/m4.js';
 
 const glCanvas = document.getElementById('gl');
 const uiCanvas = document.getElementById('ui');
@@ -108,22 +108,21 @@ loadFighter(new URL('../assets/fighter-b.bin', import.meta.url).href)
 // a few degrees from the bind pose and skins cleanly — and it is the same mesh
 // on the GPU, not a second upload of the same file: it used to fetch and
 // re-upload fighter.bin a second time for the sake of one static figure.
+//
+// And he is no longer a still of one. He was posed once at load and never
+// touched again, which is the right mesh and the wrong thing to do with it:
+// everything else on that screen moves — the hall lights, the crowd, the clock
+// — and the man in front of them did not breathe. See TitleIdle in
+// src/game/intro.js; `intro-check` measures him under «заставка».
 let hero = null;
+let heroIdle = null;
 if (baked) {
-  const skeleton = new Skeleton();
-  poseToQuats(skeleton.local, POSES.STANDING.A);
-  qEuler(skeleton.rootRot, 0, 26, 0);
-  skeleton.rootPos[0] = 0.34;  // off centre, so the title has somewhere to sit
-  skeleton.rootPos[1] = POSES.STANDING.A.root.p[1] + 0.05;
-  skeleton.rootPos[2] = 0.1;
-  skeleton.pose();
-  skeleton.finishSkin();
+  heroIdle = new TitleIdle('A').place(0.34, POSES.STANDING.A.root.p[1] + 0.05, 0.1, 26);
   hero = {
-    skeleton,
+    skeleton: heroIdle.skel,
     // How far he reaches from the point the title camera is aimed at, so the
     // lens can be opened enough to hold him — the same number the match
-    // camera computes for the pair every frame, and for the same reason. It
-    // is a constant here because he never moves.
+    // camera computes for the pair every frame, and for the same reason.
     //
     // It was not passed at all while he was a crouched man a metre and a
     // third tall and the hand-set framing happened to fit him. Standing up
@@ -1042,14 +1041,10 @@ const REF_BELT = new Float32Array([0.03, 0.03, 0.04]);
 const REF_SKIN = new Float32Array([0.55, 0.39, 0.30]);
 
 const HERO_FOCUS = v3(0.34, 0.95, 0.1);
-if (hero) {
-  let far = 0;
-  for (const w of hero.skeleton.world) {
-    const d = Math.hypot(w[12] - HERO_FOCUS[0], w[13] - HERO_FOCUS[1], w[14] - HERO_FOCUS[2]);
-    if (d > far) far = d;
-  }
-  hero.spread = far;
-}
+// Measured once, at the widest he gets. He moves now, but two centimetres of
+// weight shift does not change what the lens has to hold, and a framing that
+// breathed with him would be a camera operator with the shakes.
+if (hero) hero.spread = heroIdle.spread(HERO_FOCUS);
 
 function drawFrame(now, real) {
   const dt = 1 / 60;
@@ -1120,6 +1115,7 @@ function drawFrame(now, real) {
 
   // Before the bell, the screen belongs to one fighter and the empty mat.
   if (hero && match.state === 'ready') {
+    heroIdle.update(window.__still != null ? 0 : dt);
     camera.update(dt, HERO_FOCUS, 'hero', 0, hero.spread);
     renderer.render({
       camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero],
