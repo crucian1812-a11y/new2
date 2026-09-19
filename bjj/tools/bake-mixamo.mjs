@@ -22,6 +22,7 @@ import { dirname } from 'path';
 import { readMixamo, bare as bareName } from './mixamo.mjs';
 import { vertexAO } from './ao.mjs';
 import { decimate, deviation } from './decimate.mjs';
+import { reshape } from './reshape.mjs';
 import { Skeleton, BONES, BONE_COUNT, BONE_INDEX } from '../src/render/skeleton.js';
 
 const argv = process.argv.slice(2);
@@ -30,6 +31,9 @@ const flag = (n, d) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[
 const OUT = flag('out', 'bjj/assets/fighter.bin');
 const HEIGHT = +flag('height', 1.78);
 const REPORT = argv.includes('--report');
+// Bake him as he arrived, without the trunk pass. For measuring what that pass
+// is worth rather than for shipping.
+const NOSHAPE = argv.includes('--no-shape');
 // The character came in a t-shirt and shorts. This sport is played in a gi, and
 // the game is played on its lapels and its belt, so by default the source's own
 // clothes are dropped and the gi that body.js already knows how to build — with
@@ -1653,6 +1657,24 @@ for (let v = 0; v < NV; v++) {
 console.log(`four bones a vertex on ${kept4} of ${NV}; the rest carry the two a later pass wrote`);
 
 let FINAL = { pos, nrm: N, uv: UV, bone: BONE4, wt: WT4, mat: MAT, ao: null, idx: Array.from(idx) };
+
+// And the shape of him, before anything is thrown away or lit.
+//
+// The source characters are barrels: measured, the first one is wider at the
+// waist than at the shoulders, where a person tapers by about a factor of one
+// and a half. See tools/reshape.mjs — it runs here rather than on the asset
+// because the .bin is a build product, and it runs before the decimator and
+// the occlusion bake so that what is thinned and what is lit is the shape that
+// ships.
+if (!NOSHAPE) {
+  const sh = reshape(FINAL, BONE_INDEX);
+  console.log(`shaped the trunk: ${sh.moved} verts moved, ${(sh.worst * 1000).toFixed(0)}mm at most`);
+  for (const k of sh.knots) {
+    console.log(`  ${(k.at * 100).toFixed(0)}% of height: ${(k.was * 100).toFixed(1)} -> ` +
+      `${(k.now * 100).toFixed(1)} cm per metre of man  (x${k.scale.toFixed(3)})`);
+  }
+}
+
 if (TRIS > 0 && idx.length / 3 > TRIS) {
   const t0 = Date.now();
   const before = { pos, idx: Array.from(idx) };

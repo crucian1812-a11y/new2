@@ -37,6 +37,11 @@ const steps = [
   // asks: a torn triangle is in the right place, so pose-check and
   // blend-check both read it as fine, and a player sees splinters.
   ['the skin holds', 'skin-check.mjs', ['--grip']],
+  // And whether the surface is the shape of a person. Everything above
+  // measures what a body does — where its weight is, what it intersects, how
+  // far a joint folds — and a baked character can be a barrel with arms and
+  // pass all of it. This one was: wider at the waist than at the shoulders.
+  ['the figure', 'figure-check.mjs', []],
   // And whether a hand reads as a hand. skin-check answers "is the surface
   // torn", which is a different question from "is this shape a hand": the
   // tearing on the knuckles was found and fixed and the player still saw a
