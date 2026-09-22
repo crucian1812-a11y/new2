@@ -61,6 +61,13 @@ const CFG = {
   // here: does a fully drilled player still meet the same ladder? A constant
   // rather than a store, because the interesting case is the top of it.
   skill: +flag('skill', 0),
+  // How hard the left thumb leans, held for the whole match. The controls say
+  // "the left thumb carries the base", and a player who reads that holds it.
+  // It sat at 0.3 here without anybody asking what the number did, and it did
+  // plenty: the hand that never touched the left half of the screen beat a
+  // white belt 88% of the time, the one that held the base 44%. See the sweep
+  // at the bottom.
+  drive: +flag('drive', 0.3),
 };
 const WHY = args.includes('--why');
 const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : 20260903);
@@ -200,7 +207,7 @@ class Hand {
 
 /* --------------------------------------------------------------------- run */
 
-function play(level, plan) {
+function play(level, plan, drive = CFG.drive) {
   const m = new Match([new Fighter('вы'), new Fighter('соперник')],
     { time: MATCH_TIME, ...(CFG.window ? { denyWindow: +CFG.window } : {}),
       ...(CFG.skill ? { skill: (tr, by) => (by === 0 ? 1 + SKILL_STEP * CFG.skill : 1) } : {}) });
@@ -212,7 +219,7 @@ function play(level, plan) {
     hand.update(dt, m);
     ai.update(dt, m, (d) => m.input(1, d), () =>
       (m.state === 'sub' && m.sub.attacker === 1 ? m.subTap(1) : m.grip(1)));
-    m.update(dt, [{ mx: 0, mz: 0, turn: 0, drive: 0.3 }, ai.control]);
+    m.update(dt, [{ mx: 0, mz: 0, turn: 0, drive }, ai.control]);
   }
   return m;
 }
@@ -283,6 +290,41 @@ check(denied / Math.max(1, askable) > 0.4, 'and can answer what can be answered'
 const wr = rows.map((r) => r.wins / N);
 check(wr.every((v, i) => i === 0 || v <= wr[i - 1] + 0.12),
   'the ladder still goes one way', wr.map((v) => Math.round(v * 100) + '%').join(' > '));
+
+// The left thumb has to be worth using.
+//
+// One of the two thumbs was a trap: holding the base cost stamina every second
+// and bought a twelfth of a chance at the moment of a move, so the best thing
+// to do with it was nothing. The sweep holds it at five levels for the whole
+// match — the naive reading of "carry the base" — against the belts a new
+// player actually meets. It has to pay to hold it somewhere in the middle, and
+// by enough to be felt, not by noise.
+{
+  const LEVELS = [0, 0.25, 0.5, 0.75, 1];
+  const M = 150;
+  console.log(`\n     the left thumb held for the whole match, ${M} matches a cell:`);
+  console.log('     belt      ' + LEVELS.map((d) => ('drive ' + d).padStart(11)).join(''));
+  // White is in there to show the thumb does not hurt against the first man
+  // on the ladder; the size of the gain is judged where there is room for
+  // one. Against white the bare hand already wins five times in six, and ten
+  // points above that is a ceiling rather than a lever.
+  for (const belt of ['white', 'blue', 'purple']) {
+    const w = LEVELS.map((d) => {
+      let k = 0;
+      for (let i = 0; i < M; i++) if (play(belt, CFG.plan, d).winner === 0) k++;
+      return k / M;
+    });
+    console.log(`     ${belt.padEnd(8)}  ` + w.map((v) => (Math.round(v * 100) + '%').padStart(11)).join(''));
+    const best = w.indexOf(Math.max(...w));
+    check(best > 0, `holding the base pays against ${belt}`,
+      `best at drive ${LEVELS[best]}, ${Math.round(w[best] * 100)}% against ${Math.round(w[0] * 100)}% without it`);
+    if (belt !== 'white') check(Math.round((w[best] - w[0]) * 100) >= 10, `and by enough to feel against ${belt}`,
+      `+${Math.round((w[best] - w[0]) * 100)} points, want at least 10`);
+    // And not a throttle to floor: all of it has to cost more than some of it.
+    check(w[w.length - 1] < w[best], `leaning with everything is not the answer against ${belt}`,
+      `${Math.round(w[w.length - 1] * 100)}% at full lean`);
+  }
+}
 
 console.log(fail ? `\n${fail} check(s) failed` : '\nthe game can be played');
 process.exitCode = fail ? 1 : 0;
