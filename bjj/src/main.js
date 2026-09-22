@@ -315,8 +315,13 @@ const hudOpts = () => ({
 // exactly what the first match was. The first man comes out in competition
 // blue — the white-vs-blue a televised bracket actually starts with — and the
 // rest keep their own hue so the ladder reads as five men.
+//
+// Royal blue rather than the mid blue it was: on this mat the mid blue was the
+// kimono that lost most of its outline, 21% of the edge the same colour as
+// what was behind it, against 17% for this one and 13% for the player's white
+// (tools/gi-check.mjs). The navy, purple and brown measured fine.
 const ROSTER = {
-  white:  { name: 'МАРК',   of: 'МАРКА',   giCol: [0.12, 0.23, 0.56], skinCol: [0.66, 0.50, 0.40] },
+  white:  { name: 'МАРК',   of: 'МАРКА',   giCol: [0.10, 0.30, 0.85], skinCol: [0.66, 0.50, 0.40] },
   blue:   { name: 'ДЕНИС',  of: 'ДЕНИСА',  giCol: [0.06, 0.12, 0.36], skinCol: [0.58, 0.40, 0.30] },
   purple: { name: 'РАФАЭЛ', of: 'РАФАЭЛА', giCol: [0.24, 0.15, 0.38], skinCol: [0.46, 0.31, 0.23] },
   brown:  { name: 'АНДРЕЙ', of: 'АНДРЕЯ',  giCol: [0.32, 0.25, 0.18], skinCol: [0.56, 0.41, 0.32] },
@@ -1280,6 +1285,9 @@ window.__bjj = {
   // drifting from it. tools/tap-check.mjs taps them.
   hud,
   rig, renderer, camera, referee, input, POSES, BONE_INDEX,
+  // The ladder's kit and the referee's, so tools/gi-check.mjs can put each of
+  // them on the mat and ask whether it can be told from the mat and from him.
+  ROSTER, REF_GI,
   // The walk onto the mat, so a tool can start one and step it frame by frame.
   // `beginMatch` is what the title card's start button does, and the getter is
   // how a tool knows whether it is still going — the match state says 'ready'
