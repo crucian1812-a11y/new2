@@ -960,6 +960,20 @@ void main() {
     float pulse = 0.86 + 0.14 * sin(u_time * 1.6 + along * 0.35);
     emis += c * 2.2 * pulse;
     albedo = c * 0.3; rough = 0.5; spec = 0.2; ao = 0.85;
+  } else if (m == 11) {
+    // The hall behind the stands: walls and roof in the haze the lamps spill
+    // into. Not lit — a surface this far off takes nothing from the key and
+    // everything from the air in front of it — so it is emission alone: a cool
+    // ground a shade lighter than the crowd, brightest at the height of the
+    // rig where the haze catches the light, falling off towards the floor
+    // behind the back rows and into the roof. A pillar every six metres, so it
+    // reads as a building rather than a gradient. It lifts with the room.
+    float yy = v_world.y;
+    float haze = (0.45 + 0.55 * smoothstep(1.0, 8.0, yy)) * (1.0 - 0.45 * smoothstep(10.0, 16.0, yy));
+    float along = abs(v_world.x) > abs(v_world.z) ? v_world.z : v_world.x;
+    float pillar = 1.0 - smoothstep(0.35, 0.5, abs(fract(along / 6.0) - 0.5) * 2.0 - 0.45);
+    emis += vec3(0.1, 0.118, 0.17) * haze * (1.0 - 0.3 * pillar) * (1.0 + 0.3 * u_crowd);
+    albedo = vec3(0.0); rough = 1.0; spec = 0.0; ao = 1.0;
   } else {
     // The jumbotron's screens. Bright enough to read as a display and to feed
     // the bloom, dim enough that they are not a second key light — and they
@@ -1025,7 +1039,22 @@ void main() {
   // every lumen, and everything round it — floor, boards, stands, crowd — dims
   // so the only thing left to look at is the two men.
   float house = 1.0 - u_spot * (m == 0 ? 0.0 : 0.55);
-  outColor = vec4((shade(v_world, N, albedo, rough, spec, 0.15, ao, 1.0) + emis) * house, 1.0);
+  vec3 lit = shade(v_world, N, albedo, rough, spec, 0.15, ao, 1.0);
+  // The haze the stands fall off into. The art direction always said "falls
+  // off into haze", and what the shader did was fall off into black: tiers at
+  // 0.028 and a crowd at 0.05 behind the boards, the top third of a ground
+  // shot nearly black (tools/hall-check.mjs). The further back a tier, the
+  // more of the air in front of it the eye sees: it goes towards the colour
+  // of the walls behind it. The crowd keeps a little more of itself than the
+  // tiers, so the people stay a shade darker than the room they sit in, and
+  // the catchlights ride on top rather than being hazed out with the wall.
+  // The floor round the stands goes the same way, more gently.
+  if (m == 1 || m == 3 || m == 4) {
+    float far = max(abs(v_world.x), abs(v_world.z));
+    float fog = smoothstep(8.0, 14.0, far) * (m == 3 ? 0.85 : m == 4 ? 0.6 : 0.5);
+    lit = mix(lit, vec3(0.085, 0.1, 0.145) * (1.0 + 0.3 * u_crowd), fog);
+  }
+  outColor = vec4((lit + emis) * house, 1.0);
 }`;
 
 const SHADOW_VS_SKIN = COMMON + `
