@@ -1308,6 +1308,8 @@ export class Renderer {
   }
 
   resize(cssW, cssH, dpr, quality) {
+    // What the page asked for, so a tool's pass at another size can put it back.
+    if (!this._grabbing) this._css = [cssW, cssH, dpr, quality];
     const w = Math.max(2, Math.round(cssW * dpr * quality));
     const h = Math.max(2, Math.round(cssH * dpr * quality));
     if (w === this.sceneW && h === this.sceneH) return;
@@ -1442,8 +1444,20 @@ export class Renderer {
         pressPass: this.pressPass };
       const shots = {};
       this._grabbing = true;
+      const css = this._css;
       for (let i = 0; i < list.length; i++) {
         const v = list[i];
+        // A pass can also be a different resolution: `{ name, dpr, q }`, the
+        // device ratio as a multiple of the page's and the quality as resize
+        // takes it. Same instant, same state; only the size changes.
+        // tools/aa-check.mjs is what asks for these.
+        if (v && typeof v === 'object') {
+          this.resize(css[0], css[1], css[2] * v.dpr, v.q);
+          this.want = false;
+          this.render(scene);
+          shots[v.name] = { w: this.canvas.width, h: this.canvas.height, px: this._readback() };
+          continue;
+        }
         this.contactAO = v !== 'contact';
         this.folds = v !== 'folds';
         this.faceRelief = v !== 'face';
@@ -1461,6 +1475,7 @@ export class Renderer {
         this.want = false;
       }
       Object.assign(this, keep);
+      if (css) this.resize(css[0], css[1], css[2], css[3]);
       this._grabbing = false;
       this.grabbed = Object.assign(this.grabbed || {}, { shots });
       return;
