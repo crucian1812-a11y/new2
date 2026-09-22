@@ -79,10 +79,54 @@ const probe = await page.evaluate(async () => {
   return { lum: r.lum || [], nan: r.hdrNaN || null };
 });
 const lum = probe.lum;
+// And when it does find one, where it is.
+//
+// «33 of 147 channels» is a true sentence that starts no investigation: the
+// probe reads a seven by seven grid, so a failure names a number and not a
+// place. The picture is the place — a NaN in the top fifth of the frame is the
+// ceiling and the lamps, one in the middle is the two men — so on a failure the
+// buffer is swept properly and the answer comes back as a box.
+//
+// It costs a second and only on a failure, and it is a sweep rather than a
+// finer grid on purpose: what is wanted is the shape of the region, not a
+// better estimate of how much of it there is.
+let where = '';
+if (probe.nan && probe.nan.nan > 0) {
+  const map = await page.evaluate(async () => {
+    const r = window.__bjj.renderer;
+    await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const gl = r.gl, W = r.sceneW, H = r.sceneH, px = new Float32Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, r.sceneFB);
+    let bad = 0, n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (let y = 0; y < H; y += 8) {
+      for (let x = 0; x < W; x += 12) {
+        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.FLOAT, px);
+        n++;
+        const ill = [0, 1, 2].some((k) => !(px[k] === px[k]) || !isFinite(px[k]));
+        if (!ill) continue;
+        bad++;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { W, H, n, bad, box: bad ? [x0, y0, x1, y1] : null };
+  });
+  where = map.bad
+    // The buffer's own origin is bottom left, so this says «from the top» the
+    // way a person looking at the screen would.
+    ? `, ${map.bad} of ${map.n} across the buffer, from ` +
+      `${(100 - (map.box[3] / map.H) * 100).toFixed(0)}% to ` +
+      `${(100 - (map.box[1] / map.H) * 100).toFixed(0)}% down the frame and ` +
+      `${((map.box[0] / map.W) * 100).toFixed(0)}–${((map.box[2] / map.W) * 100).toFixed(0)}% across`
+    : ', and a proper sweep of the buffer finds none — the frame it was in has gone';
+}
 check(
   probe.nan !== null && probe.nan.nan === 0,
   'no NaN reached the HDR buffer',
-  probe.nan ? `${probe.nan.nan} of ${probe.nan.sampled * 3} channels` : 'probe did not run'
+  probe.nan ? `${probe.nan.nan} of ${probe.nan.sampled * 3} channels${where}` : 'probe did not run'
 );
 const bright = lum.filter((v) => v > 12).length;
 check(bright >= 10, 'the mat is actually lit', `${bright}/16 samples above black`);
