@@ -173,6 +173,14 @@ class Hand {
       const tr = pv[d];
       if (!tr) return -1;
       if (this.plan === 'likely') return tr.base;
+      // 'arc': what the ring now prints beside each button — what it pays and
+      // the chance the dice will use — and the plain sum a person does with
+      // two numbers: take the most points per try. A submission is the match.
+      // 'arc': the number the ring now prints beside each button, read the
+      // way a person reads a percentage — take the likeliest. It does no
+      // better than the table ever did (see the calibration below for why the
+      // number still matters), and it is kept as the line that reads it.
+      if (this.plan === 'arc') return m.chanceOf(tr, 0);
       // 'points': take a scoring move if one is offered, else the likeliest.
       return (tr.points > 0 ? 10 : 0) + tr.base;
     };
@@ -224,6 +232,26 @@ function play(level, plan, drive = CFG.drive) {
   return m;
 }
 
+// The ring prints a chance beside every button, and it has to be a chance
+// the dice agree with. The number the press saw is on the tape (chanceOf at
+// the instant of the press, before the attempt's own cost comes off), and the
+// attempt it became is on the tape too; a denied attempt never rolled, so it
+// is left out — the ring promises what happens if he does not read you.
+const BANDS = [['red', 0, 0.35], ['amber', 0.35, 0.6], ['green', 0.6, 1.01]];
+const cal = BANDS.map(() => ({ said: 0, n: 0, landed: 0 }));
+function calibrate(m) {
+  const seen = {};
+  for (const e of m.tape) {
+    if (e.k === 'press' && e.res === 'go' && e.chance != null) (seen[e.name] ||= []).push(e.chance);
+    else if (e.k === 'try' && e.by === 0) {
+      const q = (seen[e.name] || []).shift();
+      if (q == null || e.res === 'denied') continue;
+      const b = cal[BANDS.findIndex(([, lo, hi]) => q >= lo && q < hi)];
+      b.n++; b.said += q; if (e.res === 'landed') b.landed++;
+    }
+  }
+}
+
 console.log(`${N} matches a belt, seed ${SEED}, plan "${CFG.plan}", ` +
   `hand ${CFG.react}±${CFG.jitter} ms` +
   (CFG.attention ? `, ${CFG.attention} ms to turn its head` : ', perfectly vigilant') + '\n');
@@ -239,6 +267,7 @@ for (const belt of CFG.belts) {
     r.mine += m.f[0].points;
     r.theirs += m.f[1].points;
     const d = m.debrief();
+    calibrate(m);
     for (const k of ['go', 'scoring', 'zero', 'arrived', 'held', 'dropped', 'droppedPts',
                      'denyOk', 'denyMiss', 'answerable', 'threats', 'nostam', 'queued', 'none']) {
       r.agg[k] = (r.agg[k] || 0) + d[k];
@@ -290,6 +319,19 @@ check(denied / Math.max(1, askable) > 0.4, 'and can answer what can be answered'
 const wr = rows.map((r) => r.wins / N);
 check(wr.every((v, i) => i === 0 || v <= wr[i - 1] + 0.12),
   'the ladder still goes one way', wr.map((v) => Math.round(v * 100) + '%').join(' > '));
+
+// And the colours mean what they say. Each band's attempts have to land about
+// as often as the ring said they would: within eight points on average, and
+// inside the band itself — green is not allowed to land like amber.
+console.log('\n     what the ring said, and what the dice did (attempts not denied):');
+BANDS.forEach(([name, lo, hi], k) => {
+  const b = cal[k];
+  if (!b.n) return;
+  const said = b.said / b.n, did = b.landed / b.n;
+  console.log(`     ${name.padEnd(6)} ${String(b.n).padStart(6)} tries   said ${Math.round(said * 100)}%   landed ${Math.round(did * 100)}%`);
+  check(Math.abs(did - said) < 0.08 && did >= lo - 0.05 && did < hi + 0.05,
+    `the ${name} on the ring is honest`, `said ${Math.round(said * 100)}%, landed ${Math.round(did * 100)}%`);
+});
 
 // The left thumb has to be worth using.
 //

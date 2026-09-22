@@ -301,27 +301,48 @@ export class HUD {
       // 95%, dropping back to side control is 90%, standing up out of turtle
       // is 85%, and every one of them is worth nothing. Points live between
       // 30 and 60. A player cannot find that out from four words.
+      //
+      // And it has to be the chance that decides, not the one in the table.
+      // The arc drew `tr.base`, and the match rolls `chanceOf`, which carries
+      // his posture, both men's stamina, the grips and — for a submission —
+      // whether he has been broken yet. Measured over sixty matches the two
+      // disagreed by a factor of three either way on submissions (0.31 to
+      // 2.07 of what was drawn), which is exactly the lesson the game most
+      // wants to teach: break him first, then finish. So the number on the
+      // glass is the number the dice will use, and its colour says which side
+      // of even it is on.
+      const odds = on && !threat && tr ? m.chanceOf(tr, 0) : 0;
       if (on && !threat && tr) {
         c.beginPath();
-        c.arc(x, y, rr + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * tr.base);
-        c.strokeStyle = 'rgba(255,255,255,0.34)';
-        c.lineWidth = 2;
+        c.arc(x, y, rr + 3.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * odds);
+        c.strokeStyle = oddsColour(odds);
+        c.lineWidth = 3;
         c.stroke();
       }
 
       arrow(c, x, y, dx, dy, on ? '#fff' : 'rgba(255,255,255,0.2)', R * 0.15);
 
-      // And what it pays. The whole economy is "arrive somewhere worth points
-      // and hold it three seconds", and the ring was the one place a player
-      // looks and the one place that never mentioned it.
-      if (on && !threat && tr && tr.points > 0) {
+      // And what it pays, next to what it will take. The whole economy is
+      // "arrive somewhere worth points and hold it three seconds", and the
+      // ring was the one place a player looks and the one place that never
+      // mentioned it. The chance goes beside it as a number: an arc alone was
+      // two pixels nobody knew how to read.
+      if (on && !threat && tr) {
+        const pct = `${Math.round(odds * 100)}%`;
         c.font = `800 11px ${FONT}`;
-        c.fillStyle = '#ffd166';
-        c.textAlign = 'center';
         // On the far side of the button from the name, or the two land on each
         // other: for the left and right buttons dy is 0, so both wanted the
         // same four pixels above the circle.
-        c.fillText(`+${tr.points}`, x, dy > 0 ? y - rr - 5 : y + rr + 14);
+        const py = dy > 0 ? y - rr - 5 : y + rr + 14;
+        const head = tr.points > 0 ? `+${tr.points} ` : '';
+        const wHead = c.measureText(head).width;
+        const x0 = x - (wHead + c.measureText(pct).width) / 2;
+        c.textAlign = 'left';
+        c.fillStyle = '#ffd166';
+        if (head) c.fillText(head, x0, py);
+        c.fillStyle = oddsColour(odds);
+        c.fillText(pct, x0 + wHead, py);
+        c.textAlign = 'center';
       }
 
       // A press the game has heard and not used yet, so a flick during a throw
@@ -1506,6 +1527,12 @@ function meter(c, x, y, w, h, v, fg, bg) {
     roundRect(c, x, y, Math.max(h, w * f), h, h / 2);
     c.fill();
   }
+}
+
+// Which side of even a chance is on: green for better than three in five,
+// amber for a coin, red for worse than one in three.
+function oddsColour(p) {
+  return p >= 0.6 ? '#4fd48a' : p >= 0.35 ? '#ffd166' : '#ff6a55';
 }
 
 function arrow(c, x, y, dx, dy, col, s = 9) {
