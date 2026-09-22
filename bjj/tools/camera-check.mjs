@@ -68,6 +68,10 @@ const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : 20260
 // small tablet, where the frame is squarer and the vertical is tighter still.
 const ASPECT = +flag('aspect', 844 / 390);
 const NEAR = 0.08;   // the renderer's own near plane
+// How much of the referee's screen box may land inside the pair's before he
+// counts as standing in the fight. A quarter: an elbow or a shoulder behind a
+// knee is a man beside the fight; a third of him is a man in it.
+const REF_OVER = 0.25;
 
 let fail = 0;
 const check = (ok, msg, extra = '') => {
@@ -211,6 +215,35 @@ function play(level, s) {
         } else if (NAMES[i] === 'head') headsIn++;
       }
     }
+    // And not standing behind them either.
+    //
+    // The check above keeps him out of the wedge in front of the lens, and it
+    // was right: 0.0%. Nothing asked about the wedge behind the fight, and his
+    // spot was 150 degrees round from the camera — almost on its axis, a metre
+    // and a half past the pair. In the picture that is a dark figure standing
+    // between the two heads, in nearly every frame a player looked at. Measured
+    // on the screen, the way the eye meets it: his box against theirs, and how
+    // much of him lands inside it.
+    {
+      let rx0 = 9, rx1 = -9, ry0 = 9, ry1 = -9;
+      for (const w of referee.skel.world) {
+        const x = w[12], y = w[13], z = w[14];
+        const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+        if (cw <= NEAR) continue;
+        const nx = (vp[0] * x + vp[4] * y + vp[8] * z + vp[12]) / cw;
+        const ny = (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / cw;
+        if (nx < rx0) rx0 = nx;
+        if (nx > rx1) rx1 = nx;
+        if (ny < ry0) ry0 = ny;
+        if (ny > ry1) ry1 = ny;
+      }
+      const area = Math.max(0, rx1 - rx0) * Math.max(0, ry1 - ry0);
+      const ix = Math.max(0, Math.min(rx1, maxX) - Math.max(rx0, minX));
+      const iy = Math.max(0, Math.min(ry1, maxY) - Math.max(ry0, minY));
+      if (area > 0 && (ix * iy) / area > REF_OVER) s.refOver++;
+      if (rx1 > -1 && rx0 < 1 && ry1 > -1 && ry0 < 1) s.refSeen++;
+    }
+
     // Fill: how much of the frame's height the pair takes. 2 is the whole of
     // normalised device space, so this is a fraction of the picture.
     const fill = (maxY - minY) / 2;
@@ -233,7 +266,7 @@ function play(level, s) {
 }
 
 const s = {
-  frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', refNear: 9, refOff: 9, refOffAt: '', halfLens: 0, walk: 0, refCover: 0, cropped: 0, headOut: 0, tall: 0, small: 0,
+  frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', refNear: 9, refOver: 0, refSeen: 0, refOff: 9, refOffAt: '', halfLens: 0, walk: 0, refCover: 0, cropped: 0, headOut: 0, tall: 0, small: 0,
   fills: [], byBone: {}, modes: {}, worstFill: 0, worstAt: '',
 };
 const t0 = Date.now();
@@ -280,6 +313,9 @@ console.log(`     the referee gets ${s.refNear.toFixed(1)}m from the lens at his
   `     the pair walks ${s.walk.toFixed(1)}m from the middle at most, and he covers the lens on ${pct(s.refCover)}% of frames\n`);
 check(+pct(s.refIn) < 1, 'the referee keeps out of the shot',
   `he is in front of the lens on ${pct(s.refIn)}% of frames, ${s.refIn} of ${s.frames}`);
+check(+pct(s.refOver) < 15, 'nor behind the fight, in the middle of the picture',
+  `a quarter of him inside the pair's box on ${pct(s.refOver)}% of frames; ` +
+  `some of him is in the picture on ${pct(s.refSeen)}%`);
 check(+pct(s.inside) < 0.5, 'and the camera is never standing inside one',
   `${pct(s.inside)}% of frames, ${s.inside} of ${s.frames}`);
 check(pct(s.headOut) < 5, 'both heads are in the picture',
