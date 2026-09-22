@@ -1063,12 +1063,19 @@ const PLATE_FILL = [3.4, 4.4];
 const PLATE_RAMP = [0.28, 0.50, 3];
 
 function drawFrame(now, real) {
-  const dt = 1 / 60;
+  // The clock everything on this side of the loop runs on.
+  //
+  // A sixtieth of a second per *frame* is the sim's nominal step, and it is the
+  // wrong clock for anything a player watches by itself: at four frames a
+  // second it takes fifteen seconds to spend one. The referee was moved off it
+  // for exactly that reason — he took six seconds to stand up — and the walk on
+  // and the title card were left on it, which is how a phone drawing thirty
+  // frames a second got a gallery whose pages turn every twelve seconds and a
+  // walkout that takes nine. Everything here is on the clock the sim is on.
+  const dt = real ?? 1 / 60;
   // Here rather than in the sim, so he is also on the mat when the sim is
   // frozen for a photograph — which is the state half the art tooling runs in.
-  // On the real clock, not the nominal one: at four frames a second a
-  // sixtieth of a second per frame takes six seconds to stand him up.
-  referee.update(real ?? dt, match.state, POSES[match.position].ground, match.origin, camera.orbit);
+  referee.update(dt, match.state, POSES[match.position].ground, match.origin, camera.orbit);
 
   // The walk on. Two men, the referee and the empty mat, and no HUD over any of
   // it — the only thing on this screen is what is happening on it.

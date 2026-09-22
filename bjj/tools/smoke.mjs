@@ -180,8 +180,16 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     // And no pill of its own already up. The swipes above can score, and a
     // real score puts a real pill exactly where this one is about to look —
     // the check then reads 209 before and 209 after and calls the pill
-    // missing. It lives a second and a half; this waits it out.
-    for (let i = 0; i < 30 && window.__bjj.punch(); i++) await wait(200);
+    // missing.
+    //
+    // It lives a second and a half of *match* time, and match time is the sim's
+    // capped dt: under a software rasteriser at two frames a second the game
+    // advances at a tenth of real time, so a second and a half of pill is
+    // fifteen seconds of sitting here. This waited six and then read the pill
+    // that was still up — the same mistake as measuring anything else in
+    // frames instead of in seconds, pointed the other way. Forty seconds is
+    // the same loop with a budget the slowest thing this runs on can meet.
+    for (let i = 0; i < 200 && window.__bjj.punch(); i++) await wait(200);
     await wait(120);
     const before = read();
     // The same call the match makes when a hold is paid off.

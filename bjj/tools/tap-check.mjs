@@ -58,7 +58,18 @@ const out = await page.evaluate(() => new Promise((done) => {
   tap(ui.clientWidth / 2, ui.clientHeight / 2);
 
   const r = { taps: [], grip: null, live: false };
-  setTimeout(() => {
+  // Waited for, not slept on.
+  //
+  // The tap starts a match, and a match starts with the two of them walking to
+  // the middle of the mat: four and a half seconds, and that is *match* time.
+  // On a software rasteriser at two frames a second the game advances at a
+  // tenth of real time, so the walk on is most of a minute of wall clock. This
+  // waited 900 ms and then asked whether the match was running, and it has
+  // answered «no» on every run since the walkout was written — four lost
+  // buttons and a dead match on a page where all four buttons work, for the
+  // second time in this file and for the same reason. Nothing here may be
+  // measured in wall clock: the game's own state says when it is ready.
+  const begin = () => {
     r.live = M().state === 'live';
     const { R, cx, cy } = hud.ringLayout();
     const V = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
@@ -101,7 +112,13 @@ const out = await page.evaluate(() => new Promise((done) => {
       look();
     };
     step();
-  }, 900);
+  };
+  const t0 = performance.now();
+  const waitLive = () => {
+    if (M().state === 'live' || performance.now() - t0 > 120000) begin();
+    else setTimeout(waitLive, 150);
+  };
+  setTimeout(waitLive, 400);
 }));
 
 await browser.close();
