@@ -101,8 +101,9 @@ const late = () => Math.max(0.05, (CFG.react + gauss(CFG.jitter)) / 1000);
 //   · the ring is free -> he thinks for a beat, then takes a move by his plan.
 //   · a lock -> he taps at the beat he can see coming, or swipes the way out.
 class Hand {
-  constructor(plan) {
+  constructor(plan, greenAt = 0.6) {
     this.plan = plan;
+    this.greenAt = greenAt;   // the 'green' plan's line for going for the finish
     this.focus = null;    // what he is currently looking at
     this.timer = -1;      // seconds until the thumb lands
     this.dir = null;      // what it will land on
@@ -181,6 +182,14 @@ class Hand {
       // better than the table ever did (see the calibration below for why the
       // number still matters), and it is kept as the line that reads it.
       if (this.plan === 'arc') return m.chanceOf(tr, 0);
+      // 'green': the line the game teaches — take the points, and go for the
+      // finish only when the ring says the man is ready for it. A submission
+      // under green is pressed before anything else; under it, never.
+      if (this.plan === 'green') {
+        const q = m.chanceOf(tr, 0);
+        if (tr.sub) return q >= this.greenAt ? 20 + q : -1;
+        return (tr.points > 0 ? 10 : 0) + tr.base;
+      }
       // 'points': take a scoring move if one is offered, else the likeliest.
       return (tr.points > 0 ? 10 : 0) + tr.base;
     };
@@ -215,12 +224,12 @@ class Hand {
 
 /* --------------------------------------------------------------------- run */
 
-function play(level, plan, drive = CFG.drive) {
+function play(level, plan, drive = CFG.drive, greenAt = 0.6) {
   const m = new Match([new Fighter('вы'), new Fighter('соперник')],
     { time: MATCH_TIME, ...(CFG.window ? { denyWindow: +CFG.window } : {}),
       ...(CFG.skill ? { skill: (tr, by) => (by === 0 ? 1 + SKILL_STEP * CFG.skill : 1) } : {}) });
   const ai = new AI(1, level);
-  const hand = new Hand(plan);
+  const hand = new Hand(plan, greenAt);
   m.start();
   const dt = 1 / 60;
   for (let t = 0; t < MATCH_TIME + 1 && m.state !== 'over'; t += dt) {
@@ -332,6 +341,34 @@ BANDS.forEach(([name, lo, hi], k) => {
   check(Math.abs(did - said) < 0.08 && did >= lo - 0.05 && did < hi + 0.05,
     `the ${name} on the ring is honest`, `said ${Math.round(said * 100)}%, landed ${Math.round(did * 100)}%`);
 });
+
+// And what the colours are for. For a person a submission was a trap at every
+// chance the ring could show: the line that took points and never went for
+// the finish beat every line that did. With the base breaking posture and the
+// ring printing the chance the dice use, the finish under green is worth what
+// the points are — no more, measured at 400 matches a belt (+2, +7, −1, −3
+// against points only) — and the finish under amber is still the trap it was
+// (purple 30% against 59%, black 4% against 28%). The ring says which is which;
+// this holds both halves of that.
+{
+  const M = 150;
+  console.log(`\n     going for the finish, ${M} matches a cell:`);
+  console.log('     belt        points only   + finish on green   + finish on amber');
+  for (const belt of ['blue', 'purple']) {
+    const rate = (plan, at) => {
+      let k = 0;
+      for (let i = 0; i < M; i++) if (play(belt, plan, CFG.drive, at).winner === 0) k++;
+      return k / M;
+    };
+    const p = rate('points'), g = rate('green', 0.6), a = rate('green', 0.35);
+    const pc = (v) => (Math.round(v * 100) + '%').padStart(10);
+    console.log(`     ${belt.padEnd(8)} ${pc(p)} ${pc(g).padStart(19)} ${pc(a).padStart(19)}`);
+    check(g >= p - 0.08, `a finish on green does not cost the match against ${belt}`,
+      `${Math.round(g * 100)}% against ${Math.round(p * 100)}% for points only`);
+    check(a < g, `and a finish on amber costs more than one on green against ${belt}`,
+      `${Math.round(a * 100)}% against ${Math.round(g * 100)}%`);
+  }
+}
 
 // The left thumb has to be worth using.
 //
