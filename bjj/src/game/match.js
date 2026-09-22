@@ -126,6 +126,12 @@ const RECALL_SPEED = 1.5;
 // belts meaning something on this half of the game: your first opponents can
 // be survived and the last one mostly cannot.
 const GRIP_READ = 2.2;
+// The left thumb's base: stamina a second at full lean (paid on the square of
+// the lean), posture a second taken from the man underneath, and posture a
+// second given back to your own frames. See _stamina.
+export const BASE_COST = 3;
+export const BASE_PRESS = 14;
+export const BASE_FRAME = 8;
 
 export class Fighter {
   constructor(name, opts = {}) {
@@ -1348,7 +1354,31 @@ export class Match {
       if (busy) rate = 0;
       if (this.state === 'sub') rate = 0;
       const drive = control && control[i] ? control[i].drive : 0;
-      f.stamina = clamp(f.stamina + rate * dt - drive * dt * 5, 0, 100);
+      // The base, and what it costs.
+      //
+      // It used to cost five points of stamina a second at full lean and buy
+      // nothing but a twelfth of a chance at the instant a move went off —
+      // so the best thing to do with the left thumb was to leave it alone.
+      // Measured by human-check: the hand that never touched it beat a white
+      // belt 88% of the time, the hand that held it 44%. Half the controls
+      // were a trap, and the controls say in their first line to use it.
+      //
+      // Now it does what a base does, the whole time it is held, and it costs
+      // the square of how hard: leaning a little is nearly free, leaning with
+      // everything is not. On top it is weight — his posture goes, and posture
+      // is what every submission and every four-point move is gated on. Under
+      // him, or with nobody on top, it is frames and stance — your own posture
+      // comes back even while he is working, which is what keeps the arrow on
+      // the ring and his chances down.
+      f.stamina = clamp(f.stamina + rate * dt - drive * drive * dt * BASE_COST, 0, 100);
+      if (drive > 0 && this.state === 'live') {
+        if (dominant) {
+          const you = this.f[this.other(i)];
+          you.posture = clamp(you.posture - drive * BASE_PRESS * dt, 0, 100);
+        } else {
+          f.posture = clamp(f.posture + drive * BASE_FRAME * dt, 0, 100);
+        }
+      }
       // Posture comes back slowly, and only when nobody is doing anything to
       // you.
       const pr = dominant ? 9 : 3.5;
