@@ -1114,7 +1114,16 @@ function drawFrame(now, real) {
         { skeleton: referee.skel, gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT,
           skinCol: REF_SKIN, flash: 0, gas: 0 },
       ],
-      score: [0, 0], clock: match.time, crowd,
+      // The room, as two numbers rather than as the object that holds them.
+      //
+      // It was `crowd`, the object, and the renderer hands whatever it is given
+      // straight to uniform1f — which turns an object into NaN. So for the
+      // whole walk on, every pixel of the stands was NaN: the upper half of the
+      // frame, black instead of a dark crowd, and the bloom reading NaN out of
+      // it. `smoke` has been failing on «no NaN reached the HDR buffer» ever
+      // since the walkout was written and nobody read *where* — it only said
+      // «33 of 147 channels». It says the region now.
+      score: [0, 0], clock: match.time, crowd: crowd.level, spot: crowd.spot,
     });
     hud.draw(match, input, 1 / 60, hudOpts());
     // And the handover. No fade: the last frame of the walk and the first frame
