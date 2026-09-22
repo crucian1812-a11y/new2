@@ -104,6 +104,30 @@ const FILL = 0.88;
 // And how near the camera is ever allowed to get. See the note in `frame`.
 const MIN_DIST = 2.2;
 
+// The room's plates. On the drill screen the gallery stops being a gallery of
+// positions and becomes a picture of each move on the page: the room was a
+// list of fifty-seven names across ten pages, and a name is exactly what a
+// beginner cannot drill from. Each row's move is photographed the way a plate
+// is — posed by the rig out of the same library, framed by the same tripod —
+// at MOVE_AT of the way through its blend, which is where a move looks like
+// itself and not like either end of it. The angle is the destination's own
+// solved plate where it has one, and otherwise one of a few that read on any
+// tangle, picked by the move's name so a move is always shot the same way.
+const MOVE_AT = 0.62;
+const MOVE_ANGLES = [
+  { orbit: 40, elev: 24, fov: 32 },
+  { orbit: 140, elev: 20, fov: 32 },
+  { orbit: 235, elev: 28, fov: 32 },
+  { orbit: 320, elev: 22, fov: 32 },
+];
+const angleFor = (move) => {
+  const plate = PLATES.find((pl) => pl.pose === move.to);
+  if (plate) return plate;
+  let h = 0;
+  for (const ch of move.name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return MOVE_ANGLES[h % MOVE_ANGLES.length];
+};
+
 export class Gallery {
   constructor(aspect) {
     this.rig = new PairRig();
@@ -131,14 +155,34 @@ export class Gallery {
     // 1 is the picture, 0 is a blank page. The renderer mixes the whole frame
     // towards the ground colour with it.
     this.page = 1;
+    this.moves = null;
+    this.movesKey = null;
     this.show(0);
   }
 
-  get plate() { return PLATES[this.i]; }
+  get plate() { return this.moves ? angleFor(this.moves[this.i]) : PLATES[this.i]; }
 
   // What the caption says. Out of the pose library rather than written here,
-  // so a position that is renamed is renamed on the poster too.
-  get caption() { return POSES[this.plate.pose].name; }
+  // so a position that is renamed is renamed on the poster too — and on the
+  // room's plates, the move's own name.
+  get caption() { return this.moves ? this.moves[this.i].name : POSES[this.plate.pose].name; }
+
+  // Which of the room's rows is on the page right now, or -1 off the room.
+  get featured() { return this.moves ? this.i : -1; }
+
+  // The moves to photograph, `{ from, to, name }` each, or null for the
+  // positions. Called every frame with whatever the page shows; a list that
+  // has not changed changes nothing, so the page turns at its own pace.
+  setMoves(list) {
+    const key = list && list.length ? list.map((m) => m.name + m.from).join('|') : null;
+    if (key === this.movesKey) return this;
+    this.movesKey = key;
+    this.moves = key ? list.slice() : null;
+    this.t = 0;
+    this.page = 1;
+    this.turned = false;
+    return this.show(0);
+  }
 
   get skel() { return this.rig.skel; }
 
@@ -153,11 +197,19 @@ export class Gallery {
   // Put a plate up. Poses the pair, then builds the shot around what the pose
   // turned out to be.
   show(i) {
-    this.i = ((i % PLATES.length) + PLATES.length) % PLATES.length;
-    const id = this.plate.pose;
+    const n = this.moves ? this.moves.length : PLATES.length;
+    this.i = ((i % n) + n) % n;
     this.rig.rewind();
-    this.rig.invalidate(id);
-    this.rig.applyAt(id, id, 1, 1 / 60);
+    if (this.moves) {
+      const { from, to } = this.moves[this.i];
+      this.rig.invalidate(from);
+      this.rig.invalidate(to);
+      this.rig.applyAt(from, to, MOVE_AT, 1 / 60);
+    } else {
+      const id = this.plate.pose;
+      this.rig.invalidate(id);
+      this.rig.applyAt(id, id, 1, 1 / 60);
+    }
     this.frame();
     return this;
   }

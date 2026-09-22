@@ -407,6 +407,36 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     `${gym.at} vs ${gym.want}`);
   check(gym.back === 'gym' && !gym.after, 'and leaving one puts you back in the room');
 
+  // And the picture behind the list is of the list. The room was fifty-seven
+  // names and no pictures; now the plates are the moves on the page, one at a
+  // time, and the row whose move is showing is ringed. Every row on the page
+  // gets its turn, the caption is that row's name, and on the title card the
+  // gallery goes back to its positions.
+  const shown = await page.evaluate(async () => {
+    const g = window.__bjj;
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    // The gallery learns what page it is on from the frame loop, and on a
+    // software rasteriser a frame can be most of a second: wait for it.
+    const until = async (ok) => { for (let i = 0; i < 100 && !ok(); i++) await wait(100); };
+    g.openGym();
+    await until(() => g.gallery().featured >= 0);
+    const rows = g.gym().rows.map((r) => r.tr.name);
+    const seen = [];
+    for (let i = 0; i < rows.length; i++) {
+      g.plate(i);
+      await wait(60);
+      seen.push({ caption: g.gallery().caption, featured: g.gallery().featured });
+    }
+    g.toTitle();
+    await until(() => g.gallery().featured === -1);
+    return { rows, seen, title: g.gallery().featured };
+  });
+  const wrong = shown.seen.filter((v, i) => v.caption !== shown.rows[i] || v.featured !== i);
+  check(shown.seen.length === shown.rows.length && wrong.length === 0,
+    'the room shows each move on its page, and rings the row it is',
+    wrong.length ? `${wrong.length} of ${shown.rows.length} wrong: ${wrong.map((v) => v.caption).join(', ')}`
+      : `${shown.rows.length} rows, ${shown.rows.length} pictures`);
+  check(shown.title === -1, 'and the title card is back to its positions');
 }
 
 // Fatigue is checked in pose-check, not here.
