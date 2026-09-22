@@ -185,10 +185,16 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     // It lives a second and a half of *match* time, and match time is the sim's
     // capped dt: under a software rasteriser at two frames a second the game
     // advances at a tenth of real time, so a second and a half of pill is
-    // fifteen seconds of sitting here. This waited six and then read the pill
-    // that was still up — the same mistake as measuring anything else in
-    // frames instead of in seconds, pointed the other way. Forty seconds is
-    // the same loop with a budget the slowest thing this runs on can meet.
+    // fifteen seconds of sitting here, and this waited six.
+    //
+    // Waiting longer is not enough on its own, and that is the interesting
+    // half: the match is live and the AI is playing it, so a new score can put
+    // a new pill up while this one waits for the old one to go. The sim is
+    // frozen for the length of this check instead — the same switch the art
+    // tooling uses — so the only pill that can appear on the glass is the one
+    // the check puts there. The pill's own clock keeps running while frozen
+    // (main.js spends it before the freeze), which is what makes this work.
+    window.__frozen = true;
     for (let i = 0; i < 200 && window.__bjj.punch(); i++) await wait(200);
     await wait(120);
     const before = read();
@@ -202,6 +208,7 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     await held(() => g.punch() && g.punch().t > 0.25);
     const his = read();
     await held(() => !g.punch());
+    window.__frozen = false;
     return { before, mine, after, his };
   });
   check(punch.mine.mid[3] > 200 && punch.before.mid[3] < 200,
