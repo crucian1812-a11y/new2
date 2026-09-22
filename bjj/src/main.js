@@ -18,6 +18,7 @@ import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { HUD, PUNCH_LIFE } from './ui/hud.js';
 import { POSES } from './game/poses.js';
+import { visualEnds } from './game/positions.js';
 import { Walkout } from './game/intro.js';
 import { Gallery } from './game/gallery.js';
 import { clamp, v3 } from './core/m4.js';
@@ -291,6 +292,8 @@ const hudOpts = () => ({
   // The room, and whatever is going on in it.
   screen,
   gym: { drilled: skills.drilled, total: DRILL_TOTAL, page: gymPage % gymPages(), pages: gymPages() },
+  // Which row the picture behind the list is of.
+  gymFeatured: gallery && screen === 'gym' ? gallery.featured : -1,
   gymList: gymRows().map((e) => ({
     name: e.tr.name, from: POSE_LABEL(e.tr.from), level: skills.level(e.tr),
     round: ROUNDS[Math.min(ROUNDS.length - 1, skills.level(e.tr))].title,
@@ -1169,6 +1172,10 @@ function drawFrame(now, real) {
   // of the game: one position out of the library, printed and captioned, and
   // the page turning every few seconds. Nothing in it moves — see gallery.js.
   if (gallery && match.state === 'ready') {
+    // In the room the plates are the moves on the page, not the positions.
+    gallery.setMoves(screen === 'gym'
+      ? gymRows().map((e) => ({ from: e.tr.from, to: visualEnds(e.tr)[0], name: e.tr.name }))
+      : null);
     gallery.update(window.__still != null ? 0 : dt);
     const fa = match.f[0], fb = match.f[1];
     renderer.render({

@@ -1134,11 +1134,14 @@ export class HUD {
     for (let i = 0; i < this.GYM_ROWS; i++) {
       const d = list[i];
       const r = L.row(i);
+      // The row whose move is the picture behind the list, ringed in the
+      // caption's colour, so the picture says which name it belongs to.
+      const shown = d && i === opts.gymFeatured;
       roundRect(c, r.x, r.y, r.w, r.h, 6);
-      c.fillStyle = 'rgba(8,11,17,0.62)';
+      c.fillStyle = shown ? 'rgba(20,18,10,0.78)' : 'rgba(8,11,17,0.62)';
       c.fill();
-      c.strokeStyle = 'rgba(255,255,255,0.12)';
-      c.lineWidth = 1;
+      c.strokeStyle = shown ? 'rgba(255,209,102,0.85)' : 'rgba(255,255,255,0.12)';
+      c.lineWidth = shown ? 1.5 : 1;
       c.stroke();
       if (!d) continue;
       c.font = `700 11px ${FONT}`;
