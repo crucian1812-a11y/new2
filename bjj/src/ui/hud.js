@@ -159,7 +159,7 @@ export class HUD {
       c.textAlign = i === 0 ? 'left' : 'right';
       c.font = `600 7px ${FONT}`;
       c.fillStyle = 'rgba(255,255,255,0.28)';
-      c.fillText('STAMINA · POSTURE', i === 0 ? bx : bx + bw, y + 48);
+      c.fillText('ВЫНОСЛИВОСТЬ · ОСАНКА', i === 0 ? bx : bx + bw, y + 48);
     }
   }
 
@@ -885,7 +885,7 @@ export class HUD {
     c.fillText('JIU-JITSU', L.left, L.top - 16);
     c.font = `600 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.55)';
-    c.fillText(`позиционная борьба · твой пояс: ${(opts.mine || 'white').toUpperCase()}${rec}`,
+    c.fillText(`позиционная борьба · твой пояс: ${opts.mineLabel || 'БЕЛЫЙ'}${rec}`,
       L.left, L.top + 4);
 
     // The two doors. The fight is where the ladder is climbed; the room is
@@ -1444,10 +1444,11 @@ export class HUD {
     if (r) {
       c.font = `600 11px ${FONT}`;
       c.fillStyle = 'rgba(255,255,255,0.66)';
-      const line = r.champion && r.won ? `ты прошёл всю лестницу — ${r.beat} belt взят`
-        : r.climbed ? `${r.beat} belt взят  ·  следующий: ${r.next}`
-        : r.won ? `${r.beat} belt взят`
-        : `${r.beat} belt — ещё раз`;
+      const beat = r.beatLabel || r.beat, next = r.nextLabel || r.next;
+      const line = r.champion && r.won ? `ты прошёл всю лестницу — ${beat} пояс взят`
+        : r.climbed ? `${beat} пояс взят  ·  следующий: ${next}`
+        : r.won ? `${beat} пояс взят`
+        : `${beat} пояс — ещё раз`;
       c.fillText(line, this.w / 2, base + 48);
     }
     // And where to go about it. The разбор says what happened; this says what

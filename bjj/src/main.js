@@ -279,7 +279,7 @@ document.addEventListener('webkitfullscreenchange', layout);
 
 // Everything the HUD needs each frame, built once so the draw calls stay short.
 const hudOpts = () => ({
-  level: oppBelt(), mine: myBelt(), progress, result: lastResult, tutorial: tut,
+  level: oppBelt(), mine: myBelt(), mineLabel: BELT_LABEL[myBelt()], progress, result: lastResult, tutorial: tut,
   selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
   records: LADDER.map((b) => (progress.rec && progress.rec[b]) || [0, 0]),
   fullscreen: isFullscreen(), fsHint, walkout: !!walkout,
@@ -523,7 +523,10 @@ function onMatchEvent(e) {
     // asks the menu — and the menu is not put back on the ladder until the
     // press that leaves this card, so a win over the white belt announced
     // «white belt взят · следующий: white».
-    lastResult = { won, beat, next: myBelt(), climbed, champion: progress.champion };
+    lastResult = { won, beat, next: myBelt(), climbed, champion: progress.champion,
+      // And said in Russian. The card printed the ladder's keys, and a player
+      // read «white belt — ещё раз» on the one screen that is all sentence.
+      beatLabel: BELT_LABEL[beat].toLowerCase(), nextLabel: BELT_LABEL[myBelt()].toLowerCase() };
     // What to take next door. The разбор counts what the player kept reaching
     // for; the room puts that on the first row.
     const db = match.debrief();
