@@ -31,11 +31,19 @@ import { quat, qCopy, qEuler, qMul } from '../core/m4.js';
 // Where he stands: this far from the middle of the fight, and this far round
 // from the camera's own bearing. Round from the camera and not from the pair,
 // because the pair spins and the camera cuts, and the one thing he must never
-// be is between the two of them and the lens. A hundred and fifty degrees puts
-// him beyond the fight and off to one side of it, which is where a referee
-// stands and also where he is out of the way.
+// be is between the two of them and the lens.
+//
+// It was a hundred and fifty degrees, "beyond the fight and off to one side of
+// it" — and beyond was the half that showed. That is nearly on the lens's own
+// axis, a metre and a half past the pair, and on the screen it put a quarter
+// of him inside the pair's box on 57% of frames: a dark figure standing
+// between the two heads. A hundred and ten is beside the fight and a little
+// past it, at the edge of the picture rather than in the middle of it — 0.2%
+// (tools/camera-check.mjs), and still in the frame. And on the left of it:
+// the right of the screen is the ring under the player's thumb, and at plus a
+// hundred and ten he stood behind the buttons.
 const DIST = 2.35;
-const AROUND = (150 * Math.PI) / 180;
+const AROUND = (-110 * Math.PI) / 180;
 // How fast he is allowed to walk, in metres a second. This is a ceiling, not a
 // pace: the spring below eases him up to whatever speed the situation needs
 // and clamps him here, so a camera cut is a brisk stroll rather than a sprint.

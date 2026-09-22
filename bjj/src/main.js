@@ -1026,7 +1026,13 @@ function frame(now) {
 // The referee's kit: a dark shirt and dark trousers rather than a kimono, and
 // a black belt because the mesh has one and a referee is not going to be
 // wearing a white one.
-const REF_GI = new Float32Array([0.075, 0.08, 0.10]);
+//
+// Charcoal rather than black. At 0.075 he was the same colour as the black
+// belt's kimono (0.05), and on the ladder's last fight there were three men in
+// black on the mat and one of them was not fighting. A shade that reads as
+// grey next to a black gi and still as dark next to a white one; the belt
+// stays black, so his waist is a line the fighters' is not.
+const REF_GI = new Float32Array([0.2, 0.2, 0.22]);
 const REF_BELT = new Float32Array([0.03, 0.03, 0.04]);
 const REF_SKIN = new Float32Array([0.55, 0.39, 0.30]);
 
