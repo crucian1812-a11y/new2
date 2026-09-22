@@ -989,6 +989,33 @@ export class HUD {
     c.font = `600 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.5)';
     c.fillText('очки — за +N на кольце, если удержать 3 секунды', L.left, s.y + s.h + 16);
+
+    // What the picture behind all this is a picture of.
+    //
+    // A plate without a caption is decoration; with one it is the only place in
+    // the game where somebody who has never trained is told the name of what he
+    // is looking at, six times over, while he decides which belt to fight. The
+    // words come from the pose library through the gallery — see gallery.js —
+    // and they fade with the page, so the caption is never up over the picture
+    // of something else.
+    if (opts.plate) {
+      const alpha = Math.max(0, Math.min(1, opts.plate.page));
+      const right = this.w - Math.max(16, this.w * 0.04);
+      const base = this.h - 22;
+      c.globalAlpha = alpha;
+      c.textAlign = 'right';
+      c.font = `800 ${Math.round(Math.min(19, this.w * 0.028))}px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.94)';
+      c.fillText(opts.plate.caption.toUpperCase(), right, base);
+      const wide = c.measureText(opts.plate.caption.toUpperCase()).width;
+      c.fillStyle = 'rgba(255,209,102,0.85)';
+      c.fillRect(right - wide, base + 7, wide, 1);
+      c.font = `700 9px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.5)';
+      c.fillText('ПОЗИЦИЯ', right, base - 18);
+      c.globalAlpha = 1;
+      c.textAlign = 'left';
+    }
   }
 
   /* ---------------------------------------------------------------- зал */
