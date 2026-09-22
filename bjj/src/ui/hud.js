@@ -47,6 +47,7 @@ export class HUD {
     // A drill has no score, no clock and no advantages. Drawing the scorebug
     // over one would put three empty numbers where the thing being practised
     // is supposed to be.
+    this.coachUp = !!(opts.tutorial && !opts.tutorial.done);
     if (match.state !== 'ready' && !opts.drill && !opts.promo) {
       this._scorebug(match);
       this._positionBar(match);
@@ -163,10 +164,26 @@ export class HUD {
     }
   }
 
+  // Where the words about the fight go: the position's name, its English
+  // name, the three-second count and the bar of an attempt in flight.
+  //
+  // They were a strip across the top middle, CSS pixels 64 to 132, and the
+  // camera puts heads exactly there: measured across twenty matches a head was
+  // under that strip on 71% of frames (tools/camera-check.mjs), and the
+  // screenshots had «ЗАКРЫТЫЙ ГАРД» written across a face. Heads live between
+  // 102 and 217 pixels down; the bottom of the screen has feet and mat and not
+  // one head in 280 thousand frames. So the caption is a lower third, the way a
+  // broadcast puts it — between the feed on the left and the ring on the
+  // right. The first-minute coach owns the bottom middle while it talks, and
+  // for those four steps the caption goes back up where it was.
+  captionLayout() {
+    return this.coachUp ? { y: 76, bar: 108 } : { y: this.h - 62, bar: this.h - 38 };
+  }
+
   _positionBar(m) {
     const c = this.ctx;
     const pose = m.pose();
-    const y = 76;
+    const { y } = this.captionLayout();
     c.textAlign = 'center';
     c.font = `700 13px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.92)';
@@ -366,7 +383,14 @@ export class HUD {
         c.fillStyle = 'rgba(255,255,255,0.82)';
         c.textAlign = 'center';
         const ly = dy > 0 ? y + rr + 12 : y - rr - 8;
+        // A dark halo under the name. The ring sits over the hoardings, and
+        // grey nine-pixel text on a white band printed with the club's name
+        // was two lines of lettering on top of each other.
+        c.shadowColor = 'rgba(0,0,0,0.9)';
+        c.shadowBlur = 4;
         wrapText(c, threat ? 'ЗАЩИТА' : tr.name, x, ly, 100, 10);
+        c.shadowBlur = 0;
+        c.shadowColor = 'transparent';
       }
     }
     c.globalAlpha = m.attempt && !threat ? 0.5 : 1;
@@ -426,7 +450,7 @@ export class HUD {
       // sat in the descenders of the English one and the three-second ring
       // finished a pixel above it; there are four things stacked in this strip
       // and they were sharing forty pixels.
-      const by = 108;
+      const by = this.captionLayout().bar;
       c.fillStyle = 'rgba(6,8,12,0.8)';
       roundRect(c, bx, by, bw, 22, 5);
       c.fill();
