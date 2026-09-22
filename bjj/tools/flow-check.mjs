@@ -144,7 +144,7 @@ function play(level) {
   const dt = 1 / 60;
   const s = {
     frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, swaps: 0, worstBreak: 0, stall: 0, positions: 0,
-    offered: 0, hollow: 0, broke: 0,
+    offered: 0, hollow: 0, broke: 0, dupes: 0, lastTop: null,
   };
 
   // The picture the player is looking at, taken the same way main.js takes it.
@@ -226,6 +226,13 @@ function play(level) {
       if (Object.keys(m.options(0)).length === 0 && !m.attempt) s.blankCool++;
     }
     s.stall = Math.max(s.stall, m.stallTimer);
+    // The feed: the same line twice in a row is one thing said twice, and it
+    // pushes whatever else happened off a feed four lines deep.
+    const ev = m.events;
+    if (ev.length > 1 && ev[0] !== s.lastTop) {
+      s.lastTop = ev[0];
+      if (ev[0].text === ev[1].text && ev[0].kind === ev[1].kind) s.dupes++;
+    }
     if (m.position !== lastPos) { s.positions++; lastPos = m.position; }
   }
   return s;
@@ -235,12 +242,12 @@ function play(level) {
 
 console.log(`${N} matches, seed ${SEED}\n`);
 
-const agg = { frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, swaps: 0, worstBreak: 0, stall: 0, positions: 0, offered: 0, hollow: 0, broke: 0 };
+const agg = { frames: 0, live: 0, blank: 0, blankCool: 0, breaks: 0, swaps: 0, worstBreak: 0, stall: 0, positions: 0, offered: 0, hollow: 0, broke: 0, dupes: 0 };
 const t0 = Date.now();
 for (const level of ['white', 'blue', 'purple', 'black']) {
   for (let i = 0; i < Math.ceil(N / 4); i++) {
     const s = play(level);
-    for (const k of ['frames', 'live', 'blank', 'blankCool', 'breaks', 'swaps', 'positions', 'offered', 'hollow', 'broke']) agg[k] += s[k];
+    for (const k of ['frames', 'live', 'blank', 'blankCool', 'breaks', 'swaps', 'positions', 'offered', 'hollow', 'broke', 'dupes']) agg[k] += s[k];
     agg.worstBreak = Math.max(agg.worstBreak, s.worstBreak);
     agg.stall = Math.max(agg.stall, s.stall);
   }
@@ -312,6 +319,22 @@ check(
   `${((agg.broke / Math.max(1, agg.live)) * 100).toFixed(0)}% of the match he can ` +
   'afford nothing at all'
 );
+check(agg.dupes === 0, 'the feed says a thing once',
+  `${agg.dupes} lines that repeat the one above them; a repeat counts up (×N) instead`);
+// And the case that filled it, which no AI produces: the AI never presses what
+// it cannot pay for, a thumb does it over and over. Six presses on an empty
+// tank are one line that says so six times.
+{
+  const t = new Match([new Fighter('вы'), new Fighter('соперник')], { time: MATCH_TIME });
+  t.start();
+  t.f[0].stamina = 0;
+  const d = Object.keys(t.preview(0))[0];
+  for (let k = 0; k < 6; k++) t.input(0, d);
+  const top = t.events[0];
+  const same = t.events.filter((e) => e.text === top.text).length;
+  check(same === 1 && (top.n || 1) === 6, 'and a thumb on an empty tank is one line',
+    `«${top.text}» ${same} line(s), counted ${top.n || 1}`);
+}
 
 const cov = ringCoverage();
 const thin = cov.rows.filter((r) => r.have < 3);

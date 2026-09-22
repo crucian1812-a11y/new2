@@ -1622,8 +1622,18 @@ export class Match {
     return d;
   }
 
+  // The feed under the fight. A line that repeats the one on top of it counts
+  // up instead of stacking: a thumb pressing a button it cannot pay for filled
+  // the whole feed with «ВЫ: нет сил» six lines deep, which pushed everything
+  // else off it and said one thing six times.
   emit(text, kind) {
-    this.events.unshift({ text, kind, t: 0 });
+    const top = this.events[0];
+    if (top && top.text === text && top.kind === kind) {
+      top.n = (top.n || 1) + 1;
+      top.t = 0;
+      return;
+    }
+    this.events.unshift({ text, kind, t: 0, n: 1 });
     if (this.events.length > 6) this.events.pop();
   }
 }
