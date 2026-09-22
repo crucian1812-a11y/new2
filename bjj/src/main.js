@@ -18,7 +18,8 @@ import { Input } from './core/input.js';
 import { Audio } from './core/audio.js';
 import { HUD, PUNCH_LIFE } from './ui/hud.js';
 import { POSES } from './game/poses.js';
-import { Walkout, TitleIdle } from './game/intro.js';
+import { Walkout } from './game/intro.js';
+import { Gallery } from './game/gallery.js';
 import { clamp, v3 } from './core/m4.js';
 
 const glCanvas = document.getElementById('gl');
@@ -94,47 +95,28 @@ loadFighter(new URL('../assets/fighter-b.bin', import.meta.url).href)
     })
     .catch((e) => console.info('the opponent is the same man in another gi:', e.message));
 
-// The title-screen fighter.
+// The title card.
 //
-// It used to be its own file: a static sculpt in a striking stance, bound
-// rigidly to the root bone, on the reasoning that linear blend skinning
-// degrades with the angle between the bind pose and the pose being played. That
-// was true of the sculpt and it stopped being worth it the moment the match
-// fighter became a properly rigged character — the title card was showing a
-// visibly worse man than the game behind it, which is the wrong way round for
-// the first thing anybody sees.
+// It used to be a fighter standing in the hall: the match mesh held in the
+// game's own standing pose, breathing, shifting his weight, looking around. He
+// was built to answer a real complaint — everything else on that screen moved
+// and he did not — and then a player looked at the answer and named the bigger
+// problem: one man standing in an empty room says nothing about jiu-jitsu. He
+// asked for pictures of the sport instead.
 //
-// So it is the match fighter, held in the game's own standing pose. A stance is
-// a few degrees from the bind pose and skins cleanly — and it is the same mesh
-// on the GPU, not a second upload of the same file: it used to fetch and
-// re-upload fighter.bin a second time for the sake of one static figure.
+// So the screen is a gallery of them: real positions out of the game's own
+// library, posed by the rig that plays them, held dead still, printed in two
+// colours and captioned. See src/game/gallery.js for what is on the plates and
+// why the framing is computed rather than authored, and `poster-check` for the
+// numbers they have to hold.
 //
-// And he is no longer a still of one. He was posed once at load and never
-// touched again, which is the right mesh and the wrong thing to do with it:
-// everything else on that screen moves — the hall lights, the crowd, the clock
-// — and the man in front of them did not breathe. See TitleIdle in
-// src/game/intro.js; `intro-check` measures him under «заставка».
-let hero = null;
-let heroIdle = null;
-if (baked) {
-  heroIdle = new TitleIdle('A').place(0.34, POSES.STANDING.A.root.p[1] + 0.05, 0.1, 26);
-  hero = {
-    skeleton: heroIdle.skel,
-    // How far he reaches from the point the title camera is aimed at, so the
-    // lens can be opened enough to hold him — the same number the match
-    // camera computes for the pair every frame, and for the same reason.
-    //
-    // It was not passed at all while he was a crouched man a metre and a
-    // third tall and the hand-set framing happened to fit him. Standing up
-    // straight he is 1.72 to the crown and the shot cut him off at the shin.
-    spread: 0,
-    gpu: gpuYou,
-    giCol: new Float32Array([0.9, 0.905, 0.885]),
-    beltCol: new Float32Array([0.035, 0.035, 0.04]),
-    skinCol: new Float32Array([0.6, 0.42, 0.31]),
-    flash: 0,
-  };
-}
+// Two men now instead of one, and the second one is not waited for: the
+// opponent's mesh arrives when it arrives, and until it does both figures are
+// the same man in a different gi, the way the walkout has drawn them since it
+// was written. So the first plate is up as soon as the first fighter is, which
+// is the frame the load budget is measured to.
+let gallery = null;
+if (baked) gallery = new Gallery(window.innerWidth / window.innerHeight);
 
 const input = new Input(uiCanvas);
 const hud = new HUD(uiCanvas);
@@ -301,6 +283,11 @@ const hudOpts = () => ({
   selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
   records: LADDER.map((b) => (progress.rec && progress.rec[b]) || [0, 0]),
   fullscreen: isFullscreen(), fsHint, walkout: !!walkout,
+  // What the title card is a picture of, and how far the page has turned. The
+  // caption comes off the pose library through the gallery, so a position that
+  // is renamed is renamed under the picture too.
+  plate: gallery && match.state === 'ready'
+    ? { caption: gallery.caption, page: gallery.page } : null,
   // The room, and whatever is going on in it.
   screen,
   gym: { drilled: skills.drilled, total: DRILL_TOTAL, page: gymPage % gymPages(), pages: gymPages() },
@@ -574,6 +561,9 @@ function layout() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
   renderer.resize(w, h, dpr, state.quality);
   hud.resize(w, h, dpr);
+  // The title card's pictures are framed into the window the menu leaves, and
+  // that window is a shape rather than a size — turning the phone changes it.
+  if (gallery) gallery.resize(w / h);
   document.body.classList.toggle('portrait', h > w);
 }
 window.addEventListener('resize', layout);
@@ -1040,14 +1030,37 @@ const REF_GI = new Float32Array([0.075, 0.08, 0.10]);
 const REF_BELT = new Float32Array([0.03, 0.03, 0.04]);
 const REF_SKIN = new Float32Array([0.55, 0.39, 0.30]);
 
-const HERO_FOCUS = v3(0.34, 0.95, 0.1);
-// How much more fill the title card gets than the hall. Picked by measurement —
-// see look-check's «crushed» on the TITLE row.
-const HERO_FILL = 5.5;
-// Measured once, at the widest he gets. He moves now, but two centimetres of
-// weight shift does not change what the lens has to hold, and a framing that
-// breathed with him would be a camera operator with the shakes.
-if (hero) hero.spread = heroIdle.spread(HERO_FOCUS);
+// How a plate is exposed and printed. Both numbers came off the measurements
+// rather than off a preference, and both cost a sweep of the real frames to
+// find (see the round in PLAN.md).
+//
+// The light: a hall lit for a broadcast camera sits almost entirely below the
+// bottom of the print's ramp, so at the hall's own exposure a plate is an ink
+// rectangle with a white collar in it — the men measured *darker* than the mat
+// behind them on four plates out of six. Skin and cloth have their own dials
+// because they used to want opposite things; here they want the same thing and
+// the cloth wants more of it. 4.4 puts the worst plate 32 levels above the room
+// and leaves 96% of the jacket short of the paper end, so the folds are still
+// in it. 5.6 was measured too and buys four more levels of contrast that no
+// number asks for.
+const PLATE_FILL = [3.4, 4.4];
+// And where the ink ends, where the paper begins, and how hard the line is
+// drawn. The black point is the one that matters: lifting it from 0.09 to 0.28
+// drops the room behind the menu from 70 levels to 17 and lifts every plate's
+// contrast by about twenty, because what it throws away is the empty tatami and
+// what it keeps is the two men on it.
+//
+// The third number is a refuted idea. The line was drawn hard — a gain of
+// seven — on the argument that it is what separates two white jackets in
+// contact. The measurement says it is not: from 7 down to 3 the seam the eye
+// can see does not move (41% against 44% on the worst plate), because what
+// separates the two of them is that they are in different gi, and a harder line
+// costs ten levels of contrast and five of relief on every plate. So the line
+// is soft, and it is there for the folds rather than for the pair.
+//
+// See u_ramp in renderer.js and «бумага», «контраст», «разбор» and «меню» in
+// poster-check.
+const PLATE_RAMP = [0.28, 0.50, 3];
 
 function drawFrame(now, real) {
   const dt = 1 / 60;
@@ -1116,15 +1129,24 @@ function drawFrame(now, real) {
     return;
   }
 
-  // Before the bell, the screen belongs to one fighter and the empty mat.
-  if (hero && match.state === 'ready') {
-    heroIdle.update(window.__still != null ? 0 : dt);
-    camera.update(dt, HERO_FOCUS, 'hero', 0, hero.spread);
+  // Before the bell, the screen is a picture of the sport rather than a frame
+  // of the game: one position out of the library, printed and captioned, and
+  // the page turning every few seconds. Nothing in it moves — see gallery.js.
+  if (gallery && match.state === 'ready') {
+    gallery.update(window.__still != null ? 0 : dt);
+    const fa = match.f[0], fb = match.f[1];
     renderer.render({
-      camera, time: now / 1000, focus: HERO_FOCUS, fighters: [hero],
+      camera: gallery.camera, time: now / 1000, focus: gallery.focus,
+      fighters: [
+        { skeleton: gallery.skel.A, gpu: gpuYou, giCol: fa.giCol, beltCol: fa.beltCol,
+          skinCol: fa.skinCol, flash: 0, gas: 0 },
+        { skeleton: gallery.skel.B, gpu: gpuOpp || gpuYou, giCol: fb.giCol, beltCol: fb.beltCol,
+          skinCol: fb.skinCol, flash: 0, gas: 0 },
+      ],
       score: [match.f[0].points, match.f[1].points], clock: match.time,
-      // A portrait, not a hall frame. See `fill` in renderer.js.
-      fill: HERO_FILL,
+      // A print, not a hall frame. See u_print in renderer.js.
+      fill: window.__fill || PLATE_FILL, print: 1, page: gallery.page,
+      ramp: window.__ramp || PLATE_RAMP,
     });
     hud.draw(match, input, 1 / 60, hudOpts());
     return;
@@ -1241,11 +1263,12 @@ window.__bjj = {
   // how a tool knows whether it is still going — the match state says 'ready'
   // throughout, on purpose.
   beginMatch, walkout: () => walkout,
-  // The man on the title card. He is not the rig — he is his own skeleton with
-  // his own idle — so anything measuring a head has to be told where his is.
-  // look-check judges the title card through this, and it is the frame where a
-  // face is biggest and looked at longest.
-  heroSkel: () => (heroIdle ? heroIdle.skel : null),
+  // The title card's gallery, and a way to put one plate up and hold it. Plates
+  // turn on their own clock, which is right for a screen and useless for a tool
+  // photographing one: `plate` jumps straight to a picture with the page fully
+  // open. poster-check measures each of them through this.
+  gallery: () => gallery,
+  plate: (i) => (gallery ? gallery.at(i) : null),
   // And back to it. A tool that has already looked at a match frame is in a
   // live match, and the title card is a screen rather than a pose — there was
   // no way to ask for it, so look-check measured the standing frame twice and

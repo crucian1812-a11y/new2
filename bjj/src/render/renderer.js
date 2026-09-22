@@ -404,13 +404,15 @@ uniform float u_folds;
 //   x  face relief      y  eyes as their own material
 //   z  the baked AO     w  the identity pass
 uniform vec4 u_tool;
-// How much fill the skin gets over the hall's own: one everywhere but the title
-// card, where a face is the subject rather than a detail of a wide shot. See
-// the fill argument to render(). Its own uniform rather than a fifth slot in
-// u_tool,
+// How much fill a man gets over the hall's own: one everywhere but the title
+// card, where the subject is the fighters and the hall is a background. Skin
+// and cloth separately, because they answer to different measurements — a face
+// in a dark hall goes to a flat pale oval and wants light, and a white kimono
+// under the same light goes to one flat mass with the folds gone. See the fill
+// argument to render(). Its own uniform rather than a fifth slot in u_tool,
 // because u_tool is the switch board the picture tools drive and this is a
 // lighting value the game itself sets.
-uniform float u_fill;
+uniform vec2 u_fill;
 #define u_face u_tool.x
 #define u_eyes u_tool.y
 #define u_ao   u_tool.z
@@ -708,9 +710,9 @@ void main() {
   ao *= mix(1.0, 0.28 + 0.72 * contactAO(v_world), u_contact);
   // Skin gets a finer ramp than cloth. See band(): three steps is what makes a
   // sleeve read as cloth and what makes a face read as a mask.
-  // The portrait fill, on skin and nothing else. See the fill argument to
-  // render().
-  float amb = (m == 0 || m == 6 || m == 7 || m == 8) ? u_fill : 1.0;
+  // The plate's fill: skin and cloth on their own dials. See the fill argument
+  // to render().
+  float amb = (m == 0 || m == 6 || m == 7 || m == 8) ? u_fill.x : u_fill.y;
   vec3 c = shade(v_world, N, albedo, rough, spec, wrap, ao, amb);
   c += vec3(1.0, 0.45, 0.3) * u_flash * 0.6;
   // Belt and braces: anything that is not a sane positive number never reaches
@@ -1096,11 +1098,36 @@ uniform float u_time;
 uniform float u_shake;
 uniform float u_flash;
 uniform float u_desat;
+// The title card, which is a print rather than a broadcast frame. See the note
+// over the print block at the end of main below, and src/game/gallery.js for
+// what it is a print of.
+uniform float u_print;
+uniform float u_page;
+uniform vec2 u_texel;
+// Where the ink ends and the paper begins, as brightnesses of the frame under
+// it, and how hard the line is drawn. All three are measured rather than
+// chosen — see бумага, контраст and разбор in poster-check.
+uniform vec3 u_ramp;
 
 // ACES, the Narkowicz fit. The cheap one; nobody is going to grade this in a
 // suite, and it keeps the lamps from turning into flat white discs.
 vec3 aces(vec3 x) {
   return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
+// The two colours a plate is printed in: the ink of a dark hall and the paper
+// of a white jacket. A night print, deliberately — the menu is white type over
+// this picture, and a poster that went light under it would have taken the
+// title card's own words with it.
+const vec3 INK = vec3(0.036, 0.042, 0.062);
+const vec3 PAPER = vec3(0.962, 0.944, 0.898);
+
+// The tonemapped brightness at a point, for the line. Taken through the same
+// curve the picture is, so the line lands where the eye sees an edge and not
+// where the raw buffer happens to have one.
+float plateLum(vec2 at) {
+  vec3 s = aces(texture(u_src, at).rgb * 1.02);
+  return dot(s, vec3(0.299, 0.587, 0.114));
 }
 
 void main() {
@@ -1125,7 +1152,46 @@ void main() {
   // Broadcast grain. Fixed strength, screen-space, so it does not crawl with
   // the camera the way noise sampled in world space does.
   float g = fract(sin(dot(gl_FragCoord.xy + u_time * 60.0, vec2(12.9898, 78.233))) * 43758.5453);
-  c += (g - 0.5) * 0.022;
+  c += (g - 0.5) * 0.022 * (1.0 - u_print);
+
+  // The print.
+  //
+  // Two colours and a line. Everything in the frame is put on a ramp between
+  // the ink of the page and the paper of it, which throws away the hall and
+  // keeps the thing a poster is about: two white jackets against a dark room.
+  // Then a line is drawn where the picture changes fastest, which is the edge
+  // between the two men and every fold across a back — a duotone without it is
+  // two white shapes touching, and telling them apart is the whole content of
+  // the picture.
+  //
+  // It runs on the frame that is already there rather than on a second render
+  // of anything, so a plate costs exactly what a match frame costs.
+  if (u_print > 0.0) {
+    float pl = dot(c, vec3(0.299, 0.587, 0.114));
+    float k = smoothstep(u_ramp.x, u_ramp.y, pl);
+    vec3 p = mix(INK, PAPER, k);
+    float gx = plateLum(uv + vec2(u_texel.x, 0.0)) - plateLum(uv - vec2(u_texel.x, 0.0));
+    float gy = plateLum(uv + vec2(0.0, u_texel.y)) - plateLum(uv - vec2(0.0, u_texel.y));
+    float e = clamp(sqrt(gx * gx + gy * gy) * u_ramp.z, 0.0, 1.0);
+    p = mix(p, INK * 0.6, e * 0.85);
+    // Paper: a grain that does not crawl, because the picture does not move.
+    float pg = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453);
+    p += (pg - 0.5) * 0.020;
+    // And a print's own vignette, deeper than a camera's.
+    p *= mix(0.42, 1.0, smoothstep(1.45, 0.36, length(uv - 0.5) * 1.5));
+    // The gutter. A poster with type down one side is printed dark under the
+    // type, and this one has a whole menu there: five belt buttons, a ladder
+    // and a start button, all of them white on nothing. The picture is composed
+    // clear of that column anyway (see WINDOW in gallery.js), so what this
+    // darkens is the room behind the words. Measured on «меню» in poster-check,
+    // which asks how much of the picture under the menu is bright enough to
+    // swallow white type.
+    p *= mix(0.30, 1.0, smoothstep(0.03, 0.46, uv.x));
+    c = mix(c, p, u_print);
+  }
+  // The page turn: the whole plate goes to the ground colour and the next one
+  // comes back out of it. See HOLD and TURN in gallery.js.
+  c = mix(INK * 0.75, c, u_page);
 
   o = vec4(c, 1.0);
 }`;
@@ -1494,14 +1560,17 @@ export class Renderer {
     // flat pale mass with the folds gone, which is the thing look-check's
     // `relief` exists to catch. The shadow side of a *face* is what has nothing
     // in it; the cloth was never the complaint.
-    const fill = scene.fill || 1;
+    // Skin and cloth, in that order. A bare number is both of them, which is
+    // what every screen but the title card passes — that is, one.
+    const fill = typeof scene.fill === 'number' ? [scene.fill, scene.fill]
+      : scene.fill || [1, 1];
     const setLights = (pr) => {
       gl.uniform3fv(pr.u.u_camPos, camera.eye);
       gl.uniform3f(pr.u.u_sunDir, sunDir[0], sunDir[1], sunDir[2]);
       gl.uniform3f(pr.u.u_sunCol, 1.92, 1.84, 1.66);
       gl.uniform3f(pr.u.u_skyCol, 0.145, 0.17, 0.235);
       gl.uniform3f(pr.u.u_gndCol, 0.036, 0.04, 0.052);
-      if (pr.u.u_fill) gl.uniform1f(pr.u.u_fill, fill);
+      if (pr.u.u_fill) gl.uniform2f(pr.u.u_fill, fill[0], fill[1]);
       gl.uniform3f(pr.u.u_rimA, 0.34, 0.46, 0.72);
       gl.uniform3f(pr.u.u_rimB, 0.5, 0.38, 0.28);
       gl.uniformMatrix4fv(pr.u.u_lightVP, false, this.lightVP);
@@ -1670,6 +1739,13 @@ export class Renderer {
     gl.uniform1f(this.progPost.u.u_shake, this.shake);
     gl.uniform1f(this.progPost.u.u_flash, this.flash);
     gl.uniform1f(this.progPost.u.u_desat, this.desat);
+    // The title card's print, and the page it is printed on. Both default to a
+    // broadcast frame, so every screen but the poster is untouched.
+    gl.uniform1f(this.progPost.u.u_print, scene.print || 0);
+    gl.uniform1f(this.progPost.u.u_page, scene.page != null ? scene.page : 1);
+    const ramp = scene.ramp || [0.09, 0.50, 5];
+    gl.uniform3f(this.progPost.u.u_ramp, ramp[0], ramp[1], ramp[2]);
+    gl.uniform2f(this.progPost.u.u_texel, 1 / this.sceneW, 1 / this.sceneH);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     // Tooling hook: a frame can only be read back before it is presented, so

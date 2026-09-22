@@ -39,14 +39,14 @@ if (dump) mkdirSync(dump, { recursive: true });
 
 // The frames worth judging: the position the match lives in most, the two
 // tangles that read worst, and a standing frame for the close-up materials.
-const SHOTS = ['MOUNT', 'SIDE_CONTROL', 'CLOSED_GUARD', 'BACK', 'STANDING', 'TITLE'];
-// The title card is a frame the game ships and the first one anybody sees, and
-// until now nothing measured it. It is also the frame where a face is biggest —
-// the head is a couple of hundred pixels across against the forty a match frame
-// gives it — so every number about a face is worth more here than anywhere
-// else. It is not a pose: the man on it is his own skeleton with his own idle,
-// so the head has to be found through `heroSkel` rather than through the rig.
-const TITLE = 'TITLE';
+const SHOTS = ['MOUNT', 'SIDE_CONTROL', 'CLOSED_GUARD', 'BACK', 'STANDING'];
+// The title card used to be the sixth of these, and it was the frame where a
+// face was biggest: a man stood on it two metres from the lens while everything
+// else here is a wide shot of a tangle. It is not a portrait any more — it is
+// six printed pictures of positions, graded through a two-colour ramp that
+// crushes exactly the tones this file measures — so it is judged by
+// tools/poster-check.mjs on what a picture is judged on, and this file is back
+// to being about what the shading does to a fight.
 // Two brightness values within this of each other, either side of the line
 // where two bodies meet, are the same value to an eye at arm's length.
 const SAME = 6;
@@ -79,17 +79,8 @@ async function look(pose) {
   return page.evaluate(async (p) => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const m = window.__bjj.match();
-    const title = p === 'TITLE';
-    if (title) {
-      // Back to the screen, not to a pose. Without this the tool is still in
-      // whatever match the last shot started and measures the standing frame a
-      // second time — which is exactly what the first run of this did, right
-      // down to reporting the same pixel count.
-      window.__bjj.toTitle();
-    } else {
-      if (m.state === 'ready') m.start();
-      window.__bjj.setPose(p);
-    }
+    if (m.state === 'ready') m.start();
+    window.__bjj.setPose(p);
     // The rig has to settle: grips are solved after the blend and the pose
     // arrives over a few frames.
     await wait(700);
@@ -390,7 +381,7 @@ async function look(pose) {
       return [((cx / cw) * 0.5 + 0.5) * w, ((cy / cw) * 0.5 + 0.5) * h];
     };
     const headLook = (role, val, mask) => {
-      const sk = title ? window.__bjj.heroSkel() : window.__bjj.rig.skel[role];
+      const sk = window.__bjj.rig.skel[role];
       if (!sk) return null;
       const mm = sk.world[window.__bjj.BONE_INDEX.head];
       const c = project(mm[12], mm[13], mm[14]);
@@ -486,9 +477,7 @@ async function look(pose) {
       // first man in the render list, and whether that is the player's mesh or
       // the opponent's depends on who is on top.
       wears: { A: m.roleOf.indexOf('A') === 0 ? 'you' : 'opp', B: m.roleOf.indexOf('B') === 0 ? 'you' : 'opp' },
-      heads: title
-        ? { A: headLook('A', 1, inner), B: null }
-        : { A: headLook('A', 1, inner), B: headLook('B', 2, innerB) },
+      heads: { A: headLook('A', 1, inner), B: headLook('B', 2, innerB) },
     };
     if (window.__dump) { out.shaded = Array.from(shaded); out.id = Array.from(id); }
     return out;

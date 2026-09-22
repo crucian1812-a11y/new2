@@ -23,16 +23,30 @@
 // athlete rather than as a bag, and it is the one this found at 0.97 — a man
 // wider at the waist than at the shoulders.
 //
-// Measured in the title card's own pose, because a portrait is where a
-// silhouette is looked at, and with the arms down where a standing man's are.
+// Measured on a man standing still, in the stance below.
+//
+// That stance used to be the title card's: a fighter stood there and this
+// measured him where he was looked at. The title card is a gallery of positions
+// now (see gallery.js) and nobody stands on it any more, so the stance moved in
+// here — it is the ruler's own, the way a tailor stands a man up to measure
+// him, and it is the only thing in the project that uses it.
+//
+// The bind pose was tried instead, on the argument that it is the shape the
+// asset is actually built in and the space the reshaper solves in. It is a
+// different ruler and it reads differently — the taper comes out 1.60 on one
+// fighter and 1.25 on the other, against 1.34 and 1.38 here — because a bind
+// pose has the arms out and the spine dead straight, and a breadth across a
+// straight spine is not the breadth a table of standing men is written about.
+// Changing rulers mid-round would also have meant re-solving the reshape
+// against the new one, which is a re-bake of both characters for no gain in
+// truth.
 //
 //   node bjj/tools/figure-check.mjs          both fighters, the table
 //   node bjj/tools/figure-check.mjs --bands  every band, not just the four
 import { readFileSync } from 'node:fs';
-import { Skeleton, BONE_INDEX } from '../src/render/skeleton.js';
+import { Skeleton, BONE_INDEX, poseToQuats, HAND_REST, TIP_REST } from '../src/render/skeleton.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { skinLite, skinInto } from './skin-lite.mjs';
-import { TitleIdle } from '../src/game/intro.js';
 
 const BANDS = process.argv.includes('--bands');
 
@@ -49,6 +63,25 @@ const MAN = {
 };
 // What the eye reads, and the reason this file exists.
 const TAPER = MAN.shoulderW / MAN.waistW;   // 1.44
+
+// The stance a man is measured in. Weight on his right, the free knee soft, the
+// shoulder line counter to the hips — a person standing, rather than a figure
+// squared up, because a squared-up figure is a mirror of itself and no standing
+// human is. What it is *not* is a fighting stance: a man bent forward at the
+// hips reads a chest breadth as a waist.
+const STAND_STILL = {
+  root: { p: [0, 0.961, 0], r: [0, 0, 0] },
+  j: {
+    fingL: [-HAND_REST, 0, 0], handLTip: [-TIP_REST, 0, 0],
+    fingR: [-HAND_REST, 0, 0], handRTip: [-TIP_REST, 0, 0],
+    hips: [-4, 5, -6],
+    spine: [6, -3, 4], chest: [3, -4, 3], neck: [-5, 3, -1], head: [3, 7, 2],
+    clavL: [0, 0, 8], armL: [-17, 11, -13], foreL: [-38, 0, 0], handL: [-9, 2, 0],
+    clavR: [-2, 0, -6], armR: [-9, -8, 10], foreR: [-23, 0, 0], handR: [-5, -2, 0],
+    thighL: [-9, 9, 7], shinL: [16, 0, 0], footL: [-7, 0, 0],
+    thighR: [-3, -4, -3], shinR: [5, 0, 0], footR: [-2, 0, 0],
+  },
+};
 
 // Which bones make a torso. Everything else on a standing man — the arms
 // hanging beside him, the legs — is silhouette and not trunk.
@@ -79,11 +112,14 @@ for (const file of ['fighter.bin', 'fighter-b.bin']) {
     isTorso[i] = w > 0.6 ? 1 : 0;
   }
 
-  // The title card's own pose and its own idle, frozen at the top of it.
-  const idle = new TitleIdle('A');
-  idle.place(0, 0.961, 0, 0);
-  idle.update(0);
-  const sk = idle.skel;
+  // Stood up, on the ruler's own stance.
+  const sk = new Skeleton();
+  poseToQuats(sk.local, STAND_STILL);
+  sk.rootPos[0] = 0;
+  sk.rootPos[1] = STAND_STILL.root.p[1];
+  sk.rootPos[2] = 0;
+  sk.pose();
+  sk.finishSkin();
 
   const xyz = new Float64Array(n * 3);
   const who = new Uint16Array(n);

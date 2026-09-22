@@ -28,6 +28,13 @@ const steps = [
   // the same four things anyway — the mat, each other, the supporting foot, and
   // the seam into the first frame of the fight.
   ['the walk on', 'intro-check.mjs', []],
+  // And the screen in front of both of them: six printed pictures of real
+  // positions. This half needs no browser — it asks whether each picture is
+  // inside the window the menu leaves, on every shape of glass the game runs
+  // on, whether the camera is standing in a wall or inside a man, and whether
+  // the plate holds still. The other half, which measures the print itself,
+  // rides with the browser tools below.
+  ['the title card', 'poster-check.mjs', []],
   // And whether every arc in that file is earning its place. An arc that
   // changes nothing is invisible to blend-check — a blend it does not move
   // is a blend that reads fine — and it is not free: STANDING>STANDING_WORK
@@ -97,6 +104,7 @@ if (withBrowser) {
   steps.push(['sound', 'sound-check.mjs', []]);
   steps.push(['the cost of a frame', 'frame-check.mjs', []]);
   steps.push(['how it reads', 'look-check.mjs', []]);
+  steps.push(['the print', 'poster-check.mjs', ['--pixels']]);
   steps.push(['a tap on a button', 'tap-check.mjs', []]);
 }
 // Not in the battery, on purpose, and both are worth running by hand:
