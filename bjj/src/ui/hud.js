@@ -244,6 +244,12 @@ export class HUD {
     // second is the difference between "not yet" and a ring that has gone out.
     const shown = m.preview(0);
     const cool = m.cool[0] > 0 && !m.attempt;
+    // And the third reason a button is dim: he cannot pay for any of them.
+    // Cooldown and an empty tank looked the same — four dim buttons — so the
+    // thumb kept pressing, and the only answer was a line in the corner of the
+    // screen, «нет сил», stacked six deep. flow-check puts it at 5% of a match.
+    const broke = m.state === 'live' && !m.attempt && !cool
+      && Object.keys(shown).length > 0 && Object.keys(opts).length === 0;
 
     // Under a threat the ring is the defence, because that is what a press
     // does.
@@ -382,9 +388,16 @@ export class HUD {
     c.lineWidth = 1;
     c.stroke();
     c.font = `600 8px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.6)';
     c.textAlign = 'center';
-    c.fillText('ЗАХВАТ', cx, cy);
+    if (broke) {
+      // Where the thumb already is, and pulsing, because it is a state rather
+      // than an event: it lasts until he has breathed.
+      c.fillStyle = `rgba(255,159,67,${0.65 + 0.35 * Math.sin(this.pulse * 6)})`;
+      c.fillText('НЕТ СИЛ', cx, cy);
+    } else {
+      c.fillStyle = 'rgba(255,255,255,0.6)';
+      c.fillText('ЗАХВАТ', cx, cy);
+    }
     if (m.gripAdv[0] > 0.02) {
       c.beginPath();
       c.arc(cx, cy, R * 0.35, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * m.gripAdv[0]);
@@ -743,7 +756,7 @@ export class HUD {
       c.globalAlpha = a;
       c.font = `600 11px ${FONT}`;
       c.fillStyle = COLORS[e.kind] || 'rgba(255,255,255,0.75)';
-      c.fillText(e.text, 16, y);
+      c.fillText(e.n > 1 ? `${e.text} ×${e.n}` : e.text, 16, y);
       y -= 16;
     }
     c.globalAlpha = 1;
