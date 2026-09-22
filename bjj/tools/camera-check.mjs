@@ -41,6 +41,7 @@ import { Camera } from '../src/game/camera.js';
 import { BONES, BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { Referee } from '../src/game/referee.js';
+import { HUD } from '../src/ui/hud.js';
 import { POSES } from '../src/game/poses.js';
 import { m4, m4mul, m4perspective, m4lookAt } from '../src/core/m4.js';
 import { seedRandom } from '../src/game/rng.js';
@@ -72,6 +73,15 @@ const NEAR = 0.08;   // the renderer's own near plane
 // counts as standing in the fight. A quarter: an elbow or a shoulder behind a
 // knee is a man beside the fight; a third of him is a man in it.
 const REF_OVER = 0.25;
+// The HUD's strip of words about the fight, in CSS pixels on an 844-wide
+// phone, asked of the HUD itself so the two cannot drift apart: from the top of
+// the position's name to the bottom of the attempt bar. See captionLayout.
+const HUD_STRIP = (() => {
+  const hud = new HUD({ getContext: () => ({}) });
+  hud.w = 844; hud.h = 844 / ASPECT;
+  const L = hud.captionLayout();
+  return [L.y - 10, L.bar + 22];
+})();
 
 let fail = 0;
 const check = (ok, msg, extra = '') => {
@@ -244,6 +254,30 @@ function play(level, s) {
       if (rx1 > -1 && rx0 < 1 && ry1 > -1 && ry0 < 1) s.refSeen++;
     }
 
+    // And the words over the fight. The HUD stacks the position's name, its
+    // English name and the bar of an attempt in flight in one strip, 220
+    // pixels wide in the middle of the screen. It used to be across the top,
+    // where the camera puts heads — 71% of frames. A head counts when its disc
+    // (a tenth of a metre, projected) touches the strip.
+    {
+      const W = 844, H = 844 / ASPECT;
+      const strip = { x0: W / 2 - 110, x1: W / 2 + 110, y0: HUD_STRIP[0], y1: HUD_STRIP[1] };
+      let under = false;
+      for (const role of ['A', 'B']) {
+        const w = rig.skel[role].world[BONE_INDEX.head];
+        const x = w[12], y = w[13], z = w[14];
+        const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+        if (cw <= NEAR) continue;
+        const px = ((vp[0] * x + vp[4] * y + vp[8] * z + vp[12]) / cw * 0.5 + 0.5) * W;
+        const py = (0.5 - (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / cw * 0.5) * H;
+        const r = (0.1 / cw) * proj[5] * 0.5 * H;
+        const nx = Math.max(strip.x0, Math.min(strip.x1, px));
+        const ny = Math.max(strip.y0, Math.min(strip.y1, py));
+        if (Math.hypot(px - nx, py - ny) < r) under = true;
+      }
+      if (under) s.headUnder++;
+    }
+
     // Fill: how much of the frame's height the pair takes. 2 is the whole of
     // normalised device space, so this is a fraction of the picture.
     const fill = (maxY - minY) / 2;
@@ -266,7 +300,7 @@ function play(level, s) {
 }
 
 const s = {
-  frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', refNear: 9, refOver: 0, refSeen: 0, refOff: 9, refOffAt: '', halfLens: 0, walk: 0, refCover: 0, cropped: 0, headOut: 0, tall: 0, small: 0,
+  frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', refNear: 9, refOver: 0, refSeen: 0, headUnder: 0, refOff: 9, refOffAt: '', halfLens: 0, walk: 0, refCover: 0, cropped: 0, headOut: 0, tall: 0, small: 0,
   fills: [], byBone: {}, modes: {}, worstFill: 0, worstAt: '',
 };
 const t0 = Date.now();
@@ -316,6 +350,8 @@ check(+pct(s.refIn) < 1, 'the referee keeps out of the shot',
 check(+pct(s.refOver) < 15, 'nor behind the fight, in the middle of the picture',
   `a quarter of him inside the pair's box on ${pct(s.refOver)}% of frames; ` +
   `some of him is in the picture on ${pct(s.refSeen)}%`);
+check(+pct(s.headUnder) < 5, 'and the words over the fight are not written on a head',
+  `a head is under the HUD's strip on ${pct(s.headUnder)}% of frames`);
 check(+pct(s.inside) < 0.5, 'and the camera is never standing inside one',
   `${pct(s.inside)}% of frames, ${s.inside} of ${s.frames}`);
 check(pct(s.headOut) < 5, 'both heads are in the picture',
