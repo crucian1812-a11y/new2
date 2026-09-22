@@ -1089,7 +1089,10 @@ function drawFrame(now, real) {
   const dt = real ?? 1 / 60;
   // Here rather than in the sim, so he is also on the mat when the sim is
   // frozen for a photograph — which is the state half the art tooling runs in.
-  referee.update(dt, match.state, POSES[match.position].ground, match.origin, camera.orbit);
+  // Held with the clock when a tool pins it, like the camera below: a man
+  // walking across the back of two grabs that were meant to differ in one
+  // switch is a difference in something else.
+  referee.update(window.__still != null ? 0 : dt, match.state, POSES[match.position].ground, match.origin, camera.orbit);
 
   // The walk on. Two men, the referee and the empty mat, and no HUD over any of
   // it — the only thing on this screen is what is happening on it.
