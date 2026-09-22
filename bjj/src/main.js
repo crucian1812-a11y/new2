@@ -1040,7 +1040,10 @@ function frame(now) {
 // black on the mat and one of them was not fighting. A shade that reads as
 // grey next to a black gi and still as dark next to a white one; the belt
 // stays black, so his waist is a line the fighters' is not.
-const REF_GI = new Float32Array([0.2, 0.2, 0.22]);
+// 0.26 rather than the 0.2 it first was: once the hall behind the stands was
+// given its haze, the black kimono's pixels lifted with the room's light and
+// the two sat on gi-check's line (ΔE 11-12 against 12); at 0.26 it is 19.
+const REF_GI = new Float32Array([0.26, 0.26, 0.28]);
 const REF_BELT = new Float32Array([0.03, 0.03, 0.04]);
 const REF_SKIN = new Float32Array([0.55, 0.39, 0.30]);
 

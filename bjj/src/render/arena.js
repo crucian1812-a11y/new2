@@ -137,6 +137,25 @@ export function buildArena(rand = mulberry(20260826)) {
     }
   }
 
+  // The hall itself: four walls and a roof behind the stands.
+  //
+  // There was nothing there. The stands and the crowd are dark by design —
+  // the mat is the only lit thing in a televised hall — but behind them was
+  // the cleared background, (0.012, 0.014, 0.02), so the crowd was black on
+  // black and its catchlights floated on nothing: the top third of every frame
+  // read as a night sky with stars in it. 47% of it measured nearly black
+  // (tools/hall-check.mjs). A room has walls, and spill and haze make them
+  // the faint lighter ground the crowd is silhouetted against. Material 11,
+  // inside the arena's one mesh: no draw call, forty triangles.
+  {
+    const R = 22, H = 16;
+    for (const side of [-1, 1]) {
+      s.box(0, H / 2, side * R, R * 2, H, 0.4, 11);
+      s.box(side * R, H / 2, 0, 0.4, H, R * 2, 11);
+    }
+    s.box(0, H, 0, R * 2, 0.4, R * 2, 11, false);
+  }
+
   // The jumbotron. Lifted from the generated arena, which had little else in
   // it worth having: a cube with a screen on each face, hung from the truss
   // and showing the same numbers the broadcast scorebug does. It costs twelve

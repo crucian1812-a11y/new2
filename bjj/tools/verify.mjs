@@ -108,6 +108,7 @@ if (withBrowser) {
   steps.push(['a tap on a button', 'tap-check.mjs', []]);
   steps.push(['a man against the mat', 'gi-check.mjs', []]);
   steps.push(['one language', 'words-check.mjs', []]);
+  steps.push(['a hall above the boards', 'hall-check.mjs', []]);
 }
 // Not in the battery, on purpose, and both are worth running by hand:
 //
