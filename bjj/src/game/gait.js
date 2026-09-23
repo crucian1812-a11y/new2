@@ -132,12 +132,31 @@ export class Gait {
     this.landed = false;
   }
 
-  // Where the sole of a foot is when it stands square under the hips.
+  // Where the sole of a foot stands when the walker is still: square under the
+  // hips, or wherever his pose puts it when he has one — a referee in his
+  // crouch stands wider than a man walking on.
   _home(out, i, x, z, yaw) {
+    if (this.homes) {
+      out[0] = x + this.homes[i][0];
+      out[1] = z + this.homes[i][1];
+      return out;
+    }
     const side = LEGS[i].side * this.cfg.HIP_W;
     out[0] = x + Math.cos(yaw) * side;
     out[1] = z - Math.sin(yaw) * side;
     return out;
+  }
+
+  // Read the pose's own feet, relative to where the pelvis is, from a skeleton
+  // that has just been posed. Optional: a walker without a stance of his own
+  // stands with his feet under his hips.
+  stance(sk, x, z) {
+    if (!this.homes) this.homes = [[0, 0], [0, 0]];
+    for (let i = 0; i < 2; i++) {
+      const m = sk.world[BONE_INDEX[LEGS[i].ft]];
+      this.homes[i][0] = m[12] - x;
+      this.homes[i][1] = m[14] - z;
+    }
   }
 
   // Advance the cycle. `x, z` is where the pelvis is going this frame and
@@ -147,13 +166,20 @@ export class Gait {
     const c = this.cfg;
     this.landed = false;
     if (!this.last) this.last = [x, z];
-    const vx = dt > 0 ? (x - this.last[0]) / dt : 0;
-    const vz = dt > 0 ? (z - this.last[1]) / dt : 0;
+    const rvx = dt > 0 ? (x - this.last[0]) / dt : 0;
+    const rvz = dt > 0 ? (z - this.last[1]) / dt : 0;
     this.last[0] = x; this.last[1] = z;
+    // Smoothed a little, the velocity as well as the speed: read off one
+    // frame's travel it is noisy, the step length hangs off it, and a walker
+    // who is stopped dead (the referee's spring lets go at once) would move the
+    // landing point of a foot in the air by his whole speed in one frame.
+    const k = Math.min(1, dt * 10);
+    if (!this.vel) this.vel = [0, 0];
+    this.vel[0] += (rvx - this.vel[0]) * k;
+    this.vel[1] += (rvz - this.vel[1]) * k;
+    const vx = this.vel[0], vz = this.vel[1];
     const v = Math.hypot(vx, vz);
-    // Smoothed a little: speed read off a frame's travel is noisy, and the
-    // step length hangs off it.
-    this.speed += (v - this.speed) * Math.min(1, dt * 10);
+    this.speed += (Math.hypot(rvx, rvz) - this.speed) * k;
     const sp = this.speed;
     const amp = Math.min(1, sp / c.FULL);
     const stepLen = Math.min(c.STEP_MAX, c.STEP0 + c.STEP_V * sp);
@@ -171,6 +197,10 @@ export class Gait {
     else if (swinging) this.phase += dt / Math.max(0.5, this._lastCycle || 1.1);
     if (moving) this._lastCycle = Math.min(stride / Math.max(0.05, sp), 1 / c.RATE_MIN);
     const dirx = v > 1e-4 ? vx / v : Math.sin(yaw), dirz = v > 1e-4 ? vz / v : Math.cos(yaw);
+    // How much of this is walking the way he faces. The roll of the foot is a
+    // forward walk's; a man side-stepping sets his feet down flat.
+    const along = Math.abs(dirx * Math.sin(yaw) + dirz * Math.cos(yaw));
+    const roll = amp * along;
 
     for (let i = 0; i < 2; i++) {
       const f = this.feet[i];
@@ -189,7 +219,7 @@ export class Gait {
           continue;
         }
       }
-      if (inAir && !f.air && (moving || phWas < c.DUTY)) {
+      if (inAir && !f.air && !this.feet[1 - i].air && (moving || phWas < c.DUTY)) {
         // Off the mat: from where it stands to where it will land — ahead of
         // where the hips will be when it does, and out to its own side.
         f.air = true;
@@ -199,7 +229,13 @@ export class Gait {
         // On the cycle while walking — and when the cycle has already put
         // this foot back on the ground, it is on the ground. Stopped, the
         // step in the air finishes at its own pace, under the hips.
-        f.u = moving ? (inAir ? (ph - c.DUTY) / (1 - c.DUTY) : 1) : Math.min(1, f.u + dt / Math.max(0.2, T));
+        //
+        // Never faster than a quick step and never slower than a slow one,
+        // though: a foot that lifted late (the other was still up) catches
+        // the cycle up rather than jumping to where it should be.
+        const Ts = Math.max(0.2, T);
+        const onCycle = moving ? (inAir ? (ph - c.DUTY) / (1 - c.DUTY) : 1) : f.u + dt / Ts;
+        f.u = Math.min(1, Math.max(f.u + dt / (Ts * 1.8), Math.min(onCycle, f.u + dt / (Ts * 0.55))));
         // The landing point, re-aimed every frame so a walker who changes
         // pace or direction mid-step still lands under himself.
         const left = (1 - f.u) * T;
@@ -215,10 +251,10 @@ export class Gait {
         f.g[1] = f.from[1] + (f.to[1] - f.from[1]) * s;
         f.lift = c.LIFT * (0.35 + 0.65 * amp) * Math.sin(Math.PI * Math.pow(f.u, 0.8));
         // Heel up at the start, square through the middle, toes up to land.
-        const off = -c.TOE_OFF * amp * (1 - smooth(f.u / 0.45));
-        const on = c.HEEL_STRIKE * amp * smooth((f.u - 0.55) / 0.45);
+        const off = -c.TOE_OFF * roll * (1 - smooth(f.u / 0.45));
+        const on = c.HEEL_STRIKE * roll * smooth((f.u - 0.55) / 0.45);
         f.pitch = off + on;
-        if (f.u >= 1 || (moving && !inAir)) {
+        if (f.u >= 1) {
           f.air = false; f.u = 0; f.lift = 0;
           this.landed = true;
         }
@@ -227,8 +263,8 @@ export class Gait {
         // Flat for most of the stance: rolled down off the heel at the start
         // of it and up onto the ball at the end.
         const us = ph / c.DUTY;
-        const heel = moving ? c.HEEL_STRIKE * amp * (1 - smooth(us / 0.14)) : 0;
-        const toe = moving ? -c.TOE_OFF * amp * smooth((us - 0.6) / 0.4) : 0;
+        const heel = moving ? c.HEEL_STRIKE * roll * (1 - smooth(us / 0.14)) : 0;
+        const toe = moving ? -c.TOE_OFF * roll * smooth((us - 0.6) / 0.4) : 0;
         f.pitch = heel + toe;
       }
     }
@@ -297,17 +333,23 @@ export class Gait {
       const L = LEGS[i];
       solveTwoBone(sk, L.th, L.sh, L.ft, this.ankle[i], pole, w, true);
       // And the foot itself turned to its roll, rather than riding the shin.
-      const fi = BONE_INDEX[L.ft];
       qEuler(_yq, 0, yaw / DEG, 0);
       qEuler(_pq, -this.feet[i].pitch, 0, 0);
       qMul(_wq, _yq, _pq);
-      quatFromMat(_inv, sk.world[sk.parent[fi]]);
-      _inv[0] = -_inv[0]; _inv[1] = -_inv[1]; _inv[2] = -_inv[2];
-      qMul(_loc, _inv, _wq);
-      qSlerp(sk.local[fi], sk.local[fi], _loc, w);
-      sk.poseFrom(fi);
+      setWorldRot(sk, BONE_INDEX[L.ft], _wq, w);
     }
   }
+}
+
+// Turn a bone to a rotation in world space, whatever its parent is doing — the
+// foot after the leg has been solved under it. `weight` eases from the bone's
+// own rotation. The bone's children are re-posed.
+export function setWorldRot(sk, i, q, weight = 1) {
+  quatFromMat(_inv, sk.world[sk.parent[i]]);
+  _inv[0] = -_inv[0]; _inv[1] = -_inv[1]; _inv[2] = -_inv[2];
+  qMul(_loc, _inv, q);
+  qSlerp(sk.local[i], sk.local[i], _loc, weight);
+  sk.poseFrom(i);
 }
 
 // How high the pelvis rides over a walking man's feet: the leg nearly

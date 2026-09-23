@@ -24,7 +24,12 @@ import {
   Skeleton, poseToQuats, blendQuats, BONE_COUNT, BONE_INDEX,
   HAND_REST, TIP_REST,
 } from '../render/skeleton.js';
-import { makeFeet, plantFeet, groundFeet, WALK } from './step.js';
+import { groundFeet } from './step.js';
+import { Gait, GAIT } from './gait.js';
+
+// Where the tatami is, the height every judge reads it at.
+const MAT_Y = 0.05;
+const GAIT_BOB = GAIT.BOB;
 import { v3, v3set as _v3set } from '../core/m4.js';
 import { quat, qCopy, qEuler, qMul } from '../core/m4.js';
 
@@ -169,10 +174,13 @@ export class Referee {
     this._rootFrom = P.stand.root.p[1];
     this._q = Array.from({ length: BONE_COUNT }, () => quat());
     // He walks, for the same reason the fighters do: a man crossing a mat with
-    // his soles glued to it is the most visible wrong thing in a frame. The
-    // planner is in step.js, shared with the walkout — see the note there about
-    // why the pair rig keeps its own.
-    this.feet = makeFeet();
+    // his soles glued to it is the most visible wrong thing in a frame. It was
+    // step.js's planner, a foot picked up once the pose had dragged it far
+    // enough: the sole rode the shin (7° off flat on a planted foot in the
+    // middle, 15° at the ninetieth percentile) and nothing above the knees
+    // knew he was walking. It is the walkout's gait cycle now (gait.js), with
+    // his own stance as where his feet go when he stops.
+    this.gait = new Gait();
     // Which way his knees bend. See step.js: without it the solver keeps the
     // knee wherever the pose left it, and a leg swinging through the vertical
     // has no opinion worth keeping.
@@ -218,7 +226,7 @@ export class Referee {
   //
   // Only ever lifts, and only from below, so nothing here can push him into a
   // pose he was not in.
-  _ground() { groundFeet(this.skel); }
+  _ground() { return groundFeet(this.skel); }
 
   update(dt, state, ground, origin, camBearing) {
     this.t += dt;
@@ -344,13 +352,45 @@ export class Referee {
     addEuler(this.skel, 'neck', -br * 0.5, 0, 0);
 
     const ph = this._rootFrom + (P[this.pose].root.p[1] - this._rootFrom) * this.blend;
+    const yawDeg = (this.yaw * 180) / Math.PI;
     this.skel.rootPos[0] = this.x;
     this.skel.rootPos[1] = ph;
     this.skel.rootPos[2] = this.z;
-    qEuler(this.skel.rootRot, 0, (this.yaw * 180) / Math.PI, 0);
+    qEuler(this.skel.rootRot, 0, yawDeg, 0);
     this.skel.pose();
+    // On the mat first, as the pose stands him (see _ground), so the walk
+    // starts from his own height rather than bending his knees to reach it.
+    const lift = this._ground() || 0;
+    const ph2 = ph + lift;
+    // Where his pose puts his feet, read before anything moves them: that is
+    // where they go when he stops.
+    const g = this.gait;
+    g.stance(this.skel, this.x, this.z);
+    g.step(dt, this.x, this.z, this.yaw);
+    const o = g.out;
+    if (o.amp > 0.005) {
+      // The walk above the hips, the walkout's: pelvis turned to the forward
+      // leg and dropped on the swinging side, trunk and head turned back
+      // against it, arms swinging against the legs — the arms only when they
+      // are hanging, not in the middle of a call.
+      addEuler(this.skel, 'spine', 0, o.turn * 0.8, -o.list * 0.5);
+      addEuler(this.skel, 'chest', 0, o.turn * 0.7, -o.list * 0.3);
+      addEuler(this.skel, 'neck', 0, -o.turn * 0.3, -o.list * 0.2);
+      addEuler(this.skel, 'head', 0, -o.turn * 0.2, 0);
+      const arms = this.pose === 'stand' ? 1 : 0;
+      addEuler(this.skel, 'armL', o.arm * arms, 0, 0);
+      addEuler(this.skel, 'armR', -o.arm * arms, 0, 0);
+      addEuler(this.skel, 'foreL', -o.elbowL * arms, 0, 0);
+      addEuler(this.skel, 'foreR', -o.elbowR * arms, 0, 0);
+      const c = Math.cos(this.yaw), sn = Math.sin(this.yaw);
+      this.skel.rootPos[0] = this.x + c * o.sway;
+      this.skel.rootPos[1] = ph2 + o.bob - 0.5 * GAIT_BOB * o.amp;
+      this.skel.rootPos[2] = this.z - sn * o.sway;
+      qEuler(this.skel.rootRot, 0, yawDeg - o.turn, o.list);
+      this.skel.pose();
+    }
     _v3set(this._fwd, Math.sin(this.yaw), 0.25, Math.cos(this.yaw));
-    plantFeet(this.skel, this.feet, dt, this.vx, this.vz, WALK, this._fwd);
+    g.legs(this.skel, MAT_Y, this.yaw, this._fwd, 1);
     this._ground();
     this.skel.finishSkin();
   }
