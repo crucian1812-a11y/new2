@@ -51,6 +51,17 @@ export class HUD {
     // over one would put three empty numbers where the thing being practised
     // is supposed to be.
     this.coachUp = !!(opts.tutorial && !opts.tutorial.done);
+    // The replay has the screen to itself: no scorebug, no ring, no feed —
+    // only the bars that say this is not live, and how long it has left.
+    if (opts.replay && opts.replay.playing) {
+      this._replay(opts.replay);
+      this._fullscreen(opts);
+      if (opts.veil && opts.veil.v > 0.002) {
+        c.fillStyle = `rgba(2,4,8,${Math.min(1, opts.veil.v)})`;
+        c.fillRect(0, 0, this.w, this.h);
+      }
+      return;
+    }
     if (match.state !== 'ready' && !opts.drill && !opts.promo) {
       this._scorebug(match);
       this._positionBar(match);
@@ -83,7 +94,7 @@ export class HUD {
     // still there — it is what the same press hands back.
     if (match.state === 'over') this.result = opts.result;
     if (opts.promo) this._promo(opts.promo);
-    else if (match.state === 'over') this._result(match);
+    else if (match.state === 'over' && !opts.replay) this._result(match);
     // The first minute's coach, above everything except the result card.
     if (opts.tutorial) {
       if (opts.tutorial.done) this._tutorialDone();
@@ -867,6 +878,49 @@ export class HUD {
     return Math.hypot(p.x - b.x, p.y - b.y) <= b.r;
   }
 
+  // Where the replay's bars are, so camera-check can ask whether a head is
+  // under one.
+  replayLayout() {
+    const bar = Math.round(Math.min(40, this.h * 0.09));
+    return { top: bar, bottom: this.h - bar };
+  }
+
+  _replay(r) {
+    const c = this.ctx;
+    const L = this.replayLayout();
+    const bar = L.top;
+    // Letterbox: the broadcast's own way of saying «this already happened».
+    c.fillStyle = 'rgba(2,3,6,0.92)';
+    c.fillRect(0, 0, this.w, bar);
+    c.fillRect(0, L.bottom, this.w, this.h - L.bottom);
+    // «ПОВТОР», with the red dot a broadcast puts on anything it is not
+    // showing live — blinking, because a still dot reads as a light.
+    c.textBaseline = 'middle';
+    c.textAlign = 'left';
+    c.font = `800 13px ${FONT}`;
+    const x = 16, y = bar / 2;
+    c.fillStyle = `rgba(255,70,60,${0.55 + 0.45 * Math.round((Math.sin(this.pulse * 5) + 1) / 2)})`;
+    c.beginPath();
+    c.arc(x + 5, y, 4.5, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = '#f2f3f5';
+    c.fillText('ПОВТОР', x + 16, y);
+    const tw = c.measureText('ПОВТОР').width;
+    c.fillStyle = 'rgba(255,255,255,0.45)';
+    c.font = `600 10px ${FONT}`;
+    c.fillText('× 0.5', x + 16 + tw + 8, y);
+    // How much is left, as a line along the bottom bar, and how to leave.
+    const pw = this.w - 32;
+    c.fillStyle = 'rgba(255,255,255,0.12)';
+    c.fillRect(16, L.bottom + 6, pw, 2);
+    c.fillStyle = 'rgba(255,255,255,0.7)';
+    c.fillRect(16, L.bottom + 6, pw * r.progress, 2);
+    c.textAlign = 'center';
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.font = `600 10px ${FONT}`;
+    c.fillText('КОСНИСЬ — ДАЛЬШЕ', this.w / 2, L.bottom + (this.h - L.bottom) / 2 + 3);
+  }
+
   _fullscreen(opts) {
     const c = this.ctx;
     const b = this.fsButton();
@@ -971,11 +1025,15 @@ export class HUD {
       c.textAlign = 'left';
     }
 
-    // The difficulty ladder. Locked rungs — past the one you have earned — are
-    // dimmed and answer nothing; the rest pick the man you fight next.
+    // The men. Locked rungs — past the one you have earned — are dimmed and
+    // answer nothing; the rest pick the man you fight next. The ones in the
+    // tournament's bracket carry their round (see cup.js), and the header says
+    // whether the fight picked is the tournament's next one or sparring.
+    const cup = opts.cup || null;
     c.font = `700 9px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.42)';
-    c.fillText('СЛОЖНОСТЬ', L.left, L.beltY - 12);
+    c.fillStyle = cup && !cup.on ? 'rgba(255,255,255,0.42)' : 'rgba(255,209,102,0.8)';
+    c.fillText(!cup ? 'СЛОЖНОСТЬ' : cup.on ? `ТУРНИР · ${cup.round}` : 'СПАРРИНГ · ВНЕ ТУРНИРА',
+      L.left, L.beltY - 12);
     for (let i = 0; i < belts.length; i++) {
       const b = belts[i];
       const r = L.belt(i);
@@ -1004,12 +1062,23 @@ export class HUD {
       // draft of this had «ПУРПУРНЫЙ ПОЯС 2—2РАФАЭЛ» running into itself. The
       // dot beside it and the header above it already say these are belts.
       c.fillText(b.label, r.x + 28, r.y + r.h / 2);
+      let at = r.x + 28 + c.measureText(b.label).width + 8;
+      // His round in the bracket: done, next, or still ahead.
+      const j = cup ? cup.rungs.indexOf(i) : -1;
+      if (j >= 0) {
+        const tag = j < cup.stage ? `${cup.rounds[j]} ✓` : cup.rounds[j];
+        c.font = `800 9px ${FONT}`;
+        c.fillStyle = j < cup.stage ? 'rgba(79,212,138,0.85)'
+          : j === cup.stage ? '#ffd166' : 'rgba(255,255,255,0.4)';
+        c.fillText(tag, at, r.y + r.h / 2 + 1);
+        at += c.measureText(tag).width + 7;
+        c.font = `700 11px ${FONT}`;
+      }
       // What you have done to this man, and he to you. Only once there is
       // something to say: five rows of «0—0» on a fresh install is a scoreboard
       // for a career that has not started.
       const rec = (opts.records && opts.records[i]) || [0, 0];
       if (rec[0] || rec[1]) {
-        const at = r.x + 28 + c.measureText(b.label).width + 8;
         const tail = locked ? 'ЗАКРЫТО' : b.man;
         c.font = `600 10px ${FONT}`;
         const room = r.x + r.w - 10 - c.measureText(tail).width - 8;
@@ -1076,7 +1145,8 @@ export class HUD {
     c.font = `800 15px ${FONT}`;
     c.fillStyle = '#1a1203';
     c.textAlign = 'center';
-    c.fillText('В БОЙ', s.x + s.w / 2, s.y + s.h / 2);
+    // Named for what it starts: the round, or sparring.
+    c.fillText(!cup ? 'В БОЙ' : cup.on ? cup.round : 'СПАРРИНГ', s.x + s.w / 2, s.y + s.h / 2);
     c.textAlign = 'left';
     c.font = `600 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.5)';
@@ -1459,16 +1529,17 @@ export class HUD {
     // lines landed on top of each other.
     c.font = `700 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.5)';
-    c.fillText(p.champion ? 'ЛЕСТНИЦА ПРОЙДЕНА' : 'НОВЫЙ ПОЯС', w / 2, titleY - size / 2 - 12);
+    c.fillText(p.champion ? 'ЛЕСТНИЦА ПРОЙДЕНА' : p.rounds > 1 ? 'ТУРНИР ВЗЯТ · НОВЫЙ ПОЯС' : 'НОВЫЙ ПОЯС',
+      w / 2, titleY - size / 2 - 12);
 
     // Who it came off, and who is next. Two short lines under the band,
     // because a belt with nobody's name on it is a trophy for nothing.
     c.font = `600 12px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.72)';
-    c.fillText(`выиграл у ${p.beatOf}`, w / 2, by + bh + 28);
+    c.fillText(p.rounds > 1 ? `в финале — у ${p.beatOf}` : `выиграл у ${p.beatOf}`, w / 2, by + bh + 28);
     c.font = `600 11px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.45)';
-    c.fillText(p.champion ? 'дальше некого' : `дальше — ${p.nextMan}`, w / 2, by + bh + 48);
+    c.fillText(p.champion ? 'дальше некого' : `следующий турнир: в финале — ${p.nextMan}`, w / 2, by + bh + 48);
     c.globalAlpha = 1;
 
     // The way out, and it appears exactly when it starts working.
@@ -1519,7 +1590,16 @@ export class HUD {
       c.font = `600 11px ${FONT}`;
       c.fillStyle = 'rgba(255,255,255,0.66)';
       const beat = r.beatLabel || r.beat, next = r.nextLabel || r.next;
-      const line = r.champion && r.won ? `ты прошёл всю лестницу — ${beat} пояс взят`
+      // The tournament first, because that is what the fight was for: through,
+      // out, or the belt. Without one (a tool forcing the belt) the old line.
+      const k = r.cup;
+      const line = k && k.kind === 'title'
+        ? (r.champion && !r.climbed ? `турнир чёрных поясов взят — выше некуда`
+          : `турнир взят  ·  ты ${next} пояс`)
+        : k && k.kind === 'next' ? `${k.round} взят  ·  дальше ${k.nextRound} — ${k.nextMan}`
+        : k && k.kind === 'out' ? (k.size > 1 ? `вылет в ${k.round}е  ·  новый турнир с ${k.first}а` : `${k.round} проигран  ·  ещё раз`)
+        : r.spar ? `спарринг  ·  в турнире ждёт ${r.cupRound} — ${r.cupMan}`
+        : r.champion && r.won ? `ты прошёл всю лестницу — ${beat} пояс взят`
         : r.climbed ? `${beat} пояс взят  ·  следующий: ${next}`
         : r.won ? `${beat} пояс взят`
         : `${beat} пояс — ещё раз`;
@@ -1552,7 +1632,8 @@ export class HUD {
     c.font = `600 12px ${FONT}`;
     c.fillStyle = '#ffd166';
     c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
-    c.fillText(r && !r.won ? 'КОСНИСЬ, ЧТОБЫ ПОПРОБОВАТЬ СНОВА' : 'КОСНИСЬ, ЧТОБЫ ВЫЙТИ НА СЛЕДУЮЩЕГО',
+    c.fillText(r && r.cup && r.cup.kind === 'out' && r.cup.size > 1 ? 'КОСНИСЬ — НОВЫЙ ТУРНИР'
+      : r && !r.won ? 'КОСНИСЬ, ЧТОБЫ ПОПРОБОВАТЬ СНОВА' : 'КОСНИСЬ, ЧТОБЫ ВЫЙТИ НА СЛЕДУЮЩЕГО',
       this.w / 2, base + 70 + push + extra);
     c.globalAlpha = 1;
   }
