@@ -82,6 +82,10 @@ const steps = [
   // alone and had no idea what was in front of it: inside a submission the pair
   // filled 113% of the frame and something was cropped on every single frame.
   ['the shot', 'camera-check.mjs', ['12']],
+  // And the other shot: the moment that decided the match, again, from the
+  // reverse angle. Whether it is the right moment, and whether that angle is as
+  // clean a picture as the live one — the referee, the heads, the lens.
+  ['the replay', 'replay-check.mjs', ['12']],
   // Whether a person can win. Everything above this line measures the game
   // against itself, and the game against itself was balanced while the half a
   // human plays was impossible: the AI never reads the prompt on the screen,

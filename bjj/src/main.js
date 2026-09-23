@@ -21,6 +21,8 @@ import { POSES } from './game/poses.js';
 import { visualEnds } from './game/positions.js';
 import { Walkout } from './game/intro.js';
 import { Gallery } from './game/gallery.js';
+import { Replay } from './game/replay.js';
+import { bracket, roundName, cupMan, cupAfter } from './game/cup.js';
 import { clamp, v3 } from './core/m4.js';
 
 const glCanvas = document.getElementById('gl');
@@ -47,6 +49,9 @@ try {
 }
 
 const rig = new PairRig();
+// The last seconds of the match, kept so the one that decided it can be shown
+// again after the bell. See replay.js.
+const replay = new Replay(rig.skel.A.invBind);
 // This one is being watched, so its hands ease rather than snap. Tools that
 // solve or sample leave it off, or their numbers would depend on call order.
 rig.live = true;
@@ -174,14 +179,19 @@ function loadProgress() {
           const r = p.rec && p.rec[b];
           rec[b] = [Array.isArray(r) ? r[0] | 0 : 0, Array.isArray(r) ? r[1] | 0 : 0];
         }
-        return { rank: Math.max(0, Math.min(LADDER.length - 1, p.rank | 0)),
-                 wins: p.wins | 0, losses: p.losses | 0, champion: !!p.champion, rec };
+        const rank = Math.max(0, Math.min(LADDER.length - 1, p.rank | 0));
+        // Where in the tournament you are, and how many you have won. An old
+        // save has neither and starts at the first round, which is where a
+        // ladder player is anyway.
+        const cup = Math.max(0, Math.min(bracket(rank).length - 1, p.cup | 0));
+        return { rank, wins: p.wins | 0, losses: p.losses | 0, champion: !!p.champion, rec,
+                 cup, titles: p.titles | 0 };
       }
     }
   } catch { /* no store, or somebody else's data in it */ }
   const rec = {};
   for (const b of LADDER) rec[b] = [0, 0];
-  return { rank: 0, wins: 0, losses: 0, champion: false, rec };
+  return { rank: 0, wins: 0, losses: 0, champion: false, rec, cup: 0, titles: 0 };
 }
 function saveProgress() {
   if (FORCED) return;
@@ -194,7 +204,12 @@ const myBelt = () => LADDER[Math.min(LADDER.length - 1, progress.rank)];
 // What the next match is. The menu can point this at any belt up to the one
 // already earned, and at a longer or shorter clock; the ladder itself is the
 // default, so a straight tap on «в бой» still plays the ranked match.
-const selection = { belt: progress.rank, time: 5 };
+// The tournament's next fight — see cup.js. The menu can point the selection
+// anywhere up to your own rung; anybody but the man in the bracket's next
+// round is sparring, which counts on his record and nowhere else.
+const nextCup = () => cupMan(progress.rank, progress.cup);
+const inCup = () => !FORCED && selection.belt === nextCup();
+const selection = { belt: nextCup(), time: 5 };
 const oppBelt = () => FORCED || LADDER[selection.belt];
 let lastResult = null;   // what the result card has to say
 // The promotion, when there is one. A belt is the whole of what a career in
@@ -283,6 +298,14 @@ const hudOpts = () => ({
   level: oppBelt(), mine: myBelt(), mineLabel: BELT_LABEL[myBelt()], progress, result: lastResult, tutorial: tut,
   selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
   records: LADDER.map((b) => (progress.rec && progress.rec[b]) || [0, 0]),
+  // The bracket: whose rows are in it, what each round is called, which one
+  // is next, and whether the menu is pointed at it.
+  cup: (() => {
+    const rungs = bracket(progress.rank);
+    return { rungs, stage: progress.cup, on: inCup(),
+      rounds: rungs.map((_, i) => roundName(progress.rank, i, true)),
+      round: roundName(progress.rank, progress.cup) };
+  })(),
   fullscreen: isFullscreen(), fsHint, walkout: !!walkout,
   // What the title card is a picture of, and how far the page has turned. The
   // caption comes off the pose library through the gallery, so a position that
@@ -304,8 +327,10 @@ const hudOpts = () => ({
     need: drill.need, reps: REPS, marks: drill.marks,
   } : null,
   drillOver,
-  promo,
+  // The belt and the card wait for the replay.
+  promo: replay.holding ? null : promo,
   punch,
+  replay: replay.holding ? { playing: replay.playing, progress: replay.progress } : null,
 });
 
 // The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
@@ -391,6 +416,7 @@ function newMatch() {
     skill: (tr, by) => (by === 0 ? skills.bonus(tr) : 1),
   });
   ai = new AI(1, oppBelt());
+  replay.reset();
   rig.origin[0] = 0;
   rig.origin[2] = 0;
   rig.yaw = 0;
@@ -459,6 +485,7 @@ function onMatchEvent(e) {
     // not — an impulse and a cut are the director's, and a director cuts on the
     // call rather than on the impact.
     landing = { peak: 0, role: 'A', t: 0 };
+    replay.mark('position', e.by);
     camera.impulse(e.tr.big ? 0.8 : 0.35);
     if (e.tr.big) camera.cut(e.tr.dir === 'left' ? -1 : 1);
     crowd.level = Math.max(crowd.level, e.tr.big ? 0.85 : 0.5);
@@ -473,6 +500,7 @@ function onMatchEvent(e) {
     // Whose points. The room is the player's club, and it does not cheer for
     // the man scoring on him — see audio.score.
     const mine = e.by === 0;
+    replay.mark('points', e.by);
     referee.gesture('call', 1.1);
     audio.confirm();
     audio.score(mine, false);
@@ -484,6 +512,7 @@ function onMatchEvent(e) {
     punch = { n: e.points, mine, note: e.note || '', t: 0 };
   } else if (e.kind === 'submission') {
     const mine = e.by === 0;
+    replay.mark('submission', e.by);
     camera.cut(Math.random() < 0.5 ? -1 : 1);
     audio.lock(between());
     audio.score(mine, true);
@@ -502,10 +531,14 @@ function onMatchEvent(e) {
     audio.cloth(0.9, between());
     audio.swell(0.5, 1.4);
   } else if (e.kind === 'end') {
-    // Where the ladder moves. A win takes you up one and a loss takes nothing
-    // away: this is a game about learning a position, and a career that
-    // demotes you for losing to a black belt teaches nobody anything.
+    // Where the ladder moves. A loss never takes a belt away: this is a game
+    // about learning a position, and a career that demotes you for losing to a
+    // black belt teaches nobody anything. What a loss costs is the tournament
+    // it was in (below). A draw is not a win, and costs it too.
     referee.gesture('stop', 3.2);
+    // The moment it was decided, shown again before the card — not in the
+    // lesson and not in a drill, which have no moment of that kind.
+    if (!drill && !tut && !window.__noReplay) replay.end(e.winner, e.by);
     // The whole hall is on its feet for the tap and settles for a decision.
     crowd.level = e.by === 'submission' ? 1 : 0.7;
     crowd.spot = 0;
@@ -518,12 +551,23 @@ function onMatchEvent(e) {
     // how far you got, never that the purple belt has beaten you four times.
     const rec = progress.rec[beat] || (progress.rec[beat] = [0, 0]);
     rec[won ? 0 : 1]++;
-    // The ladder only moves when the man in front of you goes down. A win
-    // against somebody you already beat is training, not a promotion.
-    const onLadder = !FORCED && selection.belt === progress.rank;
-    const climbed = won && onLadder && progress.rank < LADDER.length - 1;
-    if (won && onLadder && progress.rank === LADDER.length - 1) progress.champion = true;
-    if (climbed) progress.rank++;
+    // The ladder moves on a tournament, not on a fight: a win takes you to the
+    // next round, the final takes the belt, and a loss anywhere sends you back
+    // to the first round of the next one. A fight against anybody else is
+    // sparring. See cup.js.
+    const cupFight = inCup();
+    const was = { rank: progress.rank, stage: progress.cup };
+    const cup = cupFight ? cupAfter(progress.rank, progress.cup, won) : null;
+    let climbed = false, titled = false;
+    if (cup) {
+      progress.cup = cup.stage;
+      if (cup.kind === 'title') {
+        titled = true;
+        progress.titles = (progress.titles | 0) + 1;
+        if (progress.rank < LADDER.length - 1) { progress.rank++; climbed = true; }
+        else progress.champion = true;
+      }
+    }
     saveProgress();
     // «следующий» is the man at the rung you are on now, which after a
     // promotion is not the man you just beat. It read oppBelt(), and oppBelt()
@@ -533,7 +577,16 @@ function onMatchEvent(e) {
     lastResult = { won, beat, next: myBelt(), climbed, champion: progress.champion,
       // And said in Russian. The card printed the ladder's keys, and a player
       // read «white belt — ещё раз» on the one screen that is all sentence.
-      beatLabel: BELT_LABEL[beat].toLowerCase(), nextLabel: BELT_LABEL[myBelt()].toLowerCase() };
+      beatLabel: BELT_LABEL[beat].toLowerCase(), nextLabel: BELT_LABEL[myBelt()].toLowerCase(),
+      // And where that leaves the tournament: the round just played, the one
+      // after it and the man in it, or the round it ended in.
+      cup: cup && { kind: cup.kind, round: cup.round.toLowerCase(), size: bracket(was.rank).length,
+        nextRound: (cup.nextRound || '').toLowerCase(),
+        nextMan: ROSTER[LADDER[nextCup()]].name,
+        first: roundName(progress.rank, 0).toLowerCase() },
+      spar: !cupFight && !FORCED,
+      cupRound: roundName(progress.rank, progress.cup).toLowerCase(),
+      cupMan: ROSTER[LADDER[nextCup()]].name };
     // What to take next door. The разбор counts what the player kept reaching
     // for; the room puts that on the first row.
     const db = match.debrief();
@@ -543,7 +596,7 @@ function onMatchEvent(e) {
     // The belt comes before the scorecard. Not instead of it — the разбор is
     // the thing a beaten player actually needs — but a promotion that arrives
     // underneath a score is a promotion nobody sees.
-    if (climbed || (won && onLadder && progress.champion)) {
+    if (titled) {
       promo = {
         belt: myBelt(), label: BELT_LABEL[myBelt()], col: BELT_COL[myBelt()],
         // «выиграл у ДЕНИСА» — the card names the man, and a name in Russian
@@ -554,6 +607,9 @@ function onMatchEvent(e) {
         // man wearing the belt just taken.
         nextMan: ROSTER[myBelt()].name,
         champion: progress.champion && progress.rank === LADDER.length - 1,
+        // Won in a final rather than in a single fight, from purple on a
+        // bracket of three.
+        rounds: bracket(was.rank).length, titles: progress.titles,
         t: 0,
       };
     }
@@ -742,6 +798,9 @@ function footsteps(dt) {
   }
 }
 const lastOrigin = [0, 0];
+// Wall-clock seconds of the last frame, for the one thing drawn on it: the
+// replay runs at half of real time, not half of the sim's.
+let wall = 1 / 60;
 
 function frame(now) {
   // Two numbers, because they answer different questions. `elapsed` is how
@@ -779,7 +838,11 @@ function frame(now) {
     punch.t += dt;
     if (punch.t > PUNCH_LIFE) punch = null;
   }
-  if (promo) {
+  // The replay takes the picture a moment after the bell, and gives it back
+  // when it has run out or been skipped.
+  if (replay.tick(elapsed)) fade();
+  wall = elapsed;
+  if (promo && !replay.holding) {
     promo.t += dt;
     // The room stays up for it. A promotion in a quiet hall is a promotion in
     // an empty hall.
@@ -824,17 +887,24 @@ function frame(now) {
     // the next match out from under the menu the player is about to fold away.
     const onFs = input.pressAt && hud.fsHit(input.pressAt);
     if (drill || drillOver) { /* the drill owns its own buttons, below */ }
-    else if (promo && !onFs) {
+    else if (replay.holding && !onFs) {
+      // The replay is skipped by the same press that would leave the card —
+      // and only the replay: the card comes up under it, and the next press
+      // is the one that leaves.
+      replay.skip();
+      fade();
+      audio.click();
+    } else if (promo && !onFs) {
       // The belt is dismissed by a press, and only after it has been up long
       // enough to read: the bell, the crowd and the card all land in the same
       // second, and a thumb still moving from the last exchange would skip it.
       if (promo.t > 0.8) { promo = null; fade(); audio.click(); }
     } else if (match.state === 'over' && !onFs) {
-      selection.belt = progress.rank;
+      selection.belt = nextCup();
       beginMatch();
     } else if (tut && tut.done && !onFs) {
       // The lesson is over; the next touch brings out a real opponent.
-      selection.belt = progress.rank;
+      selection.belt = nextCup();
       tut = null;
       beginMatch();
     }
@@ -1199,6 +1269,33 @@ function drawFrame(now, real) {
     return;
   }
 
+  // The replay. Its own skeletons, camera and room, all read back off the tape;
+  // the live match underneath it is over and waiting for the card.
+  if (replay.playing) {
+    if (window.__still != null || replay.step(wall)) {
+      const sh = replay.shown, sk = replay.skel;
+      const fa = match.f[sh.ia], fb = match.f[sh.ib];
+      const body = (i) => (i === 0 ? gpuYou : gpuOpp);
+      renderer.render({
+        camera: replay.camera, time: window.__still != null ? window.__still : now / 1000, focus: replay.camera.at,
+        fighters: [
+          { skeleton: sk[0], gpu: body(sh.ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol,
+            flash: sh.flash[0], gas: sh.gas[0] },
+          { skeleton: sk[1], gpu: body(sh.ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol,
+            flash: sh.flash[1], gas: sh.gas[1] },
+          { skeleton: sk[2], gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
+            flash: 0, gas: 0 },
+        ],
+        crowd: sh.crowd, spot: sh.spot, score: sh.score, clock: sh.clock,
+      });
+      audio.listen(replay.camera.eye, replay.camera.at);
+      hud.draw(match, input, 1 / 60, hudOpts());
+      return;
+    }
+    // It ran out: back to the hall, and the card.
+    fade();
+  }
+
   const ha = rig.skel.A.world[0];
   const hb = rig.skel.B.world[0];
   focus[0] = (ha[12] + hb[12]) / 2;
@@ -1264,6 +1361,16 @@ function drawFrame(now, real) {
     score: [match.f[0].points, match.f[1].points],
     clock: match.time,
   });
+  // And onto the tape, exactly as it was drawn. Not while a tool has the
+  // picture pinned: a held frame is not something that happened.
+  if (!window.__frozen && window.__still == null) {
+    replay.record(dt, [rig.skel.A, rig.skel.B, referee.skel], camera, {
+      ia, ib, flash: [fa.flash, fb.flash],
+      gas: [clamp(1 - fa.stamina / 100, 0, 1), clamp(1 - fb.stamina / 100, 0, 1)],
+      crowd: crowd.level, spot: crowd.spot,
+      score: [match.f[0].points, match.f[1].points], clock: match.time,
+    });
+  }
   hud.draw(match, input, 1 / 60, hudOpts());
 }
 
@@ -1295,6 +1402,8 @@ window.__bjj = {
   // anybody having asked for it, and that is exactly the kind of screen that
   // quietly stops appearing.
   promo: () => promo,
+  // The replay after the bell: whether it is up, and the tape it plays from.
+  replay,
   // The score pill and the slow beat, for the same reason: both appear on
   // their own, live for a moment and then are gone, which is the shape of a
   // thing that quietly stops happening.

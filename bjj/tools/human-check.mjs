@@ -36,6 +36,7 @@ import { AI } from '../src/game/ai.js';
 import { DIRS } from '../src/game/positions.js';
 import { seedRandom, rand, randInt } from '../src/game/rng.js';
 import { SKILL_STEP } from '../src/game/skills.js';
+import { bracket, cupOdds } from '../src/game/cup.js';
 
 const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
@@ -406,6 +407,21 @@ check(denied / Math.max(1, askable) > 0.4, 'and can answer what can be answered'
 const wr = rows.map((r) => r.wins / N);
 check(wr.every((v, i) => i === 0 || v <= wr[i - 1] + 0.12),
   'the ladder still goes one way', wr.map((v) => Math.round(v * 100) + '%').join(' > '));
+
+// And the tournament the ladder is now climbed in (cup.js): a belt is a
+// bracket of up to three of these men in a row, so what a player meets is the
+// product. Read off the same win rates — the fights are independent, nothing
+// carries from one to the next. The white belt's bracket is one fight, on
+// purpose, and it is the one held: RADICAL's line for the career is that the
+// first belt stays winnable for this hand more often than not.
+const LADDER = ['white', 'blue', 'purple', 'brown', 'black'];
+if (LADDER.every((b, i) => rows[i] && rows[i].belt === b)) {
+  const rate = (r) => rows[r].wins / N;
+  const odds = LADDER.map((_, r) => cupOdds(r, rate));
+  console.log('\n     a whole tournament, for this hand: ' +
+    LADDER.map((b, r) => `${b} ${Math.round(odds[r] * 100)}% (${bracket(r).length})`).join(', '));
+  check(odds[0] > 0.5, 'the first tournament is won more often than not', `${Math.round(odds[0] * 100)}%`);
+}
 
 // And the colours mean what they say. Each band's attempts have to land about
 // as often as the ring said they would: within eight points on average, and

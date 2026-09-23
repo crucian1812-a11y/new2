@@ -439,6 +439,156 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
   check(shown.title === -1, 'and the title card is back to its positions');
 }
 
+// The replay after the bell. replay-check plays it in Node and judges every
+// frame of it; what it cannot see is this page — that the picture is handed
+// over to it, that the card waits underneath it, and that a press gives the
+// card back. The tape is filled by hand, from the rig as it stands: at one
+// frame a second a software rasteriser would take a minute to record the
+// three seconds a points replay is cut from.
+{
+  const rp = await page.evaluate(async () => {
+    const g = window.__bjj;
+    const ui = document.getElementById('ui');
+    const press = () => {
+      for (const type of ['pointerdown', 'pointerup']) {
+        ui.dispatchEvent(new PointerEvent(type, { pointerId: 9, clientX: 600, clientY: 200, bubbles: true }));
+      }
+    };
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const until = async (fn, ms = 20000) => {
+      const t0 = Date.now();
+      while (!fn() && Date.now() - t0 < ms) await wait(100);
+      return fn();
+    };
+    g.toTitle();
+    const m = g.match();
+    m.start();
+    const R = g.replay;
+    const kit = { ia: 0, ib: 1, flash: [0, 0], gas: [0, 0], crowd: 0, spot: 0, score: [0, 0], clock: m.time };
+    const tape = (n) => { for (let i = 0; i < n; i++) R.record(1 / 60, [g.rig.skel.A, g.rig.skel.B, g.referee.skel], g.camera, kit); };
+    tape(100);
+    R.mark('position', 0);
+    tape(90);
+    R.mark('points', 0);
+    m.f[0].points = 2;
+    m.time = 0.1;
+    await until(() => m.state === 'over');
+    const held = R.holding;
+    await until(() => R.playing, 8000);
+    const playing = R.playing;
+    // That it moves, first: two readings of how far through it is.
+    const p0 = R.progress;
+    await until(() => R.progress > p0 || !R.playing, 6000);
+    const p1 = R.progress;
+    // Then held, so the rest is not a race against a six-second replay on a
+    // renderer drawing a frame a second. The cut into it was a fade, and a
+    // fade is spent in frames; it is cleared by hand — what is read here is
+    // what is under it.
+    window.__still = 1;
+    g.veil.v = 0;
+    await wait(1500);
+    // The letterbox is on the HUD canvas; the middle of the screen, where the
+    // result card would be, is clear.
+    const hud = g.hud, cv = hud.canvas, c2 = cv.getContext('2d');
+    const dpr = cv.width / cv.clientWidth;
+    const px = (x, y) => Array.from(c2.getImageData(Math.round(x * dpr), Math.round(y * dpr), 1, 1).data);
+    const bar = px(hud.w / 2, hud.replayLayout().top / 2 + 8);
+    const mid = px(hud.w * 0.2, hud.h * 0.5);
+    const still = R.playing;
+    window.__still = null;
+    press();
+    // The press is read by the next frame, not by this line.
+    const skipped = await until(() => !R.holding, 8000);
+    await wait(600);
+    g.veil.v = 0;
+    await wait(600);
+    const card = px(hud.w * 0.2, hud.h * 0.5);
+    press();
+    await until(() => g.match() !== m, 8000);
+    return { held, playing, bar, mid, p0, p1, skipped, card, still };
+  });
+  check(rp.held && rp.playing, 'a points win is shown again after the bell',
+    `held ${rp.held}, playing ${rp.playing}`);
+  check(rp.bar[3] > 200 && rp.bar[0] + rp.bar[1] + rp.bar[2] < 60, 'behind the letterbox of a replay',
+    `top bar rgba(${rp.bar})`);
+  check(rp.mid[3] < 40, 'and the card waits underneath it rather than on top',
+    `HUD alpha ${rp.mid[3]} in the middle of the screen`);
+  check(rp.p1 > rp.p0, 'it plays', `${(rp.p0 * 100).toFixed(0)}% → ${(rp.p1 * 100).toFixed(0)}%`);
+  check(rp.still && rp.skipped && rp.card[3] > 150, 'and a touch skips it to the card',
+    `HUD alpha ${rp.card[3]} after the touch`);
+}
+
+// The tournament. cup.js is pure and human-check reads its odds; this is the
+// wiring — that a win moves the bracket on and points the next fight at the
+// next round's man, that a loss sends it back to the first round, that a
+// final won is the belt, and that all of it is still there after a reload.
+// Played from a save put down by hand at the purple belt's bracket, which is
+// the first one with all three rounds in it.
+{
+  await page.evaluate(() => localStorage.setItem('bjj.progress', JSON.stringify({
+    rank: 2, wins: 3, losses: 0, champion: false, cup: 0, titles: 2, rec: {} })));
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.__bjj && window.__stats, null, { timeout: 60000 });
+  const fight = (win) => page.evaluate(async (win) => {
+    const g = window.__bjj;
+    window.__noReplay = true;
+    const ui = document.getElementById('ui');
+    const press = () => {
+      for (const type of ['pointerdown', 'pointerup']) {
+        ui.dispatchEvent(new PointerEvent(type, { pointerId: 9, clientX: 600, clientY: 200, bubbles: true }));
+      }
+    };
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const until = async (fn, ms = 20000) => {
+      const t0 = Date.now();
+      while (!fn() && Date.now() - t0 < ms) await wait(100);
+      return fn();
+    };
+    g.toTitle();
+    const m = g.match();
+    const man = m.f[1].name;
+    m.start();
+    m.f[win ? 0 : 1].points = 2;
+    m.time = 0.1;
+    await until(() => m.state === 'over');
+    const promo = g.promo() && { label: g.promo().label, rounds: g.promo().rounds };
+    // Out through the belt card, if there is one, and the result card: the
+    // press that leaves it is what points the next fight at the next round.
+    if (g.promo()) {
+      await until(() => g.promo().t > 0.9);
+      press();
+      await until(() => !g.promo());
+    }
+    await wait(300);
+    press();
+    await until(() => g.match() !== m);
+    const saved = JSON.parse(localStorage.getItem('bjj.progress'));
+    return { man, promo, saved };
+  }, win);
+  const men = [];
+  const qf = await fight(true);
+  men.push(qf.man);
+  const sf = await fight(true);
+  men.push(sf.man);
+  check(qf.saved.cup === 1 && sf.saved.cup === 2 && men[0] !== men[1],
+    'a tournament win moves the bracket on to the next round’s man',
+    `${men.join(' → ')}, round ${qf.saved.cup} then ${sf.saved.cup}`);
+  const out = await fight(false);
+  check(out.saved.cup === 0 && out.saved.rank === 2 && !out.promo, 'a loss in it sends you back to the first round',
+    `lost to ${out.man} in the final, round ${out.saved.cup}, belt ${out.saved.rank}`);
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.__bjj && window.__stats, null, { timeout: 60000 });
+  const a = await fight(true);
+  const b = await fight(true);
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForFunction(() => window.__bjj && window.__stats, null, { timeout: 60000 });
+  const f = await fight(true);
+  check(a.man === men[0] && b.man === men[1] && f.man === out.man, 'the bracket is the same men after a reload',
+    `${a.man} → ${b.man} → ${f.man}`);
+  check(!!f.promo && f.promo.rounds === 3 && f.saved.rank === 3 && f.saved.cup === 0 && f.saved.titles === 3,
+    'and the final won is the belt', f.promo ? `${f.promo.label} ПОЯС, турниров ${f.saved.titles}` : 'no belt card');
+}
+
 // Fatigue is checked in pose-check, not here.
 //
 // It was here, comparing the frame with a fresh fighter against the frame with
