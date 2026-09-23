@@ -52,8 +52,9 @@ const BUDGET = {
   // Raised from 110 by two, with the two in hand: the pool of light under the
   // pair and the six soles for the contact patch on the tatami (STATIC_FS),
   // which is what took over from the bloom fog round a white kimono and put
-  // the referee back on the floor.
-  uniforms: 112,    // uniform uploads
+  // the referee back on the floor. And by one more for the distance to the
+  // pair, which the long lens counts its soft background from (POST_FS).
+  uniforms: 113,    // uniform uploads
   tris: 360000,     // triangles submitted, shadow pass included
   passes: 14,       // framebuffer switches
 };
