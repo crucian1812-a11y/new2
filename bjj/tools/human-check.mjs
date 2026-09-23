@@ -44,7 +44,7 @@ const CFG = {
   jitter: +flag('jitter', 90),  // one sigma on that
   beat: +flag('beat', 90),      // one sigma on the tap that has to land on a beat
   plan: flag('plan', 'points'),
-  belts: flag('belts', 'white,blue,purple,black').split(','),
+  belts: flag('belts', 'white,blue,purple,brown,black').split(','),
   window: flag('window', null),   // seconds to answer an attack; null = the game's own
   // What it costs to look somewhere else. A player is watching two men on a
   // mat, not the ring; the ring turning red is in the corner of his eye, and
