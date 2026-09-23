@@ -46,18 +46,91 @@ const VALUE = {
   RNC: [14, 0], ARMBAR: [13, 0], TRIANGLE: [13, 0], KIMURA: [12, 0], GUILLOTINE: [11, 0],
 };
 
+// Five men, five ways of fighting.
+//
+// The ladder was five men with one brain: the same VALUE table, the same
+// scoring, and the only difference between the white belt and the black was
+// how fast he reacted and how well he read. A critic's pass put it plainly —
+// the opponents differ by the colour of their kimono. A style is a small
+// change to what a man wants, on top of what everybody wants: a few positions
+// worth more to him on the side he likes them, and what he will pay for a
+// move of the kind he likes. It does not change what anything is worth to the
+// match or how likely it is; it changes what he goes for.
+//
+//   value  [top, underneath] added to VALUE for this man
+//   move   extra score for a move, by what the move is
+//   floor  the odds floor under a submission (0.15 for everybody else): a
+//          finisher takes a lock colder than a patient man does
+const SUBS = ['RNC', 'ARMBAR', 'TRIANGLE', 'KIMURA', 'GUILLOTINE'];
+const each = (ids, v) => Object.fromEntries(ids.map((k) => [k, v]));
+export const STYLES = {
+  // Takes you down. Every scoring move off the feet is worth more to him, and
+  // being on top anywhere a little more than being in a guard.
+  wrestler: {
+    value: { SIDE_CONTROL: [0.8, 0], MOUNT: [0.5, 0] },
+    move: (tr) => ((tr.from === 'STANDING' || tr.from === 'CLINCH') && tr.points > 0 ? 5 : 0),
+    // And he does not stand and fight for grips. Every man on the ladder
+    // already takes a takedown when he commits on his feet, so what makes a
+    // wrestler is how soon he commits: the gap between his commitments on his
+    // feet is half anybody else's. A bonus on the move alone changed nothing
+    // measurable — the same 1.74 shots a match at +2.5 and at +5.
+    pace: { STANDING: 0.65, CLINCH: 0.65 },
+  },
+  // Pulls guard and plays from his back. Underneath in a guard is home.
+  guard: {
+    value: { CLOSED_GUARD: [0, 1.8], OPEN_GUARD: [0, 1.6], HALF_GUARD: [0, 1.0], ARMBAR: [1.0, 0] },
+    move: (tr) => (tr.becomes === 'bottom' && /GUARD/.test(tr.to) ? 1.5 : 0),
+  },
+  // Will not stay underneath. Every position with somebody on top of him is
+  // worth less to him than to anybody else, so any way out is a good trade,
+  // and he goes for it sooner. (A back-hunter was tried here first and could
+  // not be told from anybody: every man on the ladder already takes the back
+  // four times a match, because it is the best position on the mat.)
+  escape: {
+    value: { SIDE_CONTROL: [0, -1.2], KNEE_ON_BELLY: [0, -0.8], MOUNT: [0, -0.5], BACK: [0, -0.3], TURTLE: [0, -1.2] },
+    pace: { SIDE_CONTROL: 0.65, KNEE_ON_BELLY: 0.65, MOUNT: 0.65, BACK: 0.65, TURTLE: 0.65 },
+    // And he does not fight hands from underneath. Everybody underneath is
+    // below a fifth of a tank 86% of the time, because the grip fight they
+    // tap for in between costs four a go and underneath the tank refills at
+    // two a second: the escape is not slow, it is unaffordable. He fights for
+    // hands one time in seven, keeps the gas, and spends it on the way out.
+    quietUnder: 0.15,
+  },
+  // Heavy on top. Side, knee and mount are worth more to him, locks less: he
+  // would rather hold you down and score.
+  pressure: {
+    value: { SIDE_CONTROL: [1.5, 0], KNEE_ON_BELLY: [1.5, 0], MOUNT: [1.0, 0], ...each(SUBS, [-2.0, 0]) },
+  },
+  // Breaks things. Every lock is worth more to him, and he takes them colder.
+  finisher: {
+    value: each(SUBS, [3.5, 0]),
+    floor: 0.4,
+    // And he goes again sooner from wherever a lock is one flick away.
+    pace: { MOUNT: 0.5, BACK: 0.5, SIDE_CONTROL: 0.5, CLOSED_GUARD: 0.5, KNEE_ON_BELLY: 0.5 },
+  },
+};
+// Who fights how. The man on each rung, not the belt: see ROSTER in main.js.
+export const STYLE_OF = { white: 'wrestler', blue: 'guard', purple: 'escape', brown: 'pressure', black: 'finisher' };
+
 // Where a transition leaves the person who ran it. This mirrors what the match
 // does when it arrives, and it has to keep mirroring it — an AI valuing the
 // wrong side of a position is an AI that sweeps itself.
-function valueAfter(tr, match) {
-  const v = VALUE[tr.to] || [4, 4];
+// What a position is worth to this man: everybody's number, plus his own.
+function worth(id, style) {
+  const v = VALUE[id] || [4, 4];
+  const d = style && style.value && style.value[id];
+  return d ? [v[0] + d[0], v[1] + d[1]] : v;
+}
+
+function valueAfter(tr, match, style) {
+  const v = worth(tr.to, style);
   const destTop = POSES[tr.to].top;
   if (!destTop) return (v[0] + v[1]) / 2;
   return tr.becomes === 'bottom' ? v[1] : v[0];
 }
 
-function valueHere(match, i) {
-  const v = VALUE[match.position] || [4, 4];
+function valueHere(match, i, style) {
+  const v = worth(match.position, style);
   if (!POSES[match.position].top) return (v[0] + v[1]) / 2;
   return match.isDominant(i) ? v[0] : v[1];
 }
@@ -68,10 +141,15 @@ function valueHere(match, i) {
 const SUB_WINDOW = [0.64, 0.86];
 
 export class AI {
-  constructor(index, level = 'blue') {
+  // `style` defaults to the style of the man on that rung; pass null for the
+  // plain opponent everybody was before styles, which is what a tool comparing
+  // a style against no style wants.
+  constructor(index, level = 'blue', style = STYLE_OF[level]) {
     this.i = index;
     this.level = LEVELS[level] || LEVELS.blue;
     this.levelName = level;
+    this.styleName = style || null;
+    this.style = (style && STYLES[style]) || null;
     this.think = 0.4;
     this.reactTimer = -1;
     this.reactDir = null;
@@ -97,7 +175,7 @@ export class AI {
     // hands: collar, sleeve, posture, and only then somebody commits. Starting
     // the commitment clock part-wound is the whole of it, and it is where most
     // of the standing time in a match actually comes from.
-    this.commit = 7 + rand() * 7;
+    this.commit = (7 + rand() * 7) * ((this.style && this.style.pace && this.style.pace.STANDING) || 1);
     this.control = { mx: 0, mz: 0, turn: 0, drive: 0 };
     this.wander = rand() * 10;
   }
@@ -111,11 +189,11 @@ export class AI {
     const opts = optionsFor(match.position, match.tagOf(this.i));
     const keys = Object.keys(opts);
     if (!keys.length) return null;
-    const here = valueHere(match, this.i);
+    const here = valueHere(match, this.i, this.style);
     let best = null, bestScore = -1e9;
     for (const k of keys) {
       const tr = opts[k];
-      const gain = valueAfter(tr, match) - here;
+      const gain = valueAfter(tr, match, this.style) - here;
       // Expected value, honestly computed: what it is worth times how likely
       // it is, minus what it costs when there is not much gas left.
       //
@@ -134,8 +212,9 @@ export class AI {
       // still outscored everything on the board, so the read above changed
       // nothing and the fight parked in back control hunting it. At 0.15 a
       // cold one is worth a quarter of a set-up one and the black belt waits.
-      const floor = tr.sub ? 0.15 : 0.4;
+      const floor = tr.sub ? ((this.style && this.style.floor) || 0.15) : 0.4;
       let s = gain * (floor + seen) + tr.points * 0.5;
+      if (this.style && this.style.move) s += this.style.move(tr);
       s -= tr.cost * (me.stamina < 40 ? 0.09 : 0.03);
       if (me.stamina < tr.cost * 0.5) s -= 8;
       s *= 0.75 + this.level.aggression * 0.5;
@@ -283,7 +362,7 @@ export class AI {
     // what he has left. That is the whole of pacing, and it is one line.
     const reserve = match.isDominant(this.i) ? 20 : 8;
     if (best && me.stamina - best.tr.cost * 0.45 < reserve) {
-      if (rand() < 0.3) onTap();
+      if (rand() < 0.3 && this._hands(match)) onTap();
       return;
     }
 
@@ -291,7 +370,7 @@ export class AI {
     // The grip fight is what he does in between, and it is what the set-up
     // actually is.
     if (this.commit > 0) {
-      if (rand() < 0.85) onTap();
+      if (rand() < 0.85 && this._hands(match)) onTap();
       return;
     }
 
@@ -301,15 +380,29 @@ export class AI {
     // scores above now fall when the moment is wrong, this is the branch that
     // performs the set-up, and it takes it nearly every time rather than half.
     if (!best || best.score < (match.isDominant(this.i) ? 0.4 : -2.5)) {
-      if (rand() < 0.85) onTap();
+      if (rand() < 0.85 && this._hands(match)) onTap();
       return;
     }
     // The same wait whatever he just did. Letting a submission come round twice
     // as fast read as sensible — the moment passes — and it turned two matches
     // in three into a tap: with the entry cheap to retry, back control became a
     // man hunting the same choke over and over instead of a position.
-    this.commit = 7.0 * (1.3 - this.level.aggression * 0.6) * (0.7 + rand() * 0.6);
+    this.commit = 7.0 * (1.3 - this.level.aggression * 0.6) * (0.7 + rand() * 0.6) * this._pace(match);
     onFlick(best.tr.dir);
+  }
+
+  // Whether he fights hands from here, this time. Everybody does, except the
+  // escape artist underneath, who does a fraction of the time.
+  _hands(match) {
+    const quiet = this.style && this.style.quietUnder && POSES[match.position].top && !match.isDominant(this.i);
+    return !quiet || rand() < this.style.quietUnder;
+  }
+
+  // How soon this man commits again from where he is: 1 for everybody, less
+  // where his style says he does not wait.
+  _pace(match) {
+    const p = this.style && this.style.pace;
+    return (p && p[match.position]) || 1;
   }
 }
 

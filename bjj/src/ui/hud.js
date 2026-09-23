@@ -1005,9 +1005,18 @@ export class HUD {
         c.fillStyle = 'rgba(255,255,255,0.45)';
         c.fillText('ЗАКРЫТО', r.x + r.w - 10, r.y + r.h / 2);
       } else {
+        // And how he fights, under his name. Five men with five styles (see
+        // STYLES in ai.js) are five different fights, and a player choosing
+        // whom to face next should be able to read which.
+        const two = !!b.style;
         c.font = `600 10px ${FONT}`;
         c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.5)';
-        c.fillText(b.man, r.x + r.w - 10, r.y + r.h / 2);
+        c.fillText(b.man, r.x + r.w - 10, r.y + r.h / 2 - (two ? 5 : 0));
+        if (two) {
+          c.font = `600 8px ${FONT}`;
+          c.fillStyle = on ? 'rgba(255,209,102,0.75)' : 'rgba(255,255,255,0.38)';
+          c.fillText(b.style, r.x + r.w - 10, r.y + r.h / 2 + 7);
+        }
       }
       c.textAlign = 'left';
     }
