@@ -445,10 +445,18 @@ const manAtSkel = (sk, bone) => {
 
 // Everything a new fight starts with, in one place, so the title card and the
 // result card cannot drift apart about what starting means.
+const WALK_ORBIT = Math.PI / 2 - 0.35;
 function beginMatch() {
   newMatch();
   walkout = new Walkout();
   walkout.reset();
+  // Side-on to the line they walk, and a little round it so the mat has
+  // depth. The match's own opening bearing (0.7 rad) looks nearly *along* that
+  // line, and from there the man coming from the camera's end walked past the
+  // lens: for the first second the frame was a blue shoulder the width of the
+  // screen, cut by its edge. From the side they come in from the two edges of
+  // the picture and meet in the middle of it.
+  camera.orbit = camera.targetOrbit = WALK_ORBIT;
   // The room drops while they come on and comes back up on the bell.
   audio.duck(0.4, 2.4);
   fade();

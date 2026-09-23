@@ -34,7 +34,7 @@ import {
   Skeleton, poseToQuats, blendQuats, solveTwoBone, BONE_COUNT, BONE_INDEX,
   HAND_REST, TIP_REST,
 } from '../render/skeleton.js';
-import { makeFeet, plantFeet, groundFeet } from './step.js';
+import { Gait, walkHeight } from './gait.js';
 import { POSES } from './poses.js';
 import { quat, qCopy, qEuler, qMul, v3 } from '../core/m4.js';
 
@@ -115,6 +115,8 @@ export const INTRO_TIME = PHASES.in + PHASES.slap + PHASES.bump + PHASES.set;
 // eight metres across, so this is inside the tatami and outside the picture the
 // standing shot holds.
 const ENTER = 2.55;
+// Where the tatami is, the height every judge reads it at.
+const MAT_Y = 0.05;
 
 // A walk on, rather than the referee's brisk repositioning. Shorter steps, more
 // time in the air, and less overshoot — and every one of those numbers came off
@@ -166,7 +168,7 @@ class Entrant {
   constructor(role) {
     this.role = role;
     this.skel = new Skeleton();
-    this.feet = makeFeet();
+    this.gait = new Gait();
     this.q = Array.from({ length: BONE_COUNT }, () => quat());
     // Where he ends, straight out of the standing pose: the walk has no opinion
     // about where the fight starts.
@@ -260,46 +262,58 @@ class Entrant {
       q[0] = v[0]; q[1] = v[1]; q[2] = v[2]; q[3] = v[3];
     }
 
-    // Breathing, and the arm swing, both added on top and both fading out as he
-    // settles into the pose the rig is about to take over. Anything still
-    // moving at the seam is a jerk on the first frame of the fight.
+    // Breathing, and the walk above the hips, both added on top and both
+    // fading out as he settles into the pose the rig is about to take over.
+    // Anything still moving at the seam is a jerk on the first frame of the
+    // fight.
     const calm = 1 - settle;
     this.phase += dt;
     const br = Math.sin(this.phase * 1.5) * calm;
     addEuler(this.skel, 'chest', br * 1.2, 0, 0);
     addEuler(this.skel, 'spine', br * 0.6, 0, 0);
     addEuler(this.skel, 'neck', -br * 0.5, 0, 0);
-    // The arms swing against the legs. The phase is the swinging foot's own, so
-    // the arm is never out of step with the step — that is the whole trick, and
-    // it is why this reads as walking rather than as a mannequin being slid.
-    const f = this.feet.find((x) => x.t < 1);
-    if (f && calm > 0) {
-      const sw = Math.sin(f.t * Math.PI) * 14 * calm;
-      // Which arm leads depends on which foot is travelling.
-      const lead = this.feet[0] === f ? 1 : -1;
-      addEuler(this.skel, 'armL', -sw * lead, 0, 0);
-      addEuler(this.skel, 'armR', sw * lead, 0, 0);
-    }
 
-    this.skel.rootPos[0] = 0;
-    this.skel.rootPos[1] = this.endY;
-    this.skel.rootPos[2] = this.z;
-    qEuler(this.skel.rootRot, 0, this.yaw, 0);
+    // The cycle (gait.js): where the feet are, and what the pelvis, the trunk
+    // and the arms do about it. The pelvis turns towards the forward leg and
+    // drops on the swinging side; the trunk turns back against it so the
+    // shoulders stay square, and the neck keeps the head level and looking
+    // where he is going.
+    const yawR = (this.yaw * Math.PI) / 180;
+    const g = this.gait;
+    g.step(dt, 0, this.z, yawR);
+    const o = g.out;
+    const turn = o.turn * calm, list = o.list * calm;
+    addEuler(this.skel, 'spine', 0, turn * 0.8, -list * 0.5);
+    addEuler(this.skel, 'chest', 0, turn * 0.7, -list * 0.3);
+    addEuler(this.skel, 'neck', 0, -turn * 0.3, -list * 0.2);
+    addEuler(this.skel, 'head', 0, -turn * 0.2, 0);
+    // The arms swing against the legs — the phase is the legs' own, so the arm
+    // is never out of step with the step, which is the whole trick of reading
+    // as walking rather than as a mannequin being slid.
+    addEuler(this.skel, 'armL', o.arm * calm, 0, 0);
+    addEuler(this.skel, 'armR', -o.arm * calm, 0, 0);
+    addEuler(this.skel, 'foreL', -o.elbowL * calm, 0, 0);
+    addEuler(this.skel, 'foreR', -o.elbowR * calm, 0, 0);
+
+    // Over the planted foot, and up and down with the step. A little lower
+    // than standing while he walks: a walking leg is never straight for long.
+    const side = o.sway * calm;
+    this.skel.rootPos[0] = Math.cos(yawR) * side;
+    const walkY = walkHeight(this.skel, MAT_Y) + o.bob - 0.018 * o.amp;
+    this.skel.rootPos[1] = this.endY + (walkY - this.endY) * calm;
+    this.skel.rootPos[2] = this.z - Math.sin(yawR) * side;
+    qEuler(this.skel.rootRot, 0, this.yaw - turn, list);
     this.skel.pose();
     // The hand on the other man's. Both reach for the same point, so wherever
     // the pose leaves the arm the two of them arrive together.
     if (this.reach > 0.01) {
       solveTwoBone(this.skel, 'armR', 'foreR', 'handR', this.reachAt, null, this.reach);
     }
-    // And letting go of both. The held feet and the lift onto the tatami are
-    // the two things about him that are not in the pose, so both fade out over
-    // the settle — otherwise the last frame of the walk is the pose plus a foot
-    // correction and the first frame of the fight is the pose, and the
-    // difference between them is a jerk every player sees, every match.
-    const air = this.feet.map((f) => f.t < 1);
-    plantFeet(this.skel, this.feet, dt, 0, this.vz, ENTRY_GAIT, this.forward, calm);
-    this.landed = this.feet.some((f, i) => air[i] && f.t >= 1);
-    groundFeet(this.skel, 0.05, calm);
+    // And the legs, onto the feet, letting go over the settle: the placed feet
+    // are the one part of him that is not in the pose, so the last frame of the
+    // walk has to be the pose and nothing else.
+    g.legs(this.skel, MAT_Y, yawR, this.forward, calm);
+    this.landed = g.landed;
     this.skel.finishSkin();
   }
 }
