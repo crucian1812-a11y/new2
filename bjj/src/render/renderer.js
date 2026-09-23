@@ -57,7 +57,15 @@ float shadowAt(vec3 world, float ndl) {
       sum += p.z - bias > d ? 0.0 : 1.0;
     }
   }
-  return sum / 25.0;
+  // Faded out towards the edge of the map rather than cut off at it. The map
+  // is a 3.8 m square round the pair; the referee stands at its edge, and
+  // only what of him is inside it casts — at arm's length from the fight
+  // that was a hand, and its shadow lay on the mat beside his feet as a
+  // black stick with no man attached. Faded, a body half in the map casts
+  // a shadow that thins away instead of one that stops.
+  vec2 e = min(p.xy, 1.0 - p.xy);
+  float edge = smoothstep(0.02, 0.2, min(e.x, e.y));
+  return mix(1.0, sum / 25.0, edge);
 }
 
 // Wrapped diffuse. Skin and a thick cotton gi both carry light around the
@@ -191,6 +199,10 @@ vec3 applyBump(vec3 N, vec3 world, vec2 uv, vec3 tn, float amount) {
 // It is the oldest trick there is and it is the right one here. A hand-drawn
 // edge does more for a figure than any amount of specular, and unlike specular
 // it does not care that the mesh under it came out of a generator.
+// How much brighter the tatami is under the pair than at the edge of the
+// light. See the pool in STATIC_FS.
+const POOL = 0.45;
+
 const OUTLINE_VS = COMMON + `
 in vec3 a_pos;
 in vec3 a_nrm;
@@ -804,6 +816,11 @@ uniform vec2 u_matEdge;    // wordmark length and height, metres
 // them as fast as he likes without touching anything that is measured.
 uniform float u_crowd;
 uniform float u_spot;
+// Where the pair is, on the floor, and how much the rig over the mat puts on
+// the tatami under them. See the pool below.
+uniform vec3 u_pool;
+// Where every foot on the mat is: the middle of the sole, and its height.
+uniform vec3 u_feet[6];
 
 // The scoreboard (Г2): the two fighters' points and the clock, drawn on the
 // jumbotron digit by digit off the scoreboard strip of the marks atlas. The
@@ -1075,6 +1092,35 @@ void main() {
   // so the only thing left to look at is the two men.
   float house = 1.0 - u_spot * (m == 0 ? 0.0 : 0.55);
   vec3 lit = shade(v_world, N, albedo, rough, spec, 0.15, ao, 1.0);
+  // The pool of light the pair stands in. A competition mat is lit from a
+  // rig straight over the fight, and the tatami under the athletes is the
+  // brightest floor in the building; round the pair it falls off within a
+  // couple of metres.
+  //
+  // It is here for a measured reason. The bloom used to start below the
+  // brightness of lit cloth, so a white kimono glowed and threw a fog two to
+  // six pixels deep round the man wearing it — +9 levels on average, +16 in
+  // the closed guard. That fog was also the only thing lifting the mat next to
+  // the dark kimonos, and without it gi-check's closed guard lost 36–41% of a
+  // black or blue jacket's edge against a line of 35. The light the fog was
+  // faking is put on the floor where it belongs, and the bloom is left to the
+  // highlights (see BRIGHT_FS).
+  if (m == 0) {
+    float r = length(v_world.xz - u_pool.xy);
+    lit *= 1.0 + u_pool.z * exp(-r * r / 1.8);
+    // And a sole's own shadow on the tatami, whether or not the key light's
+    // map reaches it. The map is a square round the pair and the referee
+    // stands at its edge: with the cut-off shadow faded out (see shadowAt)
+    // nothing put him on the floor at all. A soft dark patch the size of a
+    // foot under each sole, gone by the time the foot is a hand's height up.
+    float touch = 1.0;
+    for (int i = 0; i < 6; i++) {
+      vec2 d = v_world.xz - u_feet[i].xy;
+      float h = clamp(u_feet[i].z, 0.0, 1.0);
+      touch *= 1.0 - 0.6 * exp(-dot(d, d) / 0.035) * (1.0 - smoothstep(0.02, 0.14, h));
+    }
+    lit *= touch;
+  }
   // The haze the stands fall off into. The art direction always said "falls
   // off into haze", and what the shader did was fall off into black: tiers at
   // 0.028 and a crowd at 0.05 behind the boards, the top third of a ground
@@ -1134,7 +1180,11 @@ void main() {
   c += texture(u_src, v_uv + vec2( 1.0,  1.0) * u_texel).rgb;
   c *= 0.25;
   float l = dot(c, vec3(0.299, 0.587, 0.114));
-  o = vec4(c * smoothstep(0.75, 1.6, l), 1.0);
+  // What glows is what is brighter than lit cloth: the specular, the board,
+  // the catchlights. From 0.75 a white gi under the key light (about 1.7)
+  // bloomed whole and stood in a fog of its own; see the pool on the mat in
+  // STATIC_FS, which took over the one useful thing the fog was doing.
+  o = vec4(c * smoothstep(1.6, 2.8, l), 1.0);
 }`;
 
 const BLUR_FS = COMMON + `
@@ -1680,6 +1730,24 @@ export class Renderer {
       ARENA_MARKS.board.at, ARENA_MARKS.board.width);
     gl.uniform1f(this.progStatic.u.u_crowd, scene.crowd || 0);
     gl.uniform1f(this.progStatic.u.u_spot, scene.spot || 0);
+    // Every sole on the mat, for the contact patch under it: the middle of
+    // the foot between the ankle and the toe, and how high the ankle is off
+    // the tatami (it sits 6.7 cm up when the foot is flat).
+    const feet = this._feetU || (this._feetU = new Float32Array(18));
+    feet.fill(0);
+    for (let i = 0; i < 6; i++) feet[i * 3 + 2] = 9;
+    fighters.slice(0, 3).forEach((f, fi) => {
+      ['footL', 'footR'].forEach((b, k) => {
+        const a = f.skeleton.world[BONE_INDEX[b]], t = f.skeleton.world[BONE_INDEX[b === 'footL' ? 'toeL' : 'toeR']];
+        const o = (fi * 2 + k) * 3;
+        feet[o] = (a[12] + t[12]) / 2;
+        feet[o + 1] = (a[14] + t[14]) / 2;
+        feet[o + 2] = Math.min(a[13], t[13]) - 0.062;
+      });
+    });
+    gl.uniform3fv(this.progStatic.u.u_feet, feet);
+    gl.uniform3f(this.progStatic.u.u_pool, scene.focus ? scene.focus[0] : 0, scene.focus ? scene.focus[2] : 0,
+      scene.pool != null ? scene.pool : POOL);
     // The scoreboard: the match's own numbers, handed straight to the arena
     // shader. Whatever the scorebug says, the board over the mat says. The
     // `scoreShots` hook above overrides both numbers so one frame can be

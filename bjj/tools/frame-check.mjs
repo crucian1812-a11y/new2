@@ -49,7 +49,11 @@ const DETAIL = process.argv.includes('--detail');
 const BUDGET = {
   draws: 16,        // draw calls in a frame
   programs: 10,     // program switches
-  uniforms: 110,    // uniform uploads
+  // Raised from 110 by two, with the two in hand: the pool of light under the
+  // pair and the six soles for the contact patch on the tatami (STATIC_FS),
+  // which is what took over from the bloom fog round a white kimono and put
+  // the referee back on the floor.
+  uniforms: 112,    // uniform uploads
   tris: 360000,     // triangles submitted, shadow pass included
   passes: 14,       // framebuffer switches
 };
