@@ -28,6 +28,9 @@ const steps = [
   // the same four things anyway — the mat, each other, the supporting foot, and
   // the seam into the first frame of the fight.
   ['the walk on', 'intro-check.mjs', []],
+  // And whether it is a walk at all: knee, hip, the roll of the foot, the
+  // pelvis and the arms, held to what a gait lab reports for a person.
+  ['a walk', 'gait-check.mjs', []],
   // And the screen in front of both of them: six printed pictures of real
   // positions. This half needs no browser — it asks whether each picture is
   // inside the window the menu leaves, on every shape of glass the game runs

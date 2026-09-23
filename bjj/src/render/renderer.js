@@ -200,7 +200,11 @@ in float a_mat;
 uniform mat4 u_viewProj;
 uniform mat4 u_bones[${BONE_COUNT}];
 uniform float u_width;   // half-height of the viewport, in pixels
+// Whether this vertex belongs to the outline at all. Left out is said here and
+// acted on in the fragment shader — see OUTLINE_FS.
+out float v_keep;
 void main() {
+  v_keep = 1.0;
   // Only the big shapes get an outline.
   //
   // An inverted hull is a copy of the mesh grown along its normals, and it only
@@ -210,10 +214,7 @@ void main() {
   // and came out as a smear down the cheek. The head's silhouette is drawn by
   // the skin and the jacket underneath them, so nothing is lost by leaving
   // everything above the lapel out of it.
-  if (a_mat > 4.5) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    return;
-  }
+  if (a_mat > 4.5) v_keep = 0.0;
   // Nor hands and feet, which are skin — material 0 — and so were being inked
   // along with the rest of the body.
   //
@@ -230,10 +231,7 @@ void main() {
   if (a_wt.z > wb) { wb = a_wt.z; nb = int(a_bone.z); }
   if (a_wt.w > wb) { wb = a_wt.w; nb = int(a_bone.w); }
   if (nb == ${BONE_INDEX.handL} || nb == ${BONE_INDEX.handR} ||
-      nb == ${BONE_INDEX.footL} || nb == ${BONE_INDEX.footR}) {
-    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-    return;
-  }
+      nb == ${BONE_INDEX.footL} || nb == ${BONE_INDEX.footR}) v_keep = 0.0;
   // Four bones a vertex. The last two are the first bone at zero weight on a
   // procedural body and on any file baked before version 4, so this is the
   // same arithmetic those used to get with two terms.
@@ -271,9 +269,23 @@ void main() {
 // depth buffer says nothing about whose pixel is behind it — but a line that
 // darkens instead of replacing does not need to: against the black room it is
 // invisible either way, and against cloth it reads as the shade in a crease.
+//
+// And a vertex that is left out is left out here, not by throwing it off the
+// screen. It used to be sent to (2, 2, 2) in clip space, which removes a
+// triangle only when all three of its corners go; a triangle across the wrist
+// has a forearm corner that stays, and it was drawn stretched from the wrist
+// to the corner of the screen and cut off by the far plane — a dark plank
+// coming out of every hand, up and to the right, whenever the hands were up.
+// A player saw it as something wrong with the models. Every corner now stays
+// where it is, and a fragment of a triangle that touches a left-out corner is
+// discarded.
 const OUTLINE_FS = COMMON + `
+in float v_keep;
 out vec4 o;
-void main() { o = vec4(0.42, 0.42, 0.46, 1.0); }`;
+void main() {
+  if (v_keep < 0.999) discard;
+  o = vec4(0.42, 0.42, 0.46, 1.0);
+}`;
 
 // The club marks, sampled out of one atlas.
 //

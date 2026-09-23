@@ -494,9 +494,10 @@ function inflate(want, thickness, mat) {
     let n = outer.get(v);
     if (n !== undefined) return n;
     n = P.length / 3;
-    P.push(pos0(v, 0) + NRM0[v * 3] * thickness,
-           pos0(v, 1) + NRM0[v * 3 + 1] * thickness,
-           pos0(v, 2) + NRM0[v * 3 + 2] * thickness);
+    const th = typeof thickness === 'function' ? thickness(v) : thickness;
+    P.push(pos0(v, 0) + NRM0[v * 3] * th,
+           pos0(v, 1) + NRM0[v * 3 + 1] * th,
+           pos0(v, 2) + NRM0[v * 3 + 2] * th);
     BONE.push(BONE[v * 2], BONE[v * 2 + 1]);
     WT.push(WT[v * 2], WT[v * 2 + 1]);
     if (ACC4.has(v)) ACC4.set(P.length / 3 - 1, ACC4.get(v));
@@ -596,6 +597,42 @@ if (!NOGI) {
   console.log(sleeve.tris
     ? `sleeves: ${sleeve.tris} tris (${sleeve.hems} hem edges)`
     : 'sleeves: none needed — the character arrived in long sleeves');
+
+  // And the trouser legs, the same way, from wherever the character's own
+  // trousers stop down to the ankle.
+  //
+  // Fighter A came in cargo shorts. Recoloured they were a gi's trousers down
+  // to the middle of the shin — pocket flap and all — and under them two bare
+  // shins, which the hall's three-band shading puts in its bottom band: in a
+  // close-up the man in the white gi was wearing white shorts over black
+  // leggings, and the referee, who wears the same body, was too. A gi's
+  // trousers stop at the ankle.
+  //
+  // The shin is pushed out from where the shorts end (and a little way up
+  // inside them, so there is no gap to see through) down to the cuff, thicker
+  // at the top where it has to meet a baggy hem and thinner at the ankle where
+  // a gi's trousers are gathered. A character whose trousers already reach
+  // the ankle — fighter B's do — has no shin between the two and gets nothing.
+  const LEGS = ['shinL', 'shinR', 'thighL', 'thighR'];
+  let hemY = Infinity;
+  for (let v = 0; v < MAT.length; v++) {
+    if (MAT[v] !== 2) continue;
+    const b = boneName(v);
+    if (b === 'shinL' || b === 'shinR') hemY = Math.min(hemY, P[v * 3 + 1]);
+  }
+  if (!Number.isFinite(hemY)) hemY = cuffY;
+  const legTop = hemY + 0.08;
+  const legs = hemY > cuffY + 0.04 ? inflate(
+    (v) => LEGS.includes(boneName(v)) && P[v * 3 + 1] > cuffY && P[v * 3 + 1] < legTop,
+    (v) => {
+      const u = Math.min(1, Math.max(0, (P[v * 3 + 1] - cuffY) / Math.max(0.01, hemY - cuffY)));
+      return 0.02 + 0.022 * u;
+    },
+    2
+  ) : { tris: 0, hems: 0 };
+  console.log(legs.tris
+    ? `trouser legs: ${legs.tris} tris from ${(hemY * 100).toFixed(0)} cm down to the cuff (${legs.hems} hem edges)`
+    : 'trouser legs: none needed — the character arrived in long trousers');
 
   // The belt and the skirt are measured onto the jacket, not assumed.
   //
