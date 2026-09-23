@@ -8,7 +8,7 @@ import { PairRig } from './game/rig.js';
 import { BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME } from './game/match.js';
 import { seedRandom } from './game/rng.js';
-import { AI } from './game/ai.js';
+import { AI, STYLE_OF } from './game/ai.js';
 import { Skills } from './game/skills.js';
 import { Drill, drillOrder, ROUNDS, REPS, NEED } from './game/drills.js';
 import { Tutorial } from './game/tutorial.js';
@@ -335,7 +335,11 @@ const ROSTER = {
 // the man who wears it. One list the HUD can draw and hit-test without knowing
 // the ladder's internals.
 const BELT_LABEL = { white: 'БЕЛЫЙ', blue: 'СИНИЙ', purple: 'ПУРПУРНЫЙ', brown: 'КОРИЧНЕВЫЙ', black: 'ЧЁРНЫЙ' };
-const MENU_BELTS = LADDER.map((b) => ({ name: b, label: BELT_LABEL[b], col: BELT_COL[b], man: ROSTER[b].name }));
+// How each of them fights, in the words a coach would use. The style itself
+// lives with the AI (STYLE_OF in ai.js); this is only what it is called.
+const STYLE_LABEL = { wrestler: 'борец', guard: 'гардовый', escape: 'выворотливый', pressure: 'давит сверху', finisher: 'добивает' };
+const MENU_BELTS = LADDER.map((b) => ({ name: b, label: BELT_LABEL[b], col: BELT_COL[b], man: ROSTER[b].name,
+  style: STYLE_LABEL[STYLE_OF[b]] }));
 const TIMES = [3, 5, 10];
 
 // What the player has drilled, and the room they drill it in.

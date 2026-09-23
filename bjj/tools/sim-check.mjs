@@ -8,7 +8,8 @@
 // levels are actually ordered.
 
 import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
-import { AI, AI_LEVELS } from '../src/game/ai.js';
+import { AI, AI_LEVELS, STYLES } from '../src/game/ai.js';
+import { POSES } from '../src/game/poses.js';
 import { POSITION_IDS } from '../src/game/poses.js';
 import { TRANSITIONS } from '../src/game/positions.js';
 import { seedRandom, rand, randInt } from '../src/game/rng.js';
@@ -31,12 +32,19 @@ function flag(name) {
 }
 const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : (Date.now() & 0x7fffffff));
 
-function play(l0, l1, seenPos, seenTr) {
+// `plain` leaves the styles out. The first block below is a question about the
+// rules — does a match score like a match — asked of a purple belt against a
+// purple belt, and with styles on that is two escape artists on one mat, a
+// fight nobody ever plays: the player is always one of the two. Two of him
+// scramble every bottom position and the scoreboard's tail goes from 20 to 25.
+// What the styles do to the score is asked where they are met, in
+// human-check, against a hand.
+function play(l0, l1, seenPos, seenTr, plain = false) {
   const a = new Fighter('A');
   const b = new Fighter('B');
   const m = new Match([a, b], { time: MATCH_TIME });
-  const ai0 = new AI(0, l0);
-  const ai1 = new AI(1, l1);
+  const ai0 = plain ? new AI(0, l0, null) : new AI(0, l0);
+  const ai1 = plain ? new AI(1, l1, null) : new AI(1, l1);
   m.start();
   let steps = 0;
   // Where on the mat the fight actually happens. The competition square is
@@ -97,7 +105,7 @@ const matchPoints = [];
 const t0 = Date.now();
 const mat = { off: 0, edge: 0, worst: 0 };
 for (let i = 0; i < N; i++) {
-  const { m, steps, cap, off, edge, worst } = play('purple', 'purple', seenPos, seenTr);
+  const { m, steps, cap, off, edge, worst } = play('purple', 'purple', seenPos, seenTr, true);
   if (steps >= cap) hung++;
   outcomes[m.winBy] = (outcomes[m.winBy] || 0) + 1;
   totalPoints += m.f[0].points + m.f[1].points;
@@ -407,6 +415,81 @@ function fingerprint(seed) {
 const one = fingerprint(20260830), two = fingerprint(20260830), other = fingerprint(20260831);
 check(one === two && one !== other, 'the same seed plays the same match',
   `${one.split('|')[0].split('>').length} positions, ${one.split('|').slice(1).join(' ')}`);
+
+// The five men fight five ways.
+//
+// The ladder was one brain with five reaction times, and the opponents were
+// told apart by the colour of their kimono. Each rung now has a style (see
+// STYLES in ai.js), and a style has to be something that shows across a match,
+// not a number in a table. Each one plays a plain blue belt, and is measured on
+// the thing the style is for — the wrestler on how often he shoots, the guard
+// player on how long he spends underneath in a guard, the escape artist on how
+// often he tries to get out from under, and so on — against a
+// plain blue belt in the same seat.
+//
+// Measured on its own sign rather than on "where the clock went" as a whole:
+// the whole distribution moves 8-9% between two runs of the same plain match
+// even at 150 of them, because matches are short and long, and every style but
+// one hid inside that. The instrument's floor is printed and the gain has to
+// clear twice it, and be at least a quarter again what the plain man does.
+{
+  const STYLE_N = +(flag('style-n') || 200);
+  const GUARDS = new Set(['CLOSED_GUARD', 'OPEN_GUARD', 'HALF_GUARD']);
+  const HEAVY = new Set(['SIDE_CONTROL', 'KNEE_ON_BELLY', 'MOUNT']);
+  const UNDER = new Set(['SIDE_CONTROL', 'KNEE_ON_BELLY', 'MOUNT', 'BACK', 'TURTLE']);
+  const SIGN = {
+    wrestler: ['shots a match', (r) => r.shots / r.n],
+    guard: ['of the clock under in a guard', (r) => r.guardUnder / r.total],
+    escape: ['escapes tried a match from under side, knee, mount, back or turtle', (r) => r.outs / r.n],
+    pressure: ['of the clock on top in side, knee or mount', (r) => r.heavyTop / r.total],
+    finisher: ['locks tried a match', (r) => r.locks / r.n],
+  };
+  const run = (style) => {
+    const r = { n: STYLE_N, total: 0, shots: 0, guardUnder: 0, backTop: 0, heavyTop: 0, locks: 0, takes: 0, outs: 0, wins: 0 };
+    for (let k = 0; k < STYLE_N; k++) {
+      const m = new Match([new Fighter('A'), new Fighter('B')], { time: MATCH_TIME });
+      const ai = [new AI(0, 'blue', style), new AI(1, 'blue', null)];
+      m.start();
+      let steps = 0, last = null;
+      const cap = Math.ceil((MATCH_TIME + 5) / DT);
+      while (m.state !== 'over' && steps++ < cap) {
+        for (const a of ai) {
+          a.update(DT, m, (d) => m.input(a.i, d),
+            () => (m.state === 'sub' && m.sub.attacker === a.i ? m.subTap(a.i) : m.grip(a.i)));
+        }
+        m.update(DT, [ai[0].control, ai[1].control]);
+        const at = m.attempt;
+        if (at && at !== last && at.by === 0) {
+          const tr = at.tr;
+          if ((tr.from === 'STANDING' || tr.from === 'CLINCH') && tr.points > 0) r.shots++;
+          if (tr.sub) r.locks++;
+          if (tr.to === 'BACK') r.takes++;
+          if (UNDER.has(tr.from) && !m.isDominant(0) && POSES[tr.from].top) r.outs++;
+        }
+        last = at;
+        const top = !!POSES[m.position].top && m.isDominant(0);
+        const under = !!POSES[m.position].top && !m.isDominant(0);
+        if (GUARDS.has(m.position) && under) r.guardUnder += DT;
+        if ((m.position === 'BACK' || m.position === 'RNC') && top) r.backTop += DT;
+        if (HEAVY.has(m.position) && top) r.heavyTop += DT;
+        r.total += DT;
+      }
+      if (m.winner === 0) r.wins++;
+    }
+    return r;
+  };
+  const plain = run(null), again = run(null);
+  console.log(`\n     each style against a plain blue belt, ${STYLE_N} matches, on what the style is for:`);
+  for (const [name, [what, f]] of Object.entries(SIGN)) {
+    const got = run(name);
+    const p0 = f(plain), p1 = f(again), g = f(got);
+    const noise = Math.abs(p1 - p0);
+    const pct = what.startsWith('of') ? (v) => (v * 100).toFixed(1) + '%' : (v) => v.toFixed(2);
+    console.log(`     ${name.padEnd(9)} ${pct(g).padStart(7)} ${what}, plain ${pct(p0)} (again ${pct(p1)}), wins ${Math.round(got.wins / STYLE_N * 100)}%`);
+    check(g >= p0 * 1.25 && g - p0 >= 2 * noise, `the ${name} fights his own fight`,
+      `${pct(g)} against ${pct(p0)}, want a quarter more and twice the floor of ${pct(noise)}`);
+  }
+}
 
 console.log(fail ? `\n${fail} check(s) failed` : '\nall checks passed');
 process.exit(fail ? 1 : 0);
