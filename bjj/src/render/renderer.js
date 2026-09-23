@@ -654,7 +654,7 @@ void main() {
     //
     // The UV here is the body's own cylindrical map: u runs round the body
     // with the back at about -1.88, v runs up it at eight units to the metre.
-    if (m != 3) {
+    if (m != 3 && m != 4) {
       float back = 1.0 - smoothstep(0.25, 1.15, abs(abs(v_uv.x) - 1.88));
       float pit = smoothstep(0.35, 1.0, abs(v_uv.x)) * (1.0 - smoothstep(1.0, 1.7, abs(v_uv.x)));
       float up = smoothstep(6.6, 8.4, v_uv.y) * (1.0 - smoothstep(10.6, 11.6, v_uv.y));
@@ -667,7 +667,30 @@ void main() {
     // The collar is a doubled and quilted strip and it reads darker than the
     // jacket, not lighter. Painted brighter it vanished into the chest, and the
     // V is most of what says gi rather than pyjamas at any distance.
-    if (m == 4) base *= 0.86;
+    //
+    // 0.8, not the 0.86 it was: the collar was buried inside the chest until
+    // the baker's ring learned to measure at chest height, and once it came
+    // out, on a blue jacket it was ΔE 7 from the cloth round it — a lapel you
+    // could find only if you knew it was there (tools/gi-check.mjs).
+    //
+    // Darker reads on a light gi and on nothing else: on the black belt's
+    // kimono a darker collar was ΔE 1 from the jacket. A dark lapel is found
+    // the way it is in the hall — the doubled, quilted strip is smoother than
+    // the weave beside it and catches the light — so on dark cloth it is lifted
+    // towards grey instead, and it takes a harder highlight below.
+    if (m == 4) {
+      float lum4 = dot(base, vec3(0.299, 0.587, 0.114));
+      base = base * 0.8 + vec3(0.07) * (1.0 - smoothstep(0.12, 0.35, lum4));
+      // And its thickness. The baker gives the collar its own coordinates —
+      // u across the strip, -1 to 1, v down it — so it can be drawn the way a
+      // lapel on a coloured kimono is seen at all: a shadow under each edge
+      // where the doubled cloth stands off the jacket, and a quilted ridge
+      // down the middle that catches the light. Measured against the cloth
+      // beside it, a plain darker strip on a blue jacket in shade was ΔE 3.
+      float across = clamp(abs(v_uv.x), 0.0, 1.0);
+      base *= (1.0 - 0.55 * smoothstep(0.55, 0.95, across))
+            * (1.0 + 0.25 * (1.0 - smoothstep(0.0, 0.5, across)));
+    }
     albedo = base * t.a;
 
     // Patches. The baker's UV runs round the body — the middle of the chest is
@@ -688,8 +711,8 @@ void main() {
     // Light does not reach the bottom of a crease. This is the half of a fold
     // that survives at distance, after the normal has stopped being resolvable.
     albedo *= 1.0 - max(0.0, -fold) * (0.16 + 0.14 * v_bend);
-    rough = mix(m == 3 ? 0.74 : 0.88, 0.36, wetGi);
-    spec = mix(m == 3 ? 0.14 : 0.12, 0.46, wetGi);
+    rough = mix(m == 3 ? 0.74 : m == 4 ? 0.62 : 0.88, 0.36, wetGi);
+    spec = mix(m == 3 ? 0.14 : m == 4 ? 0.2 : 0.12, 0.46, wetGi);
     wrap = 0.32;
   }
 
