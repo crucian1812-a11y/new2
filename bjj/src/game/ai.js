@@ -13,15 +13,19 @@
 import { optionsFor } from './positions.js';
 import { POSES } from './poses.js';
 import { rand, randInt } from './rng.js';
-import { CHAIN_AFTER } from './match.js';
+import { CHAIN_AFTER, FEINT_BEFORE } from './match.js';
 
+// `feint` is how often he throws an attack to take it back (see _feint in
+// match.js): a white belt means everything he starts, a black belt sells one
+// in six.
 const LEVELS = {
-  white: { react: 0.62, read: 0.24, aggression: 0.5, patience: 1.5, tapSkill: 0.4 },
-  blue: { react: 0.46, read: 0.4, aggression: 0.62, patience: 1.15, tapSkill: 0.58 },
-  purple: { react: 0.34, read: 0.55, aggression: 0.72, patience: 0.9, tapSkill: 0.72 },
-  brown: { react: 0.26, read: 0.66, aggression: 0.8, patience: 0.75, tapSkill: 0.82 },
-  black: { react: 0.19, read: 0.78, aggression: 0.88, patience: 0.6, tapSkill: 0.92 },
+  white: { react: 0.62, read: 0.24, aggression: 0.5, patience: 1.5, tapSkill: 0.4, feint: 0.04 },
+  blue: { react: 0.46, read: 0.4, aggression: 0.62, patience: 1.15, tapSkill: 0.58, feint: 0.08 },
+  purple: { react: 0.34, read: 0.55, aggression: 0.72, patience: 0.9, tapSkill: 0.72, feint: 0.12 },
+  brown: { react: 0.26, read: 0.66, aggression: 0.8, patience: 0.75, tapSkill: 0.82, feint: 0.15 },
+  black: { react: 0.19, read: 0.78, aggression: 0.88, patience: 0.6, tapSkill: 0.92, feint: 0.18 },
 };
+const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
 
 // How much the AI wants to be in each position — [on top, underneath]. The
 // two numbers are the entire strategy, and they have to be two numbers: a
@@ -175,6 +179,7 @@ export class AI {
     // hands: collar, sleeve, posture, and only then somebody commits. Starting
     // the commitment clock part-wound is the whole of it, and it is where most
     // of the standing time in a match actually comes from.
+    this.feint = null;
     this.commit = (7 + rand() * 7) * ((this.style && this.style.pace && this.style.pace.STANDING) || 1);
     this.control = { mx: 0, mz: 0, turn: 0, drive: 0 };
     this.wander = rand() * 10;
@@ -242,11 +247,32 @@ export class AI {
 
     if (match.state === 'over') return;
 
+    /* --- selling a feint ------------------------------------------------ */
+    // An attack he meant to take back, at the moment he chose when he threw
+    // it — and then he goes again soon, into a man who may be off balance.
+    const own = match.attempt && match.attempt.by === this.i ? match.attempt : null;
+    if (this.feint && own === this.feint.of && own.t >= this.feint.at) {
+      this.feint = null;
+      onFlick(OPPOSITE[own.tr.dir]);
+      this.commit = 0.3 + rand() * 0.4;
+      this.think = 0;
+      return;
+    }
+    if (this.feint && own !== this.feint.of) this.feint = null;
+
     /* --- answering a threat --------------------------------------------- */
     const threat = match.attempt && match.attempt.defender === this.i && match.deny;
     if (threat) {
       if (this.reactTimer < 0) {
         this.reactTimer = this.level.react * (0.7 + rand() * 0.6);
+        // And whether he moves at once or waits to see it is real. A man who
+        // moves on the first twitch is the man a feint catches; the better he
+        // reads, the more often he lets the first half go by — and pays for
+        // it in time left to answer.
+        const a = match.attempt;
+        if (rand() < this.level.read * 0.5) {
+          this.reactTimer = Math.max(this.reactTimer, a.tr.time * FEINT_BEFORE - a.t + 0.02);
+        }
         // The read. On a hit it answers correctly; on a miss it picks any
         // other direction, which is worse than doing nothing — as it should be.
         const right = rand() < this.level.read * (0.6 + me.posture / 250);
@@ -389,6 +415,10 @@ export class AI {
     // man hunting the same choke over and over instead of a position.
     this.commit = 7.0 * (1.3 - this.level.aggression * 0.6) * (0.7 + rand() * 0.6) * this._pace(match);
     onFlick(best.tr.dir);
+    // Some of what he throws he means to take back.
+    if (match.attempt && match.attempt.by === this.i && rand() < this.level.feint) {
+      this.feint = { of: match.attempt, at: match.attempt.tr.time * (0.2 + rand() * 0.2) };
+    }
   }
 
   // Whether he fights hands from here, this time. Everybody does, except the

@@ -59,7 +59,8 @@ function play(level, style) {
   return m;
 }
 
-const BUCKETS = ['go', 'queued', 'chained', 'none', 'nostam', 'deny', 'deny-miss', 'escape', 'escape-miss'];
+const BUCKETS = ['go', 'queued', 'chained', 'none', 'nostam', 'deny', 'deny-miss', 'escape', 'escape-miss',
+  'feint', 'feint-bit', 'bitten'];
 
 let worst = 0, lines = 0, empty = 0, longest = 0, longestLine = '';
 let badDrill = 0;

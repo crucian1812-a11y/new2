@@ -129,6 +129,13 @@ const GRIP_READ = 2.2;
 // The left thumb's base: stamina a second at full lean (paid on the square of
 // the lean), posture a second taken from the man underneath, and posture a
 // second given back to your own frames. See _stamina.
+// The feint: how early in his own attack a man can take it back (as a share of
+// the move's time), how long a defender who bit on it is out of the fight, and
+// what the bite costs his posture. See _feint.
+export const FEINT_BEFORE = 0.5;
+export const FEINT_LOCK = 1.0;
+const FEINT_POSTURE = 15;
+const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
 export const BASE_COST = 3;
 export const BASE_PRESS = 14;
 export const BASE_FRAME = 8;
@@ -203,6 +210,9 @@ export class Match {
     this.deny = null;
     this.sub = null;
     this.cool = [0, 0];
+    // How long each man is still off balance from biting on a feint: while it
+    // runs he cannot answer an attack. See _feint.
+    this.bitLock = [0, 0];
     // How long each cooldown was when it started, so the ring can draw how much
     // of it is left rather than guessing against a constant. They run from 0.18
     // after somebody else's move to 0.9 after a submission comes apart, and a
@@ -349,6 +359,14 @@ export class Match {
     }
     if (this.state !== 'live') return null;
 
+    // The feint: the way back, early in your own attack.
+    if (this.attempt && this.attempt.by === i && dir === OPPOSITE[this.attempt.tr.dir]
+        && this.attempt.t < this.attempt.tr.time * FEINT_BEFORE) {
+      const r = this._feint(i);
+      if (i === 0) this._tape('press', { dir, res: r });
+      return r;
+    }
+
     // A press the game cannot use *yet* is remembered, not thrown away.
     //
     // Two things block a flick for a moment and both used to swallow it in
@@ -447,9 +465,48 @@ export class Match {
     return tr;
   }
 
+  // A man taking his own attack back.
+  //
+  // Defence in this game was a reaction test: an attack starts, the prompt
+  // comes up, whoever gets there first wins. Nothing in it could be *read*,
+  // because an attack that had started was always the attack. A feint is the
+  // first thing that makes the defender choose when to move rather than only
+  // how fast: flick in the first half of an attack the opposite way it was
+  // thrown, and it is gone. If the other man had already moved to stop it —
+  // right way or wrong — he bit: his posture pays, and for FEINT_LOCK he
+  // cannot answer anything, which is the moment to go again. If he had not,
+  // it was a free look and a little gas. The man who waits past the half is
+  // the man a feint cannot touch, and he has less time left to answer the
+  // real thing. That trade is the whole point.
+  _feint(i) {
+    const a = this.attempt;
+    const me = this.f[i];
+    const you = this.f[a.defender];
+    this.attempt = null;
+    this.deny = null;
+    this._tape('try', { by: i, name: a.tr.name, res: 'feint' });
+    // Half of what the start charged comes back; a feint is not free.
+    me.stamina = clamp(me.stamina + a.tr.cost * 0.2, 0, 100);
+    if (a.bit) {
+      you.posture = clamp(you.posture - FEINT_POSTURE, 0, 100);
+      this.bitLock[a.defender] = FEINT_LOCK;
+      this.emit(`${you.name}: купился на финт`, 'warn');
+    } else {
+      this.emit(`${me.name}: финт`, 'info');
+    }
+    this.onEvent({ kind: 'feint', by: i, bit: !!a.bit });
+    // Back to where they were, and ready again almost at once.
+    this._snapBack(i, 0.15);
+    return a.bit ? 'feint-bit' : 'feint';
+  }
+
   _tryDeny(i, dir) {
     const a = this.attempt;
     if (!a || !this.deny || this.deny.t > this.deny.window) return null;
+    // Still off balance from the last feint: the flick goes nowhere.
+    if (this.bitLock[i] > 0) return 'bitten';
+    // Whichever way it went, he has moved: a feint now catches him moving.
+    a.bit = true;
     if (dir !== this.deny.dir) {
       // A wrong read costs you: you have committed weight the wrong way.
       this.f[i].stamina = clamp(this.f[i].stamina - 5, 0, 100);
@@ -578,6 +635,7 @@ export class Match {
     this.posT += dt;
 
     for (let i = 0; i < 2; i++) this.cool[i] = Math.max(0, this.cool[i] - dt);
+    for (let i = 0; i < 2; i++) this.bitLock[i] = Math.max(0, this.bitLock[i] - dt);
     for (let i = 0; i < 2; i++) this.gripAdv[i] = Math.max(0, this.gripAdv[i] - dt * 0.16);
     for (let i = 0; i < 2; i++) this.gripFight[i] = Math.max(0, this.gripFight[i] - dt / 0.55);
 
@@ -1554,6 +1612,9 @@ export class Match {
       queued: n('queued'), chained: n('chained'), none: n('none'), nostam: n('nostam'),
       escape: n('escape'), escapeMiss: n('escape-miss'),
       denyOk: n('deny'), denyMiss: n('deny-miss'),
+      // The feint, both ways: the ones he sold, the ones the other man bought,
+      // and the flicks he threw while still off balance from buying one.
+      feints: n('feint') + n('feint-bit'), feintsBit: n('feint-bit'), bitten: n('bitten'),
       threats: threats.length, answerable,
       arrived: mine('arrive').length,
       held: mine('paid').length,

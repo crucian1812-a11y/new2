@@ -30,7 +30,8 @@
 // a white belt more often than it loses. A game whose first opponent cannot be
 // beaten by a person is not a difficulty setting, it is a wall.
 
-import { Match, Fighter, MATCH_TIME } from '../src/game/match.js';
+import { Match, Fighter, MATCH_TIME, FEINT_BEFORE } from '../src/game/match.js';
+const OPPOSITE = { up: 'down', down: 'up', left: 'right', right: 'left' };
 import { AI } from '../src/game/ai.js';
 import { DIRS } from '../src/game/positions.js';
 import { seedRandom, rand, randInt } from '../src/game/rng.js';
@@ -123,8 +124,10 @@ const late = () => Math.max(0.05, (CFG.react + gauss(CFG.jitter)) / 1000);
 //   · the ring is free -> he thinks for a beat, then takes a move by his plan.
 //   · a lock -> he taps at the beat he can see coming, or swipes the way out.
 class Hand {
-  constructor(plan, greenAt = 0.6) {
+  constructor(plan, greenAt = 0.6, patient = false, feintRate = 0) {
     this.plan = plan;
+    this.patient = patient;
+    this.feintRate = feintRate;
     this.greenAt = greenAt;   // the 'green' plan's line for going for the finish
     this.focus = null;    // what he is currently looking at
     this.timer = -1;      // seconds until the thumb lands
@@ -137,6 +140,23 @@ class Hand {
 
   update(dt, m) {
     if (m.state === 'over') return;
+    // A feint it planned when it threw the attack, and the real one after.
+    if (this.feintPlan) {
+      const f = this.feintPlan;
+      if (m.attempt === f.of && m.attempt.t >= f.at) {
+        m.input(0, OPPOSITE[f.of.tr.dir]);
+        this.feintPlan = null;
+        this.again = { dir: f.again, t: 0.18 };
+      } else if (m.attempt !== f.of) this.feintPlan = null;
+    }
+    if (this.again) {
+      this.again.t -= dt;
+      if (this.again.t <= 0) {
+        const d = this.again.dir;
+        this.again = null;
+        if (m.options(0)[d]) { m.input(0, d); return; }
+      }
+    }
 
     if (m.state === 'sub') return this._sub(dt, m);
 
@@ -146,6 +166,11 @@ class Hand {
       if (this.what !== 'deny') {
         this.what = 'deny';
         this.timer = late() + this._turnTo('deny');
+        // A patient hand lets the first half of an attack go by before it
+        // moves, because the first half is where a feint lives.
+        if (this.patient && m.attempt) {
+          this.timer = Math.max(this.timer, m.attempt.tr.time * FEINT_BEFORE - m.attempt.t + 0.03);
+        }
         // He can only pick from what he was shown. One door is a read, two is
         // a coin, four is a guess — which is exactly what denyRead promises.
         this.dir = read[randInt(read.length)];
@@ -195,7 +220,15 @@ class Hand {
     if (!dirs.length) return;
     const pv = m.preview(0);
     const pick = this._choose(dirs, pv, m);
-    if (pick) m.input(0, pick);
+    if (pick) {
+      m.input(0, pick);
+      // A feinting hand sells some of its attacks: it plans the take-back
+      // when it throws, so there is no reaction in it, and the real one is
+      // queued right behind.
+      if (this.feintRate && m.attempt && m.attempt.by === 0 && rand() < this.feintRate) {
+        this.feintPlan = { of: m.attempt, at: m.attempt.tr.time * 0.35, again: pick };
+      }
+    }
     // And a hand on the collar between moves, because that is what the other
     // pad is for and a player who never touches it is not the player to
     // measure. Not every beat: it is a second thing to think about.
@@ -266,12 +299,13 @@ class Hand {
 
 /* --------------------------------------------------------------------- run */
 
-function play(level, plan, drive = CFG.drive, greenAt = 0.6) {
+function play(level, plan, drive = CFG.drive, greenAt = 0.6, opts = {}) {
   const m = new Match([new Fighter('вы'), new Fighter('соперник')],
     { time: MATCH_TIME, ...(CFG.window ? { denyWindow: +CFG.window } : {}),
       ...(CFG.skill ? { skill: (tr, by) => (by === 0 ? 1 + SKILL_STEP * CFG.skill : 1) } : {}) });
   const ai = new AI(1, level);
-  const hand = new Hand(plan, greenAt);
+  if (opts.noFeint) ai.level = { ...ai.level, feint: 0 };
+  const hand = new Hand(plan, greenAt, !!opts.patient, opts.feint || 0);
   m.start();
   const dt = 1 / 60;
   for (let t = 0; t < MATCH_TIME + 1 && m.state !== 'over'; t += dt) {
@@ -412,6 +446,41 @@ BANDS.forEach(([name, lo, hi], k) => {
     check(a < g, `and a finish on amber costs more than one on green against ${belt}`,
       `${Math.round(a * 100)}% against ${Math.round(g * 100)}%`);
   }
+}
+
+// The feint (see _feint in match.js): a weapon against a fast man.
+//
+// It was written as a way to make a defender read rather than react, and the
+// first measurement said otherwise: against a person it does nothing at all.
+// The ladder takes its attacks back at a fifth to two fifths of the way in, and
+// a hand that needs 450 ms and a turn of the head has not moved yet — it cannot
+// bite on what it has not started answering (blue 76% → 75%, black 30% → 29%,
+// and a hand that waits out the half the same). What does bite is a man who
+// moves in 190 ms, which is a black belt. So it is the player's tool against
+// the top of the ladder, and that is what is held here: a hand that sells a
+// third of its attacks and goes again at once wins more against the fast belts
+// and nothing against a white belt too slow to bite, and the ladder's own
+// feints leave a person's results where they were.
+{
+  const M = +(flag('feint-n') || 200);
+  const pc = (v) => Math.round(v * 100) + '%';
+  const rate = (belt, o) => {
+    let k = 0;
+    for (let i = 0; i < M; i++) if (play(belt, CFG.plan, CFG.drive, 0.6, o).winner === 0) k++;
+    return k / M;
+  };
+  console.log(`\n     the feint, ${M} matches a cell:`);
+  for (const belt of ['white', 'brown', 'black']) {
+    const plain = rate(belt, {}), sell = rate(belt, { feint: 0.33 });
+    console.log(`     ${belt.padEnd(6)} a hand that never feints ${pc(plain)}, one that sells a third ${pc(sell)}`);
+    if (belt === 'white') check(sell <= plain + 0.02, 'a white belt is too slow to bite', `${pc(plain)} → ${pc(sell)}: selling to a man who will not buy is gas thrown away`);
+    else check(sell >= plain + 0.05, `a feint beats a fast ${belt} belt`, `${pc(plain)} → ${pc(sell)}, want 5 points more`);
+  }
+  const off = rate('black', { noFeint: true }), on = rate('black', {});
+  console.log(`     the black belt's own feints against the hand: off ${pc(off)}, on ${pc(on)}`);
+  // One-sided: a feint a person cannot bite on only costs the man who sells
+  // it, and the black belt's own come out a few points in the hand's favour.
+  check(on >= off - 0.04, 'and the ladder\'s feints do not make defence a lottery', `${pc(off)} → ${pc(on)}`);
 }
 
 // The left thumb has to be worth using.

@@ -8,7 +8,10 @@
 // so the score lives at the top and the transition ring is drawn around the
 // thumb rather than under it.
 
+import { FEINT_BEFORE } from '../game/match.js';
+
 const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif';
+const OPPOSITE_DIR = { up: 'down', down: 'up', left: 'right', right: 'left' };
 
 const DIR_VEC = {
   up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0],
@@ -302,6 +305,28 @@ export class HUD {
       const on = threat ? read.includes(dir) : !!tr;
       const ready = threat ? on : (on && !!opts[dir]);
       const mine = buffered === dir;
+      // The way back out of your own attack, while there still is one. The
+      // opposite button is the feint (see _feint in match.js): bright, gold,
+      // and named, because a move nobody is told about is a move nobody makes.
+      const own = m.attempt && m.attempt.by === 0 ? m.attempt : null;
+      const feintHere = !!own && dir === OPPOSITE_DIR[own.tr.dir] && own.t < own.tr.time * FEINT_BEFORE;
+      if (feintHere) {
+        c.globalAlpha = 1;
+        const rr0 = R * 0.3;
+        c.beginPath();
+        c.arc(x, y, rr0, 0, Math.PI * 2);
+        c.fillStyle = 'rgba(40,32,8,0.85)';
+        c.fill();
+        c.strokeStyle = '#ffd166';
+        c.lineWidth = 2.5;
+        c.stroke();
+        arrow(c, x, y, dx, dy, '#ffd166', R * 0.15);
+        c.font = `800 10px ${FONT}`;
+        c.fillStyle = '#ffd166';
+        c.textAlign = 'center';
+        c.fillText('ФИНТ', x, dy > 0 ? y + rr0 + 12 : y - rr0 - 8);
+        continue;
+      }
       c.globalAlpha = (m.attempt && !threat ? 0.5 : 1) * (on && !ready ? 0.45 : 1);
 
       const rr = R * 0.3;
