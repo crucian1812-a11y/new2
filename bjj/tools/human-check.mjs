@@ -68,7 +68,29 @@ const CFG = {
   // white belt 88% of the time, the one that held the base 44%. See the sweep
   // at the bottom.
   drive: +flag('drive', 0.3),
+  // How many times a hand has to see a move answered with the arrow up before
+  // it knows the answer without it. 0 is a hand that never learns.
+  //
+  // Every move has one answer (tr.deny), and its name is on the attempt bar
+  // whether or not the arrow is, so the blind prompt is only blind to a
+  // player who has not learned the table. Measured, 200 matches a belt:
+  //   never learns                 one of four 25%, one of two 45%
+  //   --learn 2                    42% and 71%; ladder 91/79/61/37
+  //   --learn 2 --told             98% and 96%; ladder 100/100/100/98
+  //   --learn 2 --told random      97%; a random hand wins 86-100%
+  // So the answer cannot simply be taught — told after every blind attack,
+  // a learner reads everything and defence is free again, the failure the
+  // hidden arrow was put in to stop. Reading has to have something left to
+  // read: see И-4 in docs/CRITIQUE.md.
+  learn: +flag('learn', 0),
+  // Whether the game tells him afterwards what a blind attack was and which
+  // way it went, so that it counts towards what he has seen.
+  told: args.includes('--told'),
 };
+// What the hand has seen answered, by move, over the whole run.
+const SEEN = new Map();
+// Threats by how many doors the prompt showed, and how many were answered.
+const DOORS = { 1: [0, 0], 2: [0, 0], 4: [0, 0] };
 const WHY = args.includes('--why');
 const SEED = seedRandom(flag('seed') !== null ? Number(flag('seed')) | 0 : 20260903);
 
@@ -127,12 +149,32 @@ class Hand {
         // He can only pick from what he was shown. One door is a read, two is
         // a coin, four is a guess — which is exactly what denyRead promises.
         this.dir = read[randInt(read.length)];
+        // A hand that remembers. Every move has one answer (tr.deny), and its
+        // name is on the attempt bar whether or not the arrow is: a player who
+        // has seen a move answered with the arrow up LEARN times knows which
+        // way it goes when the arrow is not there. Memory is kept for the
+        // whole run, the way a player carries it from match to match.
+        if (CFG.learn && m.attempt && read.length > 1 &&
+            (SEEN.get(m.attempt.tr.name) || 0) >= CFG.learn && read.includes(m.attempt.tr.deny)) {
+          this.dir = m.attempt.tr.deny;
+        }
+        const D = DOORS[read.length];
+        D[0]++;
+        this.pendingDeny = { n: read.length, att: m.attempt };
       }
       this.timer -= dt;
       if (this.timer <= 0 && this.dir) { m.input(0, this.dir); this.dir = null; }
       return;
     }
     if (this.what === 'deny') { this.what = null; this.timer = -1; this.dir = null; }
+    if (this.pendingDeny && (!m.attempt || m.attempt !== this.pendingDeny.att)) {
+      const p = this.pendingDeny;
+      if (p.att.denied) DOORS[p.n][1]++;
+      // What he learned from it: the answer, if the arrow showed it or if the
+      // game said so afterwards.
+      if (p.n === 1 || CFG.told) SEEN.set(p.att.tr.name, (SEEN.get(p.att.tr.name) || 0) + 1);
+      this.pendingDeny = null;
+    }
 
     if (m.state !== 'live') return;
 
@@ -294,6 +336,8 @@ for (const r of rows) {
     (r.draws ? `   ничьих ${Math.round(r.draws / N * 100)}%` : ''));
 }
 console.log(`\n     ${rows.length * N} matches in ${ms}ms`);
+console.log('     answered, by how much the prompt showed: ' +
+  Object.entries(DOORS).map(([k, [n, ok]]) => `${k === '1' ? 'the arrow' : k === '2' ? 'one of two' : 'one of four'} ${Math.round(ok / Math.max(1, n) * 100)}% of ${n}`).join(', '));
 
 if (WHY) {
   console.log('\n     per match, what the hand did:');
