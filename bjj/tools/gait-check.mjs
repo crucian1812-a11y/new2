@@ -203,5 +203,112 @@ for (const who of ['a', 'b']) {
   }
 }
 
+// And the referee, who walks for the whole match and was on step.js's planter
+// until this round: the sole rode the shin, 7° off flat on a planted foot in
+// the middle and 15° at the ninetieth percentile. He is driven the way
+// pose-check drives him — the fight moving off at 0.9 m/s and back at 0.6 —
+// and he walks partly sideways, because he faces the fight and not where he is
+// going, so only what a walk in any direction must do is held here.
+{
+  const { Referee } = await import('../src/game/referee.js');
+  const ref = new Referee();
+  const origin = [0, 0, 0];
+  const FLAT = Math.atan2(-0.055, 0.15) * R;
+  const last = {};
+  let offFlat = [], both = 0, lo = 9, worst = 0, where = '', frames = 0, knee = 0;
+  const hist = [];
+  for (let i = 0; i < 900; i++) {
+    origin[0] += (i < 300 ? 0.9 : i < 600 ? -0.6 : 0) * DT;
+    ref.update(DT, 'live', i > 750, origin, 0.7);
+    const sk = ref.skel;
+    if (i < 30) continue;
+    frames++;
+    for (const s2 of ['L', 'R']) {
+      const a = P(sk, 'foot' + s2), t = P(sk, 'toe' + s2);
+      const v = last[s2] ? Math.hypot(a[0] - last[s2][0], a[2] - last[s2][2]) / DT : 0;
+      last[s2] = a;
+      if (v < 0.03) offFlat.push(Math.abs(Math.atan2(t[1] - a[1], Math.hypot(t[0] - a[0], t[2] - a[2])) * R - FLAT));
+      lo = Math.min(lo, a[1], t[1]);
+      const th = P(sk, 'thigh' + s2), sh = P(sk, 'shin' + s2);
+      knee = Math.max(knee, angle(sub(sh, th), sub(a, sh)));
+    }
+    if (ref.gait.feet.every((f) => f.air)) both++;
+    const now = sk.world.map((m) => [m[12], m[13], m[14]]);
+    hist.push(now);
+    if (hist.length > 3) hist.shift();
+    if (hist.length === 3) {
+      for (let j = 0; j < now.length; j++) {
+        const acc = Math.hypot(...[0, 1, 2].map((k) => hist[2][j][k] - 2 * hist[1][j][k] + hist[0][j][k])) / (DT * DT);
+        if (acc > worst) { worst = acc; where = `${BONE_NAMES[j]} at frame ${i}`; }
+      }
+    }
+  }
+  offFlat.sort((a, b) => a - b);
+  const p90 = offFlat[Math.floor(offFlat.length * 0.9)];
+  console.log(`\n     referee: ${frames} frames walking with the fight, stopping, crouching`);
+  check(p90 < 3, 'судья: a planted foot is flat on the mat', `${p90.toFixed(1)}° off flat at the ninetieth percentile, over ${offFlat.length} planted foot-frames`);
+  check(both === 0 && lo >= MAT_Y + 0.004, 'судья: one foot is always down, and none goes through the mat',
+    `both feet up on ${both} frames, lowest foot bone ${(lo * 100).toFixed(1)} cm`);
+  check(worst < 600, 'судья: nothing jumps', `worst ${worst.toFixed(0)} m/s² (${where})`);
+}
+
+// And the two of them on their feet in the fight. They do not walk — they
+// shuffle, a foot at a time, on the pair rig's own planter (rig.js _step) —
+// but the same thing was wrong under them: solved onto its spot on the mat,
+// the leg carried the sole round with the shin, and a planted foot in the
+// standing positions sat 7° off flat in the middle, 22° at the ninetieth
+// percentile and 55° at worst, with a foot's bones up to two centimetres
+// under the tatami. The foot now keeps the angle its pose gave it. Six
+// minutes of AI against AI with a thumb circling the stick, standing frames
+// only.
+{
+  const { Match, Fighter, MATCH_TIME } = await import('../src/game/match.js');
+  const { AI } = await import('../src/game/ai.js');
+  const { PairRig } = await import('../src/game/rig.js');
+  const { POSES } = await import('../src/game/poses.js');
+  const { seedRandom } = await import('../src/game/rng.js');
+  const FLAT = Math.atan2(-0.055, 0.15) * R;
+  const off = [];
+  let lo = 9, frames = 0;
+  for (let n = 0; n < 4; n++) {
+    seedRandom(100 + n);
+    const m = new Match([new Fighter('a'), new Fighter('b')], { time: MATCH_TIME });
+    const a = new AI(0, 'blue'), b = new AI(1, 'blue');
+    const rig = new PairRig();
+    rig.live = true;
+    m.start();
+    const last = {};
+    for (let t = 0; t < 90 && m.state !== 'over'; t += DT) {
+      a.update(DT, m, (d) => m.input(0, d), () => m.grip(0));
+      b.update(DT, m, (d) => m.input(1, d), () => m.grip(1));
+      m.update(DT, [{ mx: Math.sin(t * 0.7), mz: Math.cos(t * 0.5), turn: 0, drive: 0.3 }, b.control]);
+      rig.origin[0] = m.origin[0]; rig.origin[2] = m.origin[2]; rig.yaw = m.yaw;
+      const from = m.prevPosition, to = m.pending || m.position;
+      if (from === to && m.blend >= 1) rig.hold(to, DT); else rig.apply(from, to, m.blend, DT);
+      if (POSES[m.position].ground || from !== to) { for (const k in last) delete last[k]; continue; }
+      frames++;
+      for (const role of ['A', 'B']) {
+        const sk = rig.skel[role];
+        for (const s2 of ['L', 'R']) {
+          const f = P(sk, 'foot' + s2), tt = P(sk, 'toe' + s2);
+          const key = role + s2;
+          const v = last[key] ? Math.hypot(f[0] - last[key][0], f[2] - last[key][2]) / DT : 9;
+          last[key] = f;
+          if (v < 0.03) {
+            off.push(Math.abs(Math.atan2(tt[1] - f[1], Math.hypot(tt[0] - f[0], tt[2] - f[2])) * R - FLAT));
+            lo = Math.min(lo, f[1], tt[1]);
+          }
+        }
+      }
+    }
+  }
+  off.sort((x, y) => x - y);
+  const p90 = off[Math.floor(off.length * 0.9)];
+  console.log(`\n     the pair standing: ${frames} frames of ${4} matches`);
+  check(p90 < 10 && off[off.length - 1] < 15, 'стойка: a planted foot keeps its pose’s angle to the mat',
+    `${p90.toFixed(1)}° off flat at the ninetieth percentile, ${off[off.length - 1].toFixed(1)}° at worst`);
+  check(lo >= MAT_Y + 0.004, 'стойка: and none goes through the mat', `lowest planted foot bone ${(lo * 100).toFixed(1)} cm`);
+}
+
 console.log(fail ? `\n${fail} check(s) failed` : '\nit is a walk');
 process.exitCode = fail ? 1 : 0;

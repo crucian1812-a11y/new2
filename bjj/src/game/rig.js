@@ -58,10 +58,12 @@ function planFor(key) {
 }
 import { GRIP_POINTS } from '../render/body.js';
 import {
-  Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone, clampHinges,
+  Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone, clampHinges, quatFromMat,
   HAND_REST, HAND_GRIP, TIP_REST, TIP_GRIP,
 } from '../render/skeleton.js';
 import { quat, qEuler, qMul, qSlerp, v3, v3set, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
+import { setWorldRot } from './gait.js';
+const _fq = quat();
 
 const _t = v3();
 const _t2 = v3();
@@ -797,7 +799,14 @@ export class PairRig {
         // the pose, so crouching still lowers it onto the tatami.
         f.at[1] = py;
       }
+      // The foot keeps the angle the pose gave it. Solved under it, the leg
+      // carries the sole round with the shin, and a planted foot in the stance
+      // was 7° off flat in the middle and 22° at the ninetieth percentile —
+      // toes dug into the mat on one side of the body and a heel on the
+      // other, with the foot's bones as much as two centimetres under it.
+      quatFromMat(_fq, sk.world[BONE_INDEX[ft]]);
       solveTwoBone(sk, th, sh, ft, f.at, null, 1);
+      setWorldRot(sk, BONE_INDEX[ft], _fq, 1);
     }
   }
 

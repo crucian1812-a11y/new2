@@ -57,8 +57,10 @@ const P = {
     j: {
       ...HANDS,
       hips: [-2, 0, 0], spine: [3, 0, 0], chest: [2, 0, 0], neck: [-4, 0, 0], head: [3, 0, 0],
-      clavL: [0, 0, 5], armL: [-12, 7, -9], foreL: [-34, 0, 0], handL: [-6, 0, 0],
-      clavR: [0, 0, -5], armR: [-12, -7, 9], foreR: [-34, 0, 0], handR: [-6, 0, 0],
+      // The arms hang: the swing is added on top by the gait (gait.js), and a
+      // held-forward pose under it came out as a man carrying a tray.
+      clavL: [0, 0, 5], armL: [-5, 7, -9], foreL: [-20, 0, 0], handL: [-6, 0, 0],
+      clavR: [0, 0, -5], armR: [-5, -7, 9], foreR: [-20, 0, 0], handR: [-6, 0, 0],
       // Mid-stride, not at attention: the left leg forward and the right
       // behind. A walker whose legs start as each other's mirror image has two
       // feet that hit the planner's stride threshold on the same frame for the

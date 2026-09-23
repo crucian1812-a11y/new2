@@ -357,6 +357,7 @@ node bjj/tools/hand-check.mjs         # кисть похожа на кисть:
 node bjj/tools/hand-check.mjs --dump out/  # и картинки, по которым это меряется
 node bjj/tools/sim-check.mjs 500      # баланс: форма матча по поясам, чем кончается, как ранжируется
 node bjj/tools/replay-check.mjs 24    # повтор: тот ли момент, и видно ли его с обратной точки
+node bjj/tools/gait-check.mjs         # ходьба: выход, рефери и стойка пары против норм походки
 node bjj/tools/blend-check.mjs        # то же для середины каждого перехода и каждой петли
 node bjj/tools/mark-check.mjs         # клубные марки: шрифт, атлас, разметка мата, нашивки
 node bjj/tools/clip-check.mjs пак.glb # присланный пак парной анимации: годится или нет
