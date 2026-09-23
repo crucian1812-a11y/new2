@@ -22,7 +22,18 @@ node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/Ch31_nonPBR.fbx --out bjj/assets/f
 ```
 
 The baked `.bin` files are in git, so nothing here is needed to run the game —
-only to re-bake a fighter.
+only to re-bake a fighter. **Both are baked at 20 000 triangles**, and the
+bake is deterministic: with `--tris 20000` the current baker reproduces the
+file in git byte for byte, which is the first thing to check before changing
+the baker —
+
+```bash
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/body-block.fbx  --tris 20000 --out bjj/assets/fighter.bin
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/Ch31_nonPBR.fbx --tris 20000 --out bjj/assets/fighter-b.bin
+```
+
+Without `--tris` the file comes out half again as big and every measure of
+the fighters moves with it.
 
 ## What each character bakes into
 

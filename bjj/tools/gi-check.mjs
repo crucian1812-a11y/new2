@@ -186,6 +186,95 @@ if (blackRef) {
 } else {
   console.log('     the referee was not in any of the black belt\'s frames');
 }
+// And the lapel. The whole gi game is played on it, and the V it makes down
+// the chest is most of what says kimono rather than pyjamas — and for as long
+// as the baker had it nine centimetres inside the chest it was 0 to 50 pixels
+// of any frame. Measured on a standing pair with the camera turned to face
+// each man in turn: his collar (material 4) as a share of his jacket, and how
+// far it is in colour from the jacket around it.
+const LAPEL_SHARE = 0.03, LAPEL_DE = 12;
+const lapels = await page.evaluate(async (kits) => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const m = window.__bjj.match();
+  if (m.state === 'ready') m.start();
+  const out = [];
+  for (const [ki, kit] of kits.entries()) for (const turn of [0, Math.PI]) {
+    m.f[1].giCol.set(kit);
+    window.__bjj.still(null);
+    window.__bjj.setPose('STANDING');
+    await wait(600);
+    const cam = window.__bjj.camera;
+    cam.orbit += turn; cam.targetOrbit = cam.orbit;
+    await wait(900);
+    window.__bjj.still(3.0);
+    window.__bjj.quality(1);
+    await wait(300);
+    const r = window.__bjj.renderer;
+    r.grabbed = null;
+    r.want = true;
+    for (let i = 0; i < 300 && !(r.grabbed && r.grabbed.id); i++) await wait(30);
+    const { w, h, shaded, id, mat } = r.grabbed;
+    const whoAt = (k) => (id[k * 4] > 127 ? 1 : id[k * 4 + 1] > 127 ? 2 : 0);
+    for (const who of [1, 2]) {
+      const acc = { 1: [0, 0, 0, 0], 4: [0, 0, 0, 0] };
+      // And the edge: each collar pixel against the jacket pixels right beside
+      // it, which is where the eye finds a lapel. A mean over the whole jacket
+      // mixes in a lit sleeve and a back in shadow.
+      const edge = [];
+      for (let k = 0, i = 0; k < w * h; k++, i += 4) {
+        const mt = mat[i];
+        if (whoAt(k) !== who || (mt !== 1 && mt !== 4)) continue;
+        const a = acc[mt]; a[0] += shaded[i]; a[1] += shaded[i + 1]; a[2] += shaded[i + 2]; a[3]++;
+        if (mt !== 4) continue;
+        const x = k % w, y = (k / w) | 0;
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) {
+          const X = x + dx, Y = y + dy;
+          if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+          const j = Y * w + X;
+          if (whoAt(j) !== who || mat[j * 4] !== 1) continue;
+          r += shaded[j * 4]; g += shaded[j * 4 + 1]; b += shaded[j * 4 + 2]; n++;
+        }
+        if (n) edge.push([shaded[i], shaded[i + 1], shaded[i + 2], r / n, g / n, b / n]);
+      }
+      out.push({ turn, who, kit: ki, jacket: acc[1], collar: acc[4], edge });
+    }
+  }
+  window.__bjj.still(null);
+  return out;
+}, roster.map((r) => r.giCol));
+// Each man, from whichever side shows his chest; the opponent in every kimono
+// on the ladder, and the worst of them is what is reported.
+const meanOf = (a) => [a[0] / Math.max(1, a[3]), a[1] / Math.max(1, a[3]), a[2] / Math.max(1, a[3])];
+for (const who of [1, 2]) {
+  let worst = null;
+  for (let ki = 0; ki < roster.length; ki++) {
+    const mine = lapels.filter((l) => l.who === who && l.kit === ki);
+    if (!mine.length) continue;
+    const best = mine.reduce((a, b) => (b.collar[3] > a.collar[3] ? b : a));
+    const share = best.collar[3] / Math.max(1, best.collar[3] + best.jacket[3]);
+    // The median over the collar's edge pixels of the distance to the cloth
+    // beside them.
+    const ds = best.edge.map((e) => dE([e[0], e[1], e[2]], [e[3], e[4], e[5]])).sort((a, b) => a - b);
+    const d = ds.length ? ds[ds.length >> 1] : 0;
+    const score = Math.min(share / LAPEL_SHARE, d / LAPEL_DE);
+    if (!worst || score < worst.score) worst = { score, share, d, kit: roster[ki].belt };
+  }
+  // Both men's collars have to be on their chests: that is what the buried
+  // collar failed, and it fails at once if it happens again. How far the lapel
+  // stands off the cloth is held on the player's own white kimono, which is the
+  // one he is looking at all match. On the ladder's dark kimonos, with the
+  // chest out of the key light, it is ΔE 3 or so — which is what a navy lapel
+  // in shade looks like on a broadcast too — and it is printed, not failed.
+  const line = `${who === 2 ? `worst in the ${worst.kit} belt's kimono: ` : ''}` +
+    `${(worst.share * 100).toFixed(1)}% of his jacket, ΔE ${worst.d.toFixed(0)} from the cloth beside it`;
+  if (who === 1) {
+    check(worst.share >= LAPEL_SHARE && worst.d >= LAPEL_DE, 'the player\'s lapel is on his chest and reads',
+      `${line}; want ${LAPEL_SHARE * 100}% and ΔE ${LAPEL_DE}`);
+  } else {
+    check(worst.share >= LAPEL_SHARE, 'and the opponent\'s is on his', `${line}; want ${LAPEL_SHARE * 100}%`);
+  }
+}
 check(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
 await browser.close();

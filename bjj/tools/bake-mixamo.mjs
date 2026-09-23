@@ -40,6 +40,12 @@ const NOSHAPE = argv.includes('--no-shape');
 // a collar, a skirt and a belt — is put on the body instead. --nogi keeps what
 // the character arrived in.
 const NOGI = argv.includes('--nogi');
+
+// The lapel's own shape, shared by the strip that builds it and the UVs that
+// the shader draws its edges from. Open at the throat, crossed at the waist.
+let LAPEL = null;
+function lapelOff(t) { return 0.085 * (1 - t) + 0.02 * t; }
+
 // Thin the merged mesh to about this many triangles before baking. 0 leaves it
 // alone. See the decimation block at the bottom of this file.
 const TRIS = +flag('tris', 0);
@@ -609,11 +615,11 @@ if (!NOGI) {
   // the skirt built on it was a board.
   const TRUNK = new Set(['hips', 'spine', 'thighL', 'thighR']);
 
-  function profile(yLo, yHi) {
+  function profile(yLo, yHi, bones = TRUNK) {
     const r = new Array(SECTORS).fill(0);
     for (let v = 0; v < MAT.length; v++) {
       if (MAT[v] !== 1 && MAT[v] !== 2) continue;
-      if (!TRUNK.has(BONES[BONE[v * 2]][0])) continue;
+      if (!bones.has(BONES[BONE[v * 2]][0])) continue;
       const y = P[v * 3 + 1];
       if (y < yLo || y > yHi) continue;
       const x = P[v * 3], z = P[v * 3 + 2];
@@ -704,16 +710,48 @@ if (!NOGI) {
   // running from the base of the neck down to the belt, each one riding the
   // measured front of the jacket and closing towards the middle as it goes, so
   // it lies on the chest and makes the V a gi has.
+  //
+  // Or it was meant to. Measured on the rendered frame the collar was 0 to 50
+  // pixels — never more than half a percent of the jacket it is sewn to — and
+  // the reason was two slips in the measuring, both silent. The ring above
+  // counts only the trunk bones of the waist, which is right for a belt and
+  // means nothing at chest height: every sector came back zero and the strip
+  // fell back to its floor of 8.5 cm, when the front of this jacket is 18 cm
+  // out. And the sector it asked for, a quarter of the way round, is the back:
+  // atan2 puts +z, the way the man faces, three quarters of the way round.
+  // So both strips were buried nine centimetres inside his chest, and the V on
+  // the screen was the skin of his neckline.
+  //
+  // Now the ring at collar height counts the chest and neck as well — the arms
+  // hang clear of the chest at the rest pose, so no sleeve is measured — and
+  // every vertex of the strip is placed on the jacket at its own angle round
+  // the body rather than at the depth of the middle of the chest. Five
+  // centimetres wide, which is a lapel; three read as a thread from the
+  // broadcast camera. Three vertices across, so it follows the chest's curve
+  // instead of cutting a chord through it.
   {
-    const FRONT = Math.floor(SECTORS * 0.25);
-    // How far forward the jacket is at a given height. Taken at the collar's
-    // own height row by row, not once at the chest: the body narrows sharply
-    // towards the neck, and a strip held out at chest depth all the way up
-    // reads as a bar across the throat rather than a collar on it.
-    const frontAt = (y) => Math.max(0.085, profile(y - 0.055, y + 0.055)[FRONT]);
+    const COLLAR_BONES = new Set([...TRUNK, 'chest', 'neck']);
+    const sectorOf = (x, z) => {
+      let k = Math.floor(((Math.atan2(z, x) + Math.PI) / (Math.PI * 2)) * SECTORS) % SECTORS;
+      return k < 0 ? k + SECTORS : k;
+    };
+    // The jacket's surface at this height, a distance x off the middle, on the
+    // front. Solved in two passes: the sector depends on the depth and the
+    // depth on the sector.
+    const surfaceZ = (ring, x) => {
+      let z = ring[sectorOf(0, 1)] || 0.12;
+      for (let pass = 0; pass < 3; pass++) {
+        const r = ring[sectorOf(x, z)] || z;
+        z = Math.sqrt(Math.max(0.0004, r * r - x * x));
+      }
+      return z;
+    };
     const topY = ourPos[BONE_INDEX.neck][1] - 0.01;
     const botY = beltY - 0.02;
-    const ROWS = 5;
+    const ROWS = 7;
+    const W = 0.050;
+    LAPEL = { topY, botY, W };
+    const LIFT = 0.010;
     const iChest = BONE_INDEX.chest;
     const iSpine = BONE_INDEX.spine;
     for (const side of [1, -1]) {
@@ -721,26 +759,28 @@ if (!NOGI) {
       for (let r = 0; r < ROWS; r++) {
         const t = r / (ROWS - 1);
         const y = topY + (botY - topY) * t;
+        const ring = profile(y - 0.04, y + 0.04, COLLAR_BONES);
         // Open at the throat, crossed at the waist: the offset from the middle
         // shrinks as it goes down and the strip leans inward with it.
-        const off = 0.085 * (1 - t) + 0.012 * t;
-        const z = frontAt(y) + 0.008;
+        const off = lapelOff(t);
         // Above the ribs the collar rides the chest bone, below them the spine,
         // so it folds with the torso rather than sliding across it.
         const b = t < 0.55 ? iChest : iSpine;
-        for (let c = 0; c < 2; c++) {
-          const w = 0.030;
-          P.push(side * (off + (c ? w : -w) * 0.5), y, z - (c ? 0.004 : 0));
+        for (let c = 0; c < 3; c++) {
+          const x = side * (off + (c - 1) * W * 0.5);
+          P.push(x, y, surfaceZ(ring, Math.abs(x)) + LIFT);
           BONE.push(b, b);
           WT.push(1, 0);
           MAT.push(4);
         }
       }
       for (let r = 0; r + 1 < ROWS; r++) {
-        const a = first + r * 2, b2 = first + r * 2 + 1;
-        const c2 = first + (r + 1) * 2 + 1, d = first + (r + 1) * 2;
-        if (side > 0) IDX.push(a, b2, c2, a, c2, d);
-        else IDX.push(a, c2, b2, a, d, c2);
+        for (let c = 0; c < 2; c++) {
+          const a = first + r * 3 + c, b2 = first + r * 3 + c + 1;
+          const c2 = first + (r + 1) * 3 + c + 1, d = first + (r + 1) * 3 + c;
+          if (side > 0) IDX.push(a, b2, c2, a, c2, d);
+          else IDX.push(a, c2, b2, a, d, c2);
+        }
       }
     }
   }
@@ -1464,6 +1504,29 @@ function uvs(P) {
 
 const N = normals(pos, idx);
 const UV = uvs(pos);
+
+/* ------------------------------------------------------------ the lapel */
+
+// The collar gets coordinates of its own, the way the eyeballs below do: u is
+// across the strip, -1 at the edge nearest the middle of the chest, 0 down its
+// spine, +1 at the outer edge; v is how far down it is, 0 at the throat and 1
+// at the belt. A lapel on a coloured kimono is the jacket's own colour and is
+// seen by its thickness — a shadow under each edge and a quilted ridge that
+// catches the light — and the shader cannot draw either without knowing where
+// across the strip a pixel is. Worked out from the position rather than kept
+// from the builder, because the decimator is free to collapse the middle row.
+if (LAPEL) {
+  let n = 0;
+  for (let v = 0; v < MAT.length; v++) {
+    if (MAT[v] !== 4) continue;
+    const x = pos[v * 3], y = pos[v * 3 + 1];
+    const t = Math.max(0, Math.min(1, (LAPEL.topY - y) / (LAPEL.topY - LAPEL.botY)));
+    UV[v * 2] = Math.max(-1, Math.min(1, (Math.abs(x) - lapelOff(t)) / (LAPEL.W * 0.5)));
+    UV[v * 2 + 1] = t;
+    n++;
+  }
+  console.log(`lapel: ${n} verts given across-and-down coordinates`);
+}
 
 /* ---------------------------------------------------------- the eyeballs */
 
