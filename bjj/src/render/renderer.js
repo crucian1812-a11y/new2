@@ -202,6 +202,8 @@ vec3 applyBump(vec3 N, vec3 world, vec2 uv, vec3 tn, float amount) {
 // How much brighter the tatami is under the pair than at the edge of the
 // light. See the pool in STATIC_FS.
 const POOL = 0.45;
+// How soft the far end of the long lens goes. See DOF in POST_FS.
+const DOF_MAX = 1.0;
 
 const OUTLINE_VS = COMMON + `
 in vec3 a_pos;
@@ -1173,11 +1175,14 @@ out vec4 o;
 uniform sampler2D u_src;
 uniform vec2 u_texel;
 void main() {
+  // The top level, by name: the scene has a mip chain now (for the soft
+  // background in POST_FS), and a quarter-size pass would otherwise read a
+  // quarter-size level and blur the bloom's own input.
   vec3 c = vec3(0.0);
-  c += texture(u_src, v_uv + vec2(-1.0, -1.0) * u_texel).rgb;
-  c += texture(u_src, v_uv + vec2( 1.0, -1.0) * u_texel).rgb;
-  c += texture(u_src, v_uv + vec2(-1.0,  1.0) * u_texel).rgb;
-  c += texture(u_src, v_uv + vec2( 1.0,  1.0) * u_texel).rgb;
+  c += textureLod(u_src, v_uv + vec2(-1.0, -1.0) * u_texel, 0.0).rgb;
+  c += textureLod(u_src, v_uv + vec2( 1.0, -1.0) * u_texel, 0.0).rgb;
+  c += textureLod(u_src, v_uv + vec2(-1.0,  1.0) * u_texel, 0.0).rgb;
+  c += textureLod(u_src, v_uv + vec2( 1.0,  1.0) * u_texel, 0.0).rgb;
   c *= 0.25;
   float l = dot(c, vec3(0.299, 0.587, 0.114));
   // What glows is what is brighter than lit cloth: the specular, the board,
@@ -1208,6 +1213,9 @@ in vec2 v_uv;
 out vec4 o;
 uniform sampler2D u_src;
 uniform sampler2D u_bloom;
+// The scene's depth, for the soft background. Its sampler unit is set once,
+// when the program is built, and costs nothing a frame.
+uniform sampler2D u_depth;
 uniform float u_time;
 uniform float u_shake;
 uniform float u_flash;
@@ -1244,9 +1252,48 @@ float plateLum(vec2 at) {
   return dot(s, vec3(0.299, 0.587, 0.114));
 }
 
+// The camera's own clip planes (see the perspective in render()), to turn a
+// depth sample back into metres.
+const float NEAR_M = 0.08, FAR_M = 70.0;
+// The long lens. A broadcast camera on a fight is a long lens at a wide
+// aperture, and the stands behind the mat are out of focus in every frame it
+// takes. Here they were pin sharp: boxes with a pixel-stepped edge, a crowd
+// that reads as a wall of dark cubes — the one part of the picture that says
+// "game" rather than "broadcast". Counted from the pair, not from the lens:
+// the camera pulls back to hold a spread-out pair, and a range fixed in metres
+// from the lens put the two men themselves in the soft part of a wide shot.
+// From five metres behind the pair the picture goes soft, fully by nine: the
+// stands start seven or eight metres behind them, the boards round the mat
+// five or six and barely move, and the pair and the mat do not move at all
+// (lens-check).
+const vec2 DOF = vec2(5.0, 9.0);
+uniform float u_focusM;   // metres from the lens to the pair
+// How far it goes: DOF_MAX, or nothing when lens-check asks for the same frame
+// without it. Uploaded only when it changes, so a frame pays nothing for it.
+uniform float u_dofMax;
+float metresAt(vec2 at) {
+  float z = texture(u_depth, at).r * 2.0 - 1.0;
+  return 2.0 * NEAR_M * FAR_M / (FAR_M + NEAR_M - z * (FAR_M - NEAR_M));
+}
+
 void main() {
   vec2 uv = v_uv;
   vec3 c = texture(u_src, uv).rgb;
+  // The soft background: four taps from two levels down the scene's mip
+  // chain, spread over a few texels of it so the steps of the mip do not
+  // print. Not on a plate — a print is sharp all over (u_print).
+  float soft = smoothstep(u_focusM + DOF.x, u_focusM + DOF.y, metresAt(uv)) * u_dofMax
+             * (1.0 - step(0.001, u_print));
+  if (soft > 0.001) {
+    // Closer together than one texel of the level they read, so a catchlight
+    // in the crowd comes out as one soft spot rather than four copies of it.
+    vec2 r = u_texel * 3.0;
+    vec3 b = textureLod(u_src, uv + vec2(-r.x, -r.y * 0.4), 2.8).rgb
+           + textureLod(u_src, uv + vec2( r.x * 0.4, -r.y), 2.8).rgb
+           + textureLod(u_src, uv + vec2( r.x, r.y * 0.4), 2.8).rgb
+           + textureLod(u_src, uv + vec2(-r.x * 0.4, r.y), 2.8).rgb;
+    c = mix(c, b * 0.25, soft);
+  }
   c += texture(u_bloom, uv).rgb * 0.55;
 
   c = aces(c * 1.02);
@@ -1325,6 +1372,8 @@ export class Renderer {
     this.progBright = program(gl, POST_VS, BRIGHT_FS, 'bright');
     this.progBlur = program(gl, POST_VS, BLUR_FS, 'blur');
     this.progPost = program(gl, POST_VS, POST_FS, 'post');
+    gl.useProgram(this.progPost.p);
+    gl.uniform1i(this.progPost.u.u_depth, 4);
 
     this.quadVAO = vao(gl, this.progPost.p, [{ name: 'a_pos', data: QUAD, size: 2 }]);
 
@@ -1404,7 +1453,8 @@ export class Renderer {
     this.sceneW = w;
     this.sceneH = h;
     const hdr = { internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT };
-    this.sceneTex = texture(gl, { width: w, height: h, wrap: gl.CLAMP_TO_EDGE, ...hdr });
+    // With a mip chain, rebuilt each frame, for the soft background.
+    this.sceneTex = texture(gl, { width: w, height: h, wrap: gl.CLAMP_TO_EDGE, mips: true, ...hdr });
     this.depthTex = texture(gl, {
       width: w, height: h, internalFormat: gl.DEPTH_COMPONENT24,
       format: gl.DEPTH_COMPONENT, type: gl.UNSIGNED_INT,
@@ -1555,7 +1605,7 @@ export class Renderer {
       const list = this.want.slice();
       const keep = { contactAO: this.contactAO, folds: this.folds,
         faceRelief: this.faceRelief, eyes: this.eyes, bakedAO: this.bakedAO,
-        pressPass: this.pressPass };
+        pressPass: this.pressPass, lens: this.lens };
       const shots = {};
       this._grabbing = true;
       const css = this._css;
@@ -1577,6 +1627,7 @@ export class Renderer {
         this.faceRelief = v !== 'face';
         this.eyes = v !== 'eyes';
         this.bakedAO = v !== 'ao';
+        this.lens = v !== 'lens';
         // 'press' is not a switch turned off but a different picture: the
         // contact term painted as grey, so a tool can separate "against him"
         // from "near him on screen".
@@ -1846,6 +1897,11 @@ export class Renderer {
       this.hdrNaN = { nan, sampled };
     }
 
+    // The scene's mip chain, for the soft background in the post pass.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, this.sceneTex);
+    gl.generateMipmap(gl.TEXTURE_2D);
+
     /* ---- bloom ---- */
     gl.disable(gl.DEPTH_TEST);
     gl.bindVertexArray(this.quadVAO);
@@ -1882,6 +1938,18 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.bloomTex[0]);
     gl.uniform1i(this.progPost.u.u_bloom, 1);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D, this.depthTex);
+    // Where the pair is from the lens, for the soft background.
+    const fx = scene.focus ? scene.focus[0] - camera.eye[0] : 0;
+    const fy = scene.focus ? scene.focus[1] - camera.eye[1] : 0;
+    const fz = scene.focus ? scene.focus[2] - camera.eye[2] : 0;
+    gl.uniform1f(this.progPost.u.u_focusM, Math.hypot(fx, fy, fz) || 4);
+    const dof = this.lens === false ? 0 : DOF_MAX;
+    if (this._dofSent !== dof) {
+      gl.uniform1f(this.progPost.u.u_dofMax, dof);
+      this._dofSent = dof;
+    }
     gl.uniform1f(this.progPost.u.u_time, time);
     gl.uniform1f(this.progPost.u.u_shake, this.shake);
     gl.uniform1f(this.progPost.u.u_flash, this.flash);
