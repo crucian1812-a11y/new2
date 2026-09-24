@@ -44,6 +44,8 @@ const NOGI = argv.includes('--nogi');
 // The lapel's own shape, shared by the strip that builds it and the UVs that
 // the shader draws its edges from. Open at the throat, crossed at the waist.
 let LAPEL = null;
+// The rank bar's own coordinates, by vertex: along the end and across it.
+const BAR_UV = new Map();
 function lapelOff(t) { return 0.085 * (1 - t) + 0.02 * t; }
 
 // Thin the merged mesh to about this many triangles before baking. 0 leaves it
@@ -796,24 +798,84 @@ if (!NOGI) {
 
   // The belt over it, wider again, with the two ends of the knot at the front.
   const over = profile(beltY - 0.08, beltY + 0.08);
+  //
+  // Its rows run downwards, like the skirt's. They ran up, which winds every
+  // triangle the other way: the belt's normals pointed into the man, it was lit
+  // from inside and its occlusion was baked into the jacket, and a white belt
+  // came out about a third as bright as its colour — at the distance of a
+  // broadcast, a black belt (tools/belt-check.mjs).
   ring(
-    (t) => beltY - 0.032 + t * 0.064,
+    (t) => beltY + 0.032 - t * 0.064,
     (t, k) => Math.max(over[k], waist[k]) + 0.016,
     2, 3
   );
+  // The knot, and the two ends hanging from it.
+  //
+  // They were two flat cards hanging straight down, at the radius of the
+  // *back* of the belt (sector 7 is -z; the front is 21). In the material pass
+  // they were there; in the picture they were nothing — in the jacket's shade
+  // a dark strip on dark cloth, and no knot at all. What says "belt" at any
+  // distance is a square knot standing off the front, two ends splayed out of
+  // it, and on one end the rank bar: black on a coloured belt, red on a black
+  // one (material 9, coloured in the shader from the belt's own colour). Each
+  // piece is a slab with flat faces, so its edges catch the light and the
+  // outline pass has a silhouette to draw.
   {
-    const frontR = Math.max(over[Math.floor(SECTORS * 0.25)], waist[Math.floor(SECTORS * 0.25)]) + 0.018;
-    for (const dx of [-0.055, 0.055]) {
-      const f = P.length / 3;
-      for (let r = 0; r < 2; r++) {
-        for (let c = 0; c < 2; c++) {
-          P.push(dx + (c ? 0.032 : -0.032), beltY + 0.030 - r * 0.20, frontR + 0.006);
+    const FRONT = Math.round(SECTORS * 0.75);
+    const frontR = Math.max(over[FRONT], waist[FRONT]) + 0.016;
+    // An oriented box: centre c, half-axes ex (across), ey (along), ez (out).
+    const slab = (c, ex, ey, ez, mat) => {
+      const faces = [
+        [ez, ex, ey], [ez.map((x) => -x), ey, ex],
+        [ex, ey, ez], [ex.map((x) => -x), ez, ey],
+        [ey, ez, ex], [ey.map((x) => -x), ex, ez],
+      ];
+      for (const [n, u, w] of faces) {
+        const f = P.length / 3;
+        for (const [su, sw] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          for (let k = 0; k < 3; k++) P.push(c[k] + n[k] + u[k] * su + w[k] * sw);
           BONE.push(hips, hips);
           WT.push(1, 0);
-          MAT.push(3);
+          MAT.push(mat);
+        }
+        IDX.push(f, f + 1, f + 2, f, f + 2, f + 3);
+      }
+    };
+    const knotY = beltY - 0.004;
+    slab([0, knotY, frontR + 0.004], [0.036, 0, 0], [0, 0.036, 0], [0, 0, 0.011], 3);
+    // Each end leaves the bottom corner of the knot and falls out at 16° from
+    // the vertical, leaning forward over the skirt; the left one is longer and
+    // carries the bar, a third of the way up from its tip.
+    const HALF_W = 0.021, HALF_T = 0.003;
+    for (const side of [1, -1]) {
+      const len = side > 0 ? 0.24 : 0.215;
+      const tilt = 16 * Math.PI / 180;
+      const top = [side * 0.018, knotY - 0.03, frontR + 0.012];
+      const dir = [side * Math.sin(tilt), -Math.cos(tilt), 0.10];
+      const dl = Math.hypot(...dir);
+      const d = dir.map((x) => x / dl);
+      // across × along = out, and out has to face forward: the faces are
+      // wound off that frame, and a left-handed one would light them inside out.
+      let across = [Math.cos(tilt), side * Math.sin(tilt), 0];
+      let on = [across[1] * d[2] - across[2] * d[1], across[2] * d[0] - across[0] * d[2], across[0] * d[1] - across[1] * d[0]];
+      if (on[2] < 0) { across = across.map((x) => -x); on = on.map((x) => -x); }
+      const pieces = side > 0
+        ? [[0, len - 0.12, 3], [len - 0.12, len - 0.035, 9], [len - 0.035, len, 3]]
+        : [[0, len, 3]];
+      for (const [s0, s1, mat] of pieces) {
+        const mid = (s0 + s1) / 2, half = (s1 - s0) / 2;
+        const c = top.map((x, k) => x + d[k] * mid);
+        const first = P.length / 3;
+        slab(c, across.map((x) => x * HALF_W), d.map((x) => x * half), on.map((x) => x * HALF_T), mat);
+        if (mat !== 9) continue;
+        // u along the bar, 0 at the knot's end and 1 at the tip's; v across.
+        for (let v = first; v < P.length / 3; v++) {
+          const q = [0, 1, 2].map((k) => P[v * 3 + k] - c[k]);
+          const al = (q[0] * d[0] + q[1] * d[1] + q[2] * d[2]) / half;
+          const ac = (q[0] * across[0] + q[1] * across[1] + q[2] * across[2]) / HALF_W;
+          BAR_UV.set(v, [(al + 1) / 2, ac]);
         }
       }
-      IDX.push(f, f + 1, f + 3, f, f + 3, f + 2);
     }
   }
 
@@ -893,8 +955,13 @@ if (!NOGI) {
         for (let c = 0; c < 2; c++) {
           const a = first + r * 3 + c, b2 = first + r * 3 + c + 1;
           const c2 = first + (r + 1) * 3 + c + 1, d = first + (r + 1) * 3 + c;
-          if (side > 0) IDX.push(a, b2, c2, a, c2, d);
-          else IDX.push(a, c2, b2, a, d, c2);
+          // Wound to face out of the chest. The strip's columns run outwards
+          // on each side and its rows run down, so (across, down) has to be
+          // taken the other way round on each side; it was taken the wrong way
+          // on both, and the lapel was lit from inside the man, like the belt
+          // (tools/cloth-check.mjs).
+          if (side > 0) IDX.push(a, c2, b2, a, d, c2);
+          else IDX.push(a, b2, c2, a, c2, d);
         }
       }
     }
@@ -1642,6 +1709,11 @@ if (LAPEL) {
   }
   console.log(`lapel: ${n} verts given across-and-down coordinates`);
 }
+
+// And the rank bar, so the shader can put the degrees on it: strips of white
+// tape across the bar, which read on any belt in any light — a black bar on a
+// brown belt in the shade of the man's own chest does not.
+for (const [v, uv] of BAR_UV) { UV[v * 2] = uv[0]; UV[v * 2 + 1] = uv[1]; }
 
 /* ---------------------------------------------------------- the eyeballs */
 

@@ -68,6 +68,9 @@ const steps = [
   ['weight', 'weight-check.mjs', []],
   ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
   ['the opponent', 'asset-check.mjs', ['bjj/assets/fighter-b.bin']],
+  // And whether the cloth the baker builds from nothing faces out of the man:
+  // the belt and the collar were both wound inwards and lit from inside.
+  ['the cloth', 'cloth-check.mjs', []],
   // Where the triangles went, against where the camera looks. Forty seconds,
   // because it skins two meshes through the real camera over real matches; the
   // cheaper question — does the surface survive thinning — asset-check already
@@ -114,6 +117,7 @@ if (withBrowser) {
   steps.push(['the print', 'poster-check.mjs', ['--pixels']]);
   steps.push(['a tap on a button', 'tap-check.mjs', []]);
   steps.push(['a man against the mat', 'gi-check.mjs', []]);
+  steps.push(['the belt', 'belt-check.mjs', []]);
   steps.push(['one language', 'words-check.mjs', []]);
   steps.push(['a hall above the boards', 'hall-check.mjs', []]);
   // And the long lens: the stands soft, the pair and the mat as sharp as before.
