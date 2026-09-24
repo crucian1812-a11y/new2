@@ -32,8 +32,17 @@ function point(skel, ref) {
 
 // A bone's own left-right axis, in the world. For the torso bones this is the
 // direction the body is wide in, which is the axis a knee has to be one side of.
-function lateral(skel, ref) {
-  const [role, bone] = ref.split('.');
+// The left-right axis a straddle is read across. A trunk's own; but a limb's
+// own left-right is how the limb happens to be turned about its length, which
+// nothing about the position decides — an armbar's arm between the thighs was
+// read across the upper arm's roll, and when the rig began turning upper arms
+// so their elbows fold the right way (swivelHinges) the same armbar read as
+// both thighs on one side. Across a limb, the straddle is the straddler's own:
+// the arm is between his legs along the line through his hips.
+const TRUNK = new Set(['hips', 'spine', 'chest', 'neck', 'head']);
+function lateral(skel, ref, by) {
+  let [role, bone] = ref.split('.');
+  if (!TRUNK.has(bone) && by) { role = by.split('.')[0]; bone = 'hips'; }
   const m = skel[role].world[BONE_INDEX[bone]];
   const l = Math.hypot(m[0], m[1], m[2]) || 1;
   return [m[0] / l, m[1] / l, m[2] / l];
@@ -70,7 +79,7 @@ export function violations(skel, hold, slack = 0) {
       if (miss > 0) out.push({ miss, why: `${h.of} is ${(d * 100).toFixed(0)}cm from ${h.near} across the mat` });
     } else if (h.straddle) {
       const o = point(skel, h.straddle);
-      const lat = lateral(skel, h.straddle);
+      const lat = lateral(skel, h.straddle, h.with[0]);
       const m = h.by ?? 0.09;
       const side = (ref) => {
         const p = point(skel, ref);

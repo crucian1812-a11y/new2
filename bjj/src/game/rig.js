@@ -58,7 +58,7 @@ function planFor(key) {
 }
 import { GRIP_POINTS } from '../render/body.js';
 import {
-  Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone, clampHinges, quatFromMat,
+  Skeleton, BONE_INDEX, BONE_COUNT, poseToQuats, solveTwoBone, clampHinges, swivelHinges, quatFromMat,
   HAND_REST, HAND_GRIP, TIP_REST, TIP_GRIP,
 } from '../render/skeleton.js';
 import { quat, qEuler, qMul, qSlerp, v3, v3set, v3lerp, m4point, smooth, clamp } from '../core/m4.js';
@@ -624,12 +624,35 @@ export class PairRig {
     // The arms are cleaned a second time inside the two-bone solve itself,
     // where it costs nothing: turning a forearm about its own length leaves
     // the wrist exactly where it was, because the wrist sits on that length.
+    //
+    // Before that, every limb is turned to fold the way it folds
+    // (swivelHinges) — before the grips, so a hand on a sleeve or a knee
+    // closes on where that sleeve and that knee finally are.
+    swivelHinges(this.skel.A);
+    swivelHinges(this.skel.B);
     clampHinges(this.skel.A);
     clampHinges(this.skel.B);
 
     // Grips are resolved after both skeletons are posed, because a grip on the
     // opponent needs the opponent to already be where they are going to be.
     this._grips(from, to, e);
+
+    // The grips solve their arms again, and a two-bone solve has no opinion
+    // about which way the upper arm is turned — so the fold is put right once
+    // more. Every point stays where it is; a forearm or a shin that somebody is
+    // holding (by the sleeve, by the knee) is not even turned about its own
+    // length, so the hand on it is still on it.
+    const held = { A: new Set(), B: new Set() };
+    for (const id of [from, to]) {
+      for (const g of POSES[id].grips || []) {
+        const m = /^(sleeve|knee)([LR])$/.exec(g.point);
+        if (!m) continue;
+        const target = g.self ? g.role : g.role === 'A' ? 'B' : 'A';
+        held[target].add((m[1] === 'sleeve' ? 'fore' : 'shin') + m[2]);
+      }
+    }
+    swivelHinges(this.skel.A, held.A);
+    swivelHinges(this.skel.B, held.B);
 
     this.skel.A.finishSkin();
     this.skel.B.finishSkin();

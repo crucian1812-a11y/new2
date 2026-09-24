@@ -498,25 +498,25 @@ export const POSES = {
     // a fighter in this attitude is the world's vertical — splays one leg
     // towards B's head and one towards his hips without lifting either.
     A: {
-      root: { p: [-0.405, 0.225, 0.398], r: [-90, 90, 0] },
+      root: { p: [-0.405, 0.21, 0.458], r: [-90, 90, 0] },
       j: {
-        hips: [4.1, -1.5, -2.9], spine: [34.3, 14.7, 29.4], chest: [23.1, -0.6, 13.6], neck: [-3.9, 0.8, -0.7], head: [21.3, 0.8, 2.3],
-        clavL: [-22.2, -12.4, 39.6], armL: [-118.3, 22.8, -36.9], foreL: [-70.2, -9.7, -2.9],
-        clavR: [0.1, 18.8, -27.3], armR: [-113.8, -26.5, 33.3], foreR: [-110, -2.1, 3.2],
-        thighL: [-53.7, 1.5, 52.9], shinL: [5.7, 13, -2.9], footL: [-14.2, 2.3, 1.5],
-        thighR: [-32.1, -31.9, -23.9], shinR: [37, -28.3, -4.3], footR: [-5.9, -20, -45.5],
+        hips: [4.1, -4.5, 3.1], spine: [34.3, 23.7, 29.4], chest: [23.1, -0.6, 13.6], neck: [-3.9, 0.8, -0.7], head: [21.3, 0.8, 2.3],
+        clavL: [-21.4, -12.4, 39.6], armL: [-117.5, 22.1, -37.6], foreL: [-70.2, -9.7, -2.9],
+        clavR: [0.1, 15.1, -27.3], armR: [-113.8, -26.5, 33.3], foreR: [-110, -2.1, 3.2],
+        thighL: [-53.7, 7.5, 52.9], shinL: [5.7, 13, -2.9], footL: [-14.2, 2.3, 1.5],
+        thighR: [-32.1, -25.9, -20.9], shinR: [35.5, -25.3, -4.3], footR: [-5.9, -20, -45.5],
       },
     },
     B: {
       root: { p: [-0.007, 0.231, 0.012], r: [-90, 180, 0] },
       j: {
-        hips: [6.9, 19.1, 0], spine: [14.6, 12.2, 0], chest: [6.1, 5.4, 13.6], neck: [-10.2, 3, 1.5], head: [13, 0, 3],
+        hips: [6.9, 25.1, 0], spine: [14.6, 6.2, 0], chest: [6.1, 5.4, 13.6], neck: [-10.2, 3, 1.5], head: [13, 0, 3],
         // The trapped arm reaches across to A's chest, which is what pulls it
         // straight; the free one is stacked under him where it can do nothing.
-        clavL: [13.6, -1.3, 42.6], armL: [-97.5, 47.2, -14.1], foreL: [-35.5, 20.5, 4],
+        clavL: [13.6, -1.3, 36.6], armL: [-91.5, 53.2, -14.1], foreL: [-35.5, 20.5, 4],
         clavR: [29.6, 24.2, -18.6], armR: [-50.3, -16.1, 25.7], foreR: [-61.3, 9.2, 8.4],
-        thighL: [-24.1, 3.2, 7.8], shinL: [39.1, -8.2, -3], footL: [-11.2, -6, 0.1],
-        thighR: [-13.8, -5.2, -5.7], shinR: [37.3, 2.3, 0], footR: [-12.7, 0.8, 0.8],
+        thighL: [-24.1, 0.2, 6.3], shinL: [37.6, -11.2, -2.2], footL: [-10.4, -6, 0.1],
+        thighR: [-9.3, -5.2, -8.7], shinR: [34.3, 2.3, -1.5], footR: [-12.7, 0.8, 0.8],
       },
     },
     hold: [
