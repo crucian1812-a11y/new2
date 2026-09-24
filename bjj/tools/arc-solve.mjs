@@ -52,6 +52,7 @@ import { Overlap } from '../src/game/collide.js';
 import { SOLVE_STEPS } from './grid.mjs';
 import { SUNK, skinUnder } from './mat-model.mjs';
 import { readTorso, torsoCost, torsoOver } from './torso.mjs';
+import { readLimbs, limbCost } from './limbs.mjs';
 
 const WRITE = process.argv.includes('--write');
 const FRESH = process.argv.includes('--fresh');
@@ -123,6 +124,9 @@ const LOBES = +(process.env.ARC_LOBES || 2);
 // The reading is tools/torso.mjs, the same one torso-check judges on and
 // pose-relax pays for. Three files, one definition.
 const TORSO_W = +(process.env.ARC_TORSO || 300);
+// Hips and shoulders turned past a person, and a knee or an elbow folded the
+// wrong way round — on the same terms as pose-relax (tools/limbs.mjs).
+const LIMB_W = +(process.env.ARC_LIMB || 100);
 
 const rig = new PairRig();
 // Measuring the path, not a performance of it: the step planner and the
@@ -228,6 +232,20 @@ function measure(from, to) {
     // answer whatever it fixes.
     // Nor into a spine that cannot exist, for the same reason and on the same
     // terms as the fold above.
+    // Nor through a hip or a shoulder turned past a person, nor a knee or an
+    // elbow folded the wrong way round. The rig turns every thigh and upper
+    // arm so its knee or elbow folds the way one folds, as far as the socket
+    // turns (swivelHinges); what it cannot turn is left for the correction to
+    // avoid. Without this a re-solved KNEE_ON_BELLY>ARMBAR took a knee
+    // through 173° of fold the wrong way halfway across (hinge-check).
+    for (const role of ['A', 'B']) {
+      const sk = rig.skel[role];
+      sum += limbCost(sk) * LIMB_W;
+      for (const r of readLimbs(sk)) {
+        const wrong = r.n === 'knee' ? Math.max(0, r.fwd - 5) : r.n === 'elbow' ? Math.max(0, -r.fwd - 10) : 0;
+        if (wrong > 0) sum += (wrong / 57.3) * (wrong / 57.3) * LIMB_W;
+      }
+    }
     for (const role of ['A', 'B']) {
       const tor = readTorso(rig.skel[role]);
       sum += torsoCost(tor) * TORSO_W;

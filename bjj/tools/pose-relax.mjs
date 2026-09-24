@@ -33,6 +33,7 @@ import { Overlap } from '../src/game/collide.js';
 import { intentCost } from '../src/game/intent.js';
 import { declaredPairs, pairKey, GRIP_ALLOW, GRIP_MARGIN } from './grip-pairs.mjs';
 import { readTorso, torsoCost, torsoOver, torsoSlack } from './torso.mjs';
+import { limbCost } from './limbs.mjs';
 
 // How many degrees past a person the worse of the two spines is. The guard
 // watches this — it is the number torso-check prints and the one that ships.
@@ -81,6 +82,9 @@ const HOVER_W = +(process.env.HOVER_W || 300);
 // trade below allows.
 const TORSO_W = +(process.env.TORSO_W || 600);
 const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
+// What a hip or a shoulder turned past its range costs, per radian squared.
+// A knob for the same reason TORSO_W is one: the ranges are a textbook person.
+const LIMB_W = +(process.env.LIMB_W || 200);
 
 const rig = new PairRig();
 // On the ground the cost is measured with the runtime as it plays, foot
@@ -717,6 +721,15 @@ function cost(id) {
   // this and a solver that pays for a different number is the oldest mistake
   // in this folder.
   for (const role of ['A', 'B']) c += torsoCost(readTorso(rig.skel[role])) * TORSO_W;
+
+  // And hips and shoulders turned no further than they turn.
+  //
+  // The rig turns every upper arm and thigh so its elbow or knee folds the way
+  // one folds (swivelHinges in skeleton.js); where the pose has put an elbow
+  // or a knee somewhere no socket turns it to, that turn is past a person —
+  // the arm by a man's side rotated 133° in the shoulder. The turn is read the
+  // way hinge-check reads it (tools/limbs.mjs).
+  for (const role of ['A', 'B']) c += limbCost(rig.skel[role]) * LIMB_W;
 
   // And a head that is looking at something.
   c += lookCost(id) * 6;

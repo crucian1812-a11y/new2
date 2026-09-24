@@ -66,6 +66,11 @@ const steps = [
   // so when the measure inside it turned out to be reading a roll nothing
   // controls, nothing was watching.
   ['joints', 'joint-check.mjs', []],
+  // And which way they fold, read in the upper bone's frame, where the skin
+  // is: an elbow folded backwards against its own upper arm, a knee bent
+  // sideways, a hip or a shoulder turned past a person. A ratchet — see its
+  // NOW table and PLAN.md.
+  ['which way they fold', 'hinge-check.mjs', []],
   // Whether a pose holds itself up: where the weight is, what is resting on
   // what, and whether anybody is inside the mat or hanging above it. pose-check
   // asks whether the bodies are possible; this asks whether they are standing.

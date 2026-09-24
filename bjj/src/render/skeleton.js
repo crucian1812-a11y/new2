@@ -372,6 +372,146 @@ export function clampHinges(sk) {
   }
 }
 
+// Which way a knee and an elbow fold, as the skin sees it.
+//
+// A two-bone solve puts the elbow and the wrist where they have to be and has
+// no opinion about how the upper arm is turned about its own length — and the
+// skin is carried in exactly that turn: the kneecap is on the front of the
+// thigh bone's frame, the crook of the elbow on the front of the upper arm's.
+// Left to chance, a third of the positions had a forearm folded backwards
+// against its own upper arm, some by more than a right angle, and knees bent
+// sideways by up to 72° (tools/hinge-check.mjs); a player called it limbs bent
+// the way limbs do not bend.
+//
+// Every point of the limb is kept. The upper bone is turned about its own
+// length — which moves neither end of it — until the lower bone lies in its
+// front plane (an elbow folds forwards, a knee back), and the lower bone and
+// the hand or foot at the end of it keep the world orientation they had, so a
+// grip stays a grip and a planted foot stays planted. What changes is the turn
+// in the shoulder and the hip, which is where a person makes that turn. A limb
+// that is nearly straight has no fold to put anywhere and is left alone,
+// fading in over the first few degrees so nothing snaps as it bends.
+//
+// `keep` names lower bones whose roll is left alone as well — a forearm whose
+// sleeve, or a shin whose knee, is in somebody's hand: turned about its length
+// it would carry the point out of the grip.
+// Such a limb is only turned as far as its own twist allows: past that the
+// elbow reads as wrung like a towel, which is worse than a fold slightly off.
+//
+// And the upper bone is only turned as far as its own socket turns — a hip
+// about 45° either way, a shoulder about 90 — or, where the pose already had
+// it past that, no further. Where a knee could only fold straight back with
+// the thigh turned 160° in the hip (joint-check), it folds as far round as the
+// hip allows and the rest is the pose's to fix, offline, where a pose is
+// fixed (pose-relax, LIMB_W).
+const SOCKET = { thighL: 50, thighR: 50, armL: 100, armR: 100 };
+export function swivelHinges(sk, keep = null) {
+  for (const [up, lo, isArm] of HINGES) {
+    const limit = isArm ? ROLL_FORE : ROLL_SHIN;
+    swivel(sk, BONE_INDEX[up], BONE_INDEX[lo], BONE_INDEX[SWIVEL_END[lo]],
+      isArm ? 1 : -1, limit, !!(keep && keep.has(lo)), SOCKET[up] * Math.PI / 180);
+  }
+}
+const SWIVEL_END = { foreL: 'handL', foreR: 'handR', shinL: 'footL', shinR: 'footR' };
+// How far a hand or a foot turns from rest, radians — joint-check's ranges.
+const END_TURN = {};
+for (const [n, deg] of [['handL', 90], ['handR', 90], ['footL', 65], ['footR', 65]]) END_TURN[BONE_INDEX[n]] = deg * Math.PI / 180;
+const localTurn = (sk, i) => 2 * Math.acos(Math.min(1, Math.abs(sk.local[i][3])));
+const _sqC = [0, 0, 0, 1];
+const _sa = v3(), _sw = v3(), _sd = v3(), _sx = v3();
+const _sqU = quat(), _sqL = quat(), _sqE = quat(), _sqR = quat(), _sqP = quat(), _sqT = quat();
+
+function setWorldQ(sk, i, q) {
+  const p = sk.parent[i];
+  if (p < 0) return;
+  quatFromMat(_sqP, sk.world[p]);
+  _sqP[0] = -_sqP[0]; _sqP[1] = -_sqP[1]; _sqP[2] = -_sqP[2];
+  qMul(sk.local[i], _sqP, q);
+  sk.poseFrom(i);
+}
+
+// The lower bone's twist about its own length relative to the upper, radians.
+function twistOf(sk, iU, iL) {
+  m4dir(_rAxis, sk.world[iL], sk.axis[iL]);
+  v3norm(_rAxis, _rAxis);
+  quatFromMat(_qU2, sk.world[iU]);
+  quatFromMat(_qL2, sk.world[iL]);
+  _qInv2[0] = -_qU2[0]; _qInv2[1] = -_qU2[1]; _qInv2[2] = -_qU2[2]; _qInv2[3] = _qU2[3];
+  qMul(_qRel, _qL2, _qInv2);
+  const d = _qRel[0] * _rAxis[0] + _qRel[1] * _rAxis[1] + _qRel[2] * _rAxis[2];
+  const ang = 2 * Math.atan2(d, _qRel[3]);
+  return Math.atan2(Math.sin(ang), Math.cos(ang));
+}
+
+function swivel(sk, iU, iL, iE, sign, limit, keep, socket) {
+  v3norm(_sa, m4dir(_sa, sk.world[iU], sk.axis[iU]));
+  v3norm(_sw, m4dir(_sw, sk.world[iL], sk.axis[iL]));
+  const mU = sk.world[iU];
+  // The front of the upper bone: its own +z, forwards for an elbow's fold and
+  // backwards for a knee's.
+  _sd[0] = mU[8] * sign; _sd[1] = mU[9] * sign; _sd[2] = mU[10] * sign;
+  const wa = v3dot(_sw, _sa), da = v3dot(_sd, _sa);
+  for (let k = 0; k < 3; k++) { _sw[k] -= _sa[k] * wa; _sd[k] -= _sa[k] * da; }
+  const bent = Math.hypot(_sw[0], _sw[1], _sw[2]);
+  if (bent < 0.1) return;
+  v3cross(_sx, _sd, _sw);
+  let rho = Math.atan2(v3dot(_sa, _sx), v3dot(_sd, _sw));
+  const u = Math.min(1, (bent - 0.1) / 0.15);
+  rho *= u * u * (3 - 2 * u);
+  if (Math.abs(rho) < 0.005) return;
+  quatFromMat(_sqL, sk.world[iL]);
+  quatFromMat(_sqE, sk.world[iE]);
+  quatFromMat(_sqU, mU);
+  const iP = sk.parent[iU];
+  // What turning the upper bone may cost: its own turn in its socket, and —
+  // for a lower bone that is held still — the twist at the joint below, which
+  // every radian of the turn adds to. Each stays inside its range or, where
+  // the pose was already past it, no worse.
+  const socketRoom = Math.max(socket, Math.abs(twistOf(sk, iP, iU)));
+  const jointRoom = keep ? Math.max(limit, Math.abs(twistOf(sk, iU, iL))) : Infinity;
+  const turn = (r) => {
+    qFromAxisAngle(_sqR, _sa[0], _sa[1], _sa[2], r);
+    qMul(_sqT, _sqR, _sqU);
+    setWorldQ(sk, iU, _sqT);
+    setWorldQ(sk, iL, _sqL);
+  };
+  const fits = () => Math.abs(twistOf(sk, iP, iU)) <= socketRoom &&
+    (!keep || Math.abs(twistOf(sk, iU, iL)) <= jointRoom);
+  turn(rho);
+  if (!fits()) {
+    // As much of the turn as fits, found by halving: a twist wraps at a half
+    // turn, so it is not a straight line in the turn.
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 10; k++) {
+      const mid = (lo + hi) / 2;
+      turn(rho * mid);
+      if (fits()) lo = mid; else hi = mid;
+    }
+    turn(rho * lo);
+  }
+  if (!keep) unroll(sk, iU, iL, limit);
+  // The hand or foot back to where it faced — as far as the wrist or the ankle
+  // turns (joint-check's ranges). What the forearm's turn carried it through
+  // past that stays: a hand pointing a few degrees off is a hand, a wrist bent
+  // past a wrist is not.
+  const endRoom = END_TURN[iE];
+  quatFromMat(_sqP, sk.world[iE]);
+  const carried = _sqC; carried[0] = _sqP[0]; carried[1] = _sqP[1]; carried[2] = _sqP[2]; carried[3] = _sqP[3];
+  const room = Math.max(endRoom, localTurn(sk, iE));
+  setWorldQ(sk, iE, _sqE);
+  if (localTurn(sk, iE) > room) {
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 10; k++) {
+      const mid = (lo + hi) / 2;
+      qSlerp(_sqT, carried, _sqE, mid);
+      setWorldQ(sk, iE, _sqT);
+      if (localTurn(sk, iE) > room) hi = mid; else lo = mid;
+    }
+    qSlerp(_sqT, carried, _sqE, lo);
+    setWorldQ(sk, iE, _sqT);
+  }
+}
+
 function unroll(sk, iU, iL, limit) {
   m4dir(_rAxis, sk.world[iL], sk.axis[iL]);
   v3norm(_rAxis, _rAxis);
