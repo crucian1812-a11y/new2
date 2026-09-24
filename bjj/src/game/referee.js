@@ -25,7 +25,9 @@ import {
   HAND_REST, TIP_REST,
 } from '../render/skeleton.js';
 import { groundFeet } from './step.js';
-import { Gait, GAIT } from './gait.js';
+import { Gait, GAIT, setWorldRot } from './gait.js';
+import { Shuffle } from './shuffle.js';
+import { solveTwoBone } from '../render/skeleton.js';
 
 // Where the tatami is, the height every judge reads it at.
 const MAT_Y = 0.05;
@@ -72,6 +74,23 @@ const BLOCKS = (40 * Math.PI) / 180;
 // The two radii of the walking dead zone (see above).
 const ENGAGE = 0.5;
 const RELEASE = 0.2;
+// Walking, or stepping in his stance.
+//
+// He faces the fight, so nearly everything he did was sideways, and he did it
+// with the walk onto the mat: a forward gait run sideways lands each step
+// "ahead" — the far side of the other foot. Measured (stance-check), his feet
+// crossed by 19 cm when the camera cut and he went round, splayed 63 cm past
+// his stance, and a foot flew at 8 m/s while he followed a fight shuffling
+// under him. A referee does two different things there. Going somewhere —
+// the other side of the mat after a cut — he turns and walks, and that is the
+// walkout's gait, facing where he goes. Keeping his place — the fight moved
+// half a metre — he steps sideways in his stance facing it, never crossing
+// his feet, at no more than a stance can carry (shuffle.js). WALK_ON is how
+// far away his mark has to be for him to turn and walk; WALK_OFF is how close
+// he comes before he turns back to the fight.
+const WALK_ON = 0.9;
+const WALK_OFF = 0.35;
+const V_STANCE = 0.45;
 
 // He holds nothing for the whole match and still has hands. Spread into every
 // pose below rather than typed into each: the fighters get the same angles from
@@ -141,6 +160,9 @@ for (const k in P) QUATS[k] = poseToQuats(Array.from({ length: BONE_COUNT }, () 
 export const REFEREE_POSES = P;
 
 const _bq = quat();
+const _fq = quat();
+const _head = v3();
+const _ankles = [v3(), v3()];
 // Add a small Euler rotation to a bone's local quaternion, in place. The same
 // idea as rig.js's addEuler: breathing is added on top of the authored pose
 // rather than written over a joint, so the pose keeps its own neck and the
@@ -181,6 +203,10 @@ export class Referee {
     // knew he was walking. It is the walkout's gait cycle now (gait.js), with
     // his own stance as where his feet go when he stops.
     this.gait = new Gait();
+    this.shuffle = new Shuffle();
+    this.mode = 'stance';
+    this._homes = [[0, 0, 0], [0, 0, 0]];
+    this._left = [1, 0];
     // Which way his knees bend. See step.js: without it the solver keeps the
     // knee wherever the pose left it, and a leg swinging through the vertical
     // has no opinion worth keeping.
@@ -200,6 +226,7 @@ export class Referee {
     // Capture the blended state as it stands right now, then blend from it.
     blendQuats(this._fromQ, this._fromQ, QUATS[this.pose], this.blend);
     this._rootFrom += (P[this.pose].root.p[1] - this._rootFrom) * this.blend;
+    this._fromCrouch = this.pose === 'crouch';
     this.pose = name;
     this.blend = 0;
   }
@@ -228,6 +255,70 @@ export class Referee {
   // pose he was not in.
   _ground() { return groundFeet(this.skel); }
 
+  // Off his stance and into a walk: a fresh cycle standing where his feet are,
+  // with the foot further behind the way he is going leaving first.
+  _toWalk(speed) {
+    const g = new Gait();
+    const dirx = speed > 1e-3 ? this.vx / speed : 0, dirz = speed > 1e-3 ? this.vz / speed : 0;
+    let behind = 0, most = Infinity;
+    for (let i = 0; i < 2; i++) {
+      const f = this.shuffle.feet[i];
+      // Feet that have never been put down (his first frame) the walk puts
+      // down itself, under him.
+      if (!f.set) continue;
+      g.feet[i].g[0] = f.g[0]; g.feet[i].g[1] = f.g[1]; g.feet[i].set = true;
+      const ahead = (f.g[0] - this.x) * dirx + (f.g[1] - this.z) * dirz;
+      if (ahead < most) { most = ahead; behind = i; }
+    }
+    g.phase = g.cfg.DUTY - 0.02 - 0.5 * behind;
+    g.last = [this.x, this.z];
+    g.vel = [this.vx, this.vz];
+    g.speed = speed;
+    this.gait = g;
+    this.mode = 'walk';
+  }
+
+  // And back: the feet stay where the walk put them, and the stance takes
+  // them from there.
+  _toStance() {
+    for (let i = 0; i < 2; i++) {
+      const f = this.gait.feet[i];
+      this.shuffle.plant(i, f.g[0], f.g[1], this.yaw);
+    }
+    this.mode = 'stance';
+  }
+
+  // His feet in his stance, one at a time — the pair rig's way (see its _step).
+  _stance(dt) {
+    const sk = this.skel;
+    const names = [['thighL', 'shinL', 'footL'], ['thighR', 'shinR', 'footR']];
+    const heights = [0, 0];
+    for (let i = 0; i < 2; i++) {
+      const ft = names[i][2];
+      sk.boneHead(_head, ft);
+      const m = sk.world[BONE_INDEX[ft]];
+      const h = this._homes[i];
+      h[0] = _head[0]; h[1] = _head[2]; h[2] = Math.atan2(m[8], m[10]);
+      heights[i] = _head[1];
+    }
+    const hm = sk.world[BONE_INDEX.hips];
+    const ll = Math.hypot(hm[0], hm[2]) || 1;
+    this._left[0] = hm[0] / ll; this._left[1] = hm[2] / ll;
+    this.shuffle.update(dt, this._homes, this._left);
+    for (let i = 0; i < 2; i++) {
+      const f = this.shuffle.feet[i];
+      _v3set(_ankles[i], f.g[0], heights[i] + f.lift, f.g[1]);
+    }
+    for (let i = 0; i < 2; i++) {
+      const [th, sh, ft] = names[i];
+      const f = this.shuffle.feet[i];
+      // Flat on the mat, the way the walk puts it, turned to its own heading.
+      qEuler(_fq, 0, (f.yaw * 180) / Math.PI, 0);
+      solveTwoBone(sk, th, sh, ft, _ankles[i], this._fwd, 1, true);
+      setWorldRot(sk, BONE_INDEX[ft], _fq, 1);
+    }
+  }
+
   update(dt, state, ground, origin, camBearing) {
     this.t += dt;
     this.hold = Math.max(0, this.hold - dt);
@@ -255,15 +346,40 @@ export class Referee {
       const K = 5, DAMP = 2 * Math.sqrt(K);
       this.vx += (dx * K - this.vx * DAMP) * dt;
       this.vz += (dz * K - this.vz * DAMP) * dt;
+      // At arm's length from the fight, the part of that heading into it is
+      // taken off: his mark is usually across the fight, and the way there is
+      // round it. Left in, the spring aimed him through the pair, the circle
+      // below pushed him back out onto the arc, and he faced one way and went
+      // another.
+      {
+        const rx = this.x - origin[0], rz = this.z - origin[2], rr = Math.hypot(rx, rz);
+        if (rr > 1e-4 && rr < KEEP_OUT + 0.05) {
+          const ux = rx / rr, uz = rz / rr, into = this.vx * ux + this.vz * uz;
+          if (into < 0) { this.vx -= into * ux; this.vz -= into * uz; }
+        }
+      }
       const v = Math.hypot(this.vx, this.vz);
-      if (v > VMAX) { const s = VMAX / v; this.vx *= s; this.vz *= s; }
+      // Walking, he gets up to speed only as fast as he comes round to face
+      // the way he is going: a man turns and then walks, rather than
+      // setting off sideways at a stride.
+      let cap = V_STANCE;
+      if (this.mode === 'walk' && v > 1e-3) {
+        const facing = (Math.sin(this.yaw) * this.vx + Math.cos(this.yaw) * this.vz) / v;
+        cap = V_STANCE + (VMAX - V_STANCE) * Math.max(0, Math.min(1, (facing - 0.75) / 0.2));
+      }
+      if (v > cap) { const s = cap / v; this.vx *= s; this.vz *= s; }
       this.x += this.vx * dt;
       this.z += this.vz * dt;
-      if (d < RELEASE && Math.hypot(this.vx, this.vz) < 0.18) {
-        this.moving = false;
-        this.vx = 0;
-        this.vz = 0;
-      }
+      if (d < RELEASE && Math.hypot(this.vx, this.vz) < 0.18) this.moving = false;
+    } else if (this.vx || this.vz) {
+      // Arrived: what is left of his pace runs out over a tenth of a second
+      // rather than in one frame. Zeroed at once, the landing point of a foot
+      // still in the air jumped with it — 707 m/s² at the toe (gait-check).
+      const k = Math.exp(-dt * 10);
+      this.vx *= k; this.vz *= k;
+      if (Math.hypot(this.vx, this.vz) < 0.01) this.vx = this.vz = 0;
+      this.x += this.vx * dt;
+      this.z += this.vz * dt;
     }
     // Round them, not through them.
     //
@@ -313,11 +429,38 @@ export class Referee {
       }
     }
 
-    // The step planner takes the body's velocity straight from the spring; a
-    // step is the body moving, not the radial shove back out of the fight.
-    const want = Math.atan2(origin[0] - this.x, origin[2] - this.z);
+    // Where he is actually going. Not the spring's velocity: that points at
+    // his mark, and the mark is usually across the fight, so the circle above
+    // turns the chord into an arc round it. Facing the chord he walked the arc
+    // sideways, which is the crossed feet all over again.
+    if (!this._tv) { this._tv = [0, 0]; this._px = this.x; this._pz = this.z; }
+    if (dt > 0) {
+      const k = Math.min(1, dt * 8);
+      this._tv[0] += ((this.x - this._px) / dt - this._tv[0]) * k;
+      this._tv[1] += ((this.z - this._pz) / dt - this._tv[1]) * k;
+    }
+    this._px = this.x; this._pz = this.z;
+    // Turn and walk, or keep his stance: see WALK_ON. Only between steps, so
+    // the feet handed from one to the other are both on the mat.
+    const speed = Math.hypot(this._tv[0], this._tv[1]);
+    if (this.mode === 'stance' && this.moving && d > WALK_ON && !this.shuffle.feet.some((f) => f.air)) {
+      this._toWalk(speed);
+    } else if (this.mode === 'walk' && (d < WALK_OFF || !this.moving) && speed < V_STANCE &&
+               !this.gait.feet.some((f) => f.air)) {
+      this._toStance();
+    }
+
+    // He faces the fight, except while he is walking somewhere, when he faces
+    // where he is going.
+    const want = this.mode === 'walk' && speed > 0.25
+      ? Math.atan2(this._tv[0], this._tv[1])
+      : Math.atan2(origin[0] - this.x, origin[2] - this.z);
     let turn = ((want - this.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    this.yaw += turn * Math.min(1, dt * 4);
+    // No faster than a man turns: about 90° a second walking, a little more
+    // turning on the spot. Faster than that his hips came round 40° inside one
+    // step, and the foot in the air landed across the one on the mat.
+    const most = (this.mode === 'walk' ? 1.6 : 3.0) * dt;
+    this.yaw += Math.max(-most, Math.min(most, turn * Math.min(1, dt * 4)));
 
     // What he is doing. A held gesture wins; otherwise he watches from wherever
     // he can see best.
@@ -335,7 +478,12 @@ export class Referee {
         : ground && !this.moving ? 'crouch' : 'stand';
       if (next !== this.pose) this.switchTo(next);
     }
-    this.blend = Math.min(1, this.blend + dt * 2.6);
+    // Up out of the crouch more slowly than down into it: the crouch stands
+    // wider, and a man getting up brings his feet in under him as he rises.
+    // At the speed he goes down, a foot still planted wide was out of reach
+    // of the hips before the other had finished its step.
+    const rate = this.pose === 'stand' && this._fromCrouch ? 1.7 : 2.6;
+    this.blend = Math.min(1, this.blend + dt * rate);
 
     blendQuats(this._q, this._fromQ, QUATS[this.pose], this.blend);
     for (let i = 0; i < BONE_COUNT; i++) {
@@ -362,6 +510,14 @@ export class Referee {
     // starts from his own height rather than bending his knees to reach it.
     const lift = this._ground() || 0;
     const ph2 = ph + lift;
+    // Which way his knees bend (see _fwd): the way he faces.
+    _v3set(this._fwd, Math.sin(this.yaw), 0.25, Math.cos(this.yaw));
+    if (this.mode === 'stance') {
+      this._stance(dt);
+      this._ground();
+      this.skel.finishSkin();
+      return;
+    }
     // Where his pose puts his feet, read before anything moves them: that is
     // where they go when he stops.
     const g = this.gait;
@@ -389,7 +545,6 @@ export class Referee {
       qEuler(this.skel.rootRot, 0, yawDeg - o.turn, o.list);
       this.skel.pose();
     }
-    _v3set(this._fwd, Math.sin(this.yaw), 0.25, Math.cos(this.yaw));
     g.legs(this.skel, MAT_Y, this.yaw, this._fwd, 1);
     this._ground();
     this.skel.finishSkin();

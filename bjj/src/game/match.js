@@ -18,6 +18,40 @@ import { clamp, lerp } from '../core/m4.js';
 import { rand, randInt, pick } from './rng.js';
 
 export const MATCH_TIME = 300;
+// How fast the left thumb moves the pair on their feet, m/s at full stick.
+//
+// It was 1.35 — a brisk walk — and two men gripping each other's collars do
+// not cross a mat at a brisk walk: they shuffle. The feet cannot follow that
+// in a stance. Stepped one at a time, never crossing, a stance keeps up to
+// about half a metre a second; past it every step has to be longer than the
+// stance is wide, and at 1.35 the feet crossed, splayed 40 cm past the stance
+// and flew at 6.7 m/s (tools/stance-check.mjs). Half a metre a second is what
+// grip fighting looks like, and the thumb still gets the pair to the edge of
+// the mat in a few seconds.
+export const DRIFT = 0.55;
+// The left thumb, as the sim reads it: a stick (x right, y down, both -1..1,
+// and how far it is pushed) turned into where the pair drifts, how fast it
+// turns and how hard the player drives. Here and not in main.js so a tool
+// driving the pair moves it exactly as a thumb does.
+//
+// Sideways is mostly a turn. It was a full-speed slide *and* a turn about the
+// pair's middle, and the two added up on whichever man was on the outside of
+// the turn: stepping in his stance he had to cover nearly a metre a second
+// sideways, which is a splay or a hop (stance-check). Two men circling in grips
+// turn about each other; they do not slide past the referee.
+export const SIDE = 0.6;
+export const TURN_RATE = 0.36;
+export function thumb(sx, sy, mag, yaw, ground) {
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  const fx = sx * mag * SIDE;
+  const fz = -sy * mag;
+  return {
+    mx: fx * c + fz * sn,
+    mz: -fx * sn + fz * c,
+    turn: ground ? 0 : -sx * mag,
+    drive: ground ? Math.min(1, Math.max(0, -sy * mag)) : mag * 0.35,
+  };
+}
 
 // How long the defender has to read an attack and answer it: until it lands,
 // less a hair.
@@ -1502,12 +1536,12 @@ export class Match {
     // wired: weight and hip pressure, which is `drive`, and it goes straight
     // into whether a transition lands. Taking the translation away costs the
     // ground game nothing it was using and takes the skating with it.
-    const speed = p.ground ? 0 : 1.35;
+    const speed = p.ground ? 0 : DRIFT;
     if (speed) {
       this.origin[0] = clamp(this.origin[0] + c0.mx * speed * dt, -4.6, 4.6);
       this.origin[2] = clamp(this.origin[2] + c0.mz * speed * dt, -4.6, 4.6);
     }
-    if (!p.ground) this.yaw += c0.turn * dt * 0.9;
+    if (!p.ground) this.yaw += c0.turn * dt * TURN_RATE;
     else this.yaw += c0.turn * dt * 0.2;
     this.drive = c0.drive;
     for (let i = 0; i < 2; i++) this.driveOf[i] = (control[i] && control[i].drive) || 0;

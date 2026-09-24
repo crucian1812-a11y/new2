@@ -63,6 +63,7 @@ export const GAIT = {
   FULL: 1.1,         // the speed, m/s, at which all of the above is at full size
   HIP_W: 0.085,      // half the distance between the feet
   BACK_MAX: 0.34,    // the furthest a planted foot trails the hips before it has to go, m
+  GAP: 0.10,         // m the feet keep between them across the hips, whatever the path
 };
 
 // The foot, in the rig's own terms: where the ankle sits over a flat sole, and
@@ -246,6 +247,19 @@ export class Gait {
         const ahead = c.AHEAD * stepLen * Math.min(1, sp / 0.3);
         f.to[0] += dirx * ahead;
         f.to[1] += dirz * ahead;
+        // And never across the foot on the mat. Walking straight the feet are
+        // a hip's width apart and this does nothing; walking round a curve, or
+        // turning while a foot is up, the landing point swings with the hips
+        // and can end up on the far side of the other foot.
+        {
+          const o = this.feet[1 - i], sd = LEGS[i].side;
+          const lx = Math.cos(yaw), lz = -Math.sin(yaw);
+          const across = ((f.to[0] - o.g[0]) * lx + (f.to[1] - o.g[1]) * lz) * sd;
+          if (across < c.GAP) {
+            f.to[0] += lx * sd * (c.GAP - across);
+            f.to[1] += lz * sd * (c.GAP - across);
+          }
+        }
         const s = smooth(f.u);
         f.g[0] = f.from[0] + (f.to[0] - f.from[0]) * s;
         f.g[1] = f.from[1] + (f.to[1] - f.from[1]) * s;
@@ -307,27 +321,12 @@ export class Gait {
   // lets go of all of it, for handing a walker over to something else.
   legs(sk, floor, yaw, pole, weight = 1) {
     if (weight <= 0.001) return;
-    // A leg cannot reach further than it is long; if the pelvis is too high
-    // for either foot, the pelvis comes down, once, before anything is solved.
-    let drop = 0;
     for (let i = 0; i < 2; i++) {
-      const f = this.feet[i], L = LEGS[i];
+      const f = this.feet[i];
       anklePos(this.ankle[i], f.g[0], f.g[1], floor, f.pitch, yaw);
       this.ankle[i][1] += f.lift;
-      const hip = sk.world[BONE_INDEX[L.th]];
-      const reach = this._reach || (this._reach = legLength(sk));
-      const dx = this.ankle[i][0] - hip[12], dy = this.ankle[i][1] - hip[13], dz = this.ankle[i][2] - hip[14];
-      const horiz = Math.hypot(dx, dz), want = reach * 0.997;
-      if (horiz < want) {
-        const need = -Math.sqrt(want * want - horiz * horiz);   // dy the leg can manage
-        if (dy < need) drop = Math.max(drop, need - dy);
-      }
     }
-    if (drop > 0) {
-      // Never more than a knee's worth: past that the foot is simply short.
-      sk.rootPos[1] -= Math.min(drop, 0.08) * weight;
-      sk.pose();
-    }
+    reachDown(sk, this.ankle, weight);
     const w = weight;
     for (let i = 0; i < 2; i++) {
       const L = LEGS[i];
@@ -350,6 +349,29 @@ export function setWorldRot(sk, i, q, weight = 1) {
   qMul(_loc, _inv, q);
   qSlerp(sk.local[i], sk.local[i], _loc, weight);
   sk.poseFrom(i);
+}
+
+// A leg cannot reach further than it is long; if the pelvis is too high for
+// either ankle to get to where it is going, the pelvis comes down, once, before
+// anything is solved — a straight leg is the last thing to give, never the
+// foot. Never more than a knee's worth: past that the foot is simply short.
+export function reachDown(sk, ankles, weight = 1) {
+  let drop = 0;
+  const reach = legLength(sk) * 0.997;
+  for (let i = 0; i < 2; i++) {
+    const hip = sk.world[BONE_INDEX[LEGS[i].th]];
+    const a = ankles[i];
+    const dx = a[0] - hip[12], dy = a[1] - hip[13], dz = a[2] - hip[14];
+    const horiz = Math.hypot(dx, dz);
+    if (horiz < reach) {
+      const need = -Math.sqrt(reach * reach - horiz * horiz);   // dy the leg can manage
+      if (dy < need) drop = Math.max(drop, need - dy);
+    }
+  }
+  if (drop > 0) {
+    sk.rootPos[1] -= Math.min(drop, 0.08) * weight;
+    sk.pose();
+  }
 }
 
 // How high the pelvis rides over a walking man's feet: the leg nearly
