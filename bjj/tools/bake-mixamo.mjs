@@ -427,10 +427,15 @@ function normals(P, idx) {
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
     for (const o of [a, b, c]) { N[o] += nx; N[o + 1] += ny; N[o + 2] += nz; }
   }
+  // A vertex no triangle uses any more (the pockets taken off fighter A's
+  // shorts leave theirs behind until decimation compacts the mesh) has no
+  // normal to be degenerate about.
+  const used = new Uint8Array(P.length / 3);
+  for (let t = 0; t < idx.length; t++) used[idx[t]] = 1;
   let zero = 0;
   for (let i = 0; i < N.length; i += 3) {
     const l = Math.hypot(N[i], N[i + 1], N[i + 2]);
-    if (l < 1e-12) { N[i] = 0; N[i + 1] = 1; N[i + 2] = 0; zero++; }
+    if (l < 1e-12) { N[i] = 0; N[i + 1] = 1; N[i + 2] = 0; if (used[i / 3]) zero++; }
     else { N[i] /= l; N[i + 1] /= l; N[i + 2] /= l; }
   }
   if (zero) console.warn(`warning: ${zero} degenerate normals`);
@@ -622,14 +627,87 @@ if (!NOGI) {
   }
   if (!Number.isFinite(hemY)) hemY = cuffY;
   const legTop = hemY + 0.08;
-  const legs = hemY > cuffY + 0.04 ? inflate(
+  const shorts = hemY > cuffY + 0.04;
+
+  // Where each leg's axis is at a height, in the bind pose, where the legs
+  // hang straight: from the hip joint down to the ankle.
+  const legAxis = (side, y) => {
+    const th = ourPos[BONE_INDEX[side > 0 ? 'thighL' : 'thighR']];
+    const ft = ourPos[BONE_INDEX[side > 0 ? 'footL' : 'footR']];
+    const u = Math.min(1, Math.max(0, (th[1] - y) / Math.max(0.01, th[1] - ft[1])));
+    return [th[0] + (ft[0] - th[0]) * u, th[2] + (ft[2] - th[2]) * u];
+  };
+  const radial = (v) => {
+    const side = P[v * 3] >= 0 ? 1 : -1;
+    const [ax, az] = legAxis(side, P[v * 3 + 1]);
+    const dx = P[v * 3] - ax, dz = P[v * 3 + 2] - az;
+    return { side, ax, az, dx, dz, r: Math.hypot(dx, dz) };
+  };
+
+  // A gi's trousers are one piece of cloth. Fighter A's cargo shorts are one
+  // piece with fifteen more sewn on top — pockets, their flaps, belt loops —
+  // each its own island of mesh lying on the trouser under it. Recoloured they
+  // stayed: flaps with their own normals and an outline round every edge, and
+  // where they stood off the thigh, their undersides as dark flecks. Every
+  // island but the biggest goes; the cloth they were sewn onto is whole under
+  // them.
+  let islands = 0, islandTris = 0;
+  if (shorts) {
+    const pk = (v) => `${Math.round(P[v * 3] * 2000)},${Math.round(P[v * 3 + 1] * 2000)},${Math.round(P[v * 3 + 2] * 2000)}`;
+    const par = new Map();
+    const find = (k) => { while (par.get(k) !== k) { par.set(k, par.get(par.get(k))); k = par.get(k); } return k; };
+    const trouser = (t) => MAT[IDX[t]] === 2 && MAT[IDX[t + 1]] === 2 && MAT[IDX[t + 2]] === 2;
+    for (let t = 0; t < IDX.length; t += 3) {
+      if (!trouser(t)) continue;
+      const ks = [0, 1, 2].map((k) => pk(IDX[t + k]));
+      for (const k of ks) if (!par.has(k)) par.set(k, k);
+      for (let i = 1; i < 3; i++) { const x = find(ks[0]), y = find(ks[i]); if (x !== y) par.set(x, y); }
+    }
+    const size = new Map();
+    for (let t = 0; t < IDX.length; t += 3) {
+      if (!trouser(t)) continue;
+      const r = find(pk(IDX[t]));
+      size.set(r, (size.get(r) || 0) + 1);
+    }
+    const main = [...size].sort((x, y) => y[1] - x[1])[0][0];
+    islands = size.size - 1;
+    const kept = [];
+    for (let t = 0; t < IDX.length; t += 3) {
+      if (trouser(t) && find(pk(IDX[t])) !== main) { islandTris++; continue; }
+      kept.push(IDX[t], IDX[t + 1], IDX[t + 2]);
+    }
+    IDX.length = 0;
+    for (const v of kept) IDX.push(v);
+  }
+  // And the leg below them grown to meet their hem flush, so the trouser runs
+  // from the hip to the ankle without a step at the knee. The shin was pushed
+  // out a fixed 2–4 cm, and under a baggy hem that left a ledge: shorts over a
+  // narrower tube.
+  const ringAt = (mat, y, band) => {
+    const rs = [];
+    for (let v = 0; v < MAT.length; v++) {
+      if (MAT[v] !== mat || !LEGS.includes(boneName(v))) continue;
+      if (Math.abs(P[v * 3 + 1] - y) > band) continue;
+      rs.push(radial(v).r);
+    }
+    rs.sort((a, b) => a - b);
+    return rs.length ? rs[Math.floor(rs.length / 2)] : 0;
+  };
+  const hemR = shorts ? ringAt(2, hemY + 0.015, 0.015) : 0;
+  const skinR = shorts ? ringAt(0, hemY, 0.02) : 0;
+  const topThick = Math.min(0.07, Math.max(0.03, hemR - skinR - 0.004));
+  const legs = shorts ? inflate(
     (v) => LEGS.includes(boneName(v)) && P[v * 3 + 1] > cuffY && P[v * 3 + 1] < legTop,
     (v) => {
       const u = Math.min(1, Math.max(0, (P[v * 3 + 1] - cuffY) / Math.max(0.01, hemY - cuffY)));
-      return 0.02 + 0.022 * u;
+      return 0.02 + (topThick - 0.02) * u;
     },
     2
   ) : { tris: 0, hems: 0 };
+  if (shorts) {
+    console.log(`shorts made trousers: ${islands} pockets, flaps and loops taken off (${islandTris} tris); hem ${(hemR * 100).toFixed(1)} cm ` +
+      `round against ${(skinR * 100).toFixed(1)} cm of shin, so the leg below starts ${(topThick * 100).toFixed(1)} cm out`);
+  }
   console.log(legs.tris
     ? `trouser legs: ${legs.tris} tris from ${(hemY * 100).toFixed(0)} cm down to the cuff (${legs.hems} hem edges)`
     : 'trouser legs: none needed — the character arrived in long trousers');
