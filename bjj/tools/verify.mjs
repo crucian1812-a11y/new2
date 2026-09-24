@@ -31,6 +31,10 @@ const steps = [
   // And whether it is a walk at all: knee, hip, the roll of the foot, the
   // pelvis and the arms, held to what a gait lab reports for a person.
   ['a walk', 'gait-check.mjs', []],
+  // And the steps once the fight has started, which is not a walk: the pair
+  // moved round the mat by the thumb in their stance, and the referee keeping
+  // his place facing them or walking round to a new one.
+  ['in the stance', 'stance-check.mjs', []],
   // And the screen in front of both of them: six printed pictures of real
   // positions. This half needs no browser — it asks whether each picture is
   // inside the window the menu leaves, on every shape of glass the game runs

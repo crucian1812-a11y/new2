@@ -397,7 +397,7 @@ console.log(
 
 /* --------------------------------------------------------- does he walk? */
 
-// Standing, the pair drifts around the mat at over a metre a second, and until
+// Standing, the pair drifts around the mat at the thumb's speed, and until
 // now the feet went with it: the whole fighter was translated, so a foot on the
 // ground travelled at exactly the speed of the man. The footstep sound has been
 // playing over that for two rounds of work — every forty centimetres, over a
@@ -408,7 +408,7 @@ console.log(
 // each instant (that is the one taking the weight) and how much of the time
 // each foot is within a centimetre of where it was.
 {
-  const SPEED = 1.35;          // what match.js's _drift does when standing
+  const { DRIFT: SPEED } = await import('../src/game/match.js');   // what the thumb does standing
   const STEP = 1 / 60;
   const prev = {};
   const speeds = [];

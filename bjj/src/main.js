@@ -6,7 +6,7 @@ import { buildFighterMesh } from './render/body.js';
 import { loadFighter } from './render/asset.js';
 import { PairRig } from './game/rig.js';
 import { BONE_INDEX } from './render/skeleton.js';
-import { Match, Fighter, MATCH_TIME } from './game/match.js';
+import { Match, Fighter, MATCH_TIME, thumb } from './game/match.js';
 import { seedRandom } from './game/rng.js';
 import { AI, STYLE_OF } from './game/ai.js';
 import { Skills } from './game/skills.js';
@@ -657,18 +657,10 @@ let started = false;
 
 function control0() {
   // The left thumb, mapped into the two things the sim understands: where the
-  // pair drifts, and how hard the player is driving.
+  // pair drifts, and how hard the player is driving. The mapping is match.js's
+  // (`thumb`), so a tool moves the pair exactly as a thumb does.
   const s = input.stick;
-  const ground = POSES[match.position].ground;
-  const c = Math.cos(rig.yaw), sn = Math.sin(rig.yaw);
-  const fx = s.x * s.mag;
-  const fz = -s.y * s.mag;
-  return {
-    mx: fx * c + fz * sn,
-    mz: -fx * sn + fz * c,
-    turn: ground ? 0 : -s.x * s.mag * 0.6,
-    drive: ground ? clamp(-s.y * s.mag, 0, 1) : s.mag * 0.35,
-  };
+  return thumb(s.x, s.y, s.mag, rig.yaw, POSES[match.position].ground);
 }
 
 // The bell, the whistle and the track that runs under the round. The bell is
