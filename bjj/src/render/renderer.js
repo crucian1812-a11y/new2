@@ -661,10 +661,21 @@ void main() {
 
     // Folds, on top of the weave. A belt is a tight roll and does not fold;
     // everything else does.
-    float fold = m == 3 ? 0.0 : giFold(v_uv, v_bend) * u_folds;
+    float fold = m == 3 || m == 9 ? 0.0 : giFold(v_uv, v_bend) * u_folds;
     N = bumpFromHeight(N, v_world, fold, 0.17);
 
     vec3 base = m == 3 ? u_beltCol : u_giCol;
+    // The rank bar on the end of the belt (material 9): black on every belt
+    // but the black one, where it is red. The belt's own colour says which.
+    // Two degrees of white tape across it, towards the tip: u runs along the
+    // bar from the knot's end (0) to the tip's (1).
+    if (m == 9) {
+      base = dot(u_beltCol, vec3(0.299, 0.587, 0.114)) < 0.08
+        ? vec3(0.50, 0.035, 0.03) : vec3(0.025, 0.022, 0.022);
+      float u9 = v_uv.x;
+      float tape = step(0.50, u9) * step(u9, 0.62) + step(0.72, u9) * step(u9, 0.84);
+      base = mix(base, vec3(0.86, 0.86, 0.84), tape);
+    }
     if (m == 2) base *= 0.97;                  // trousers, very slightly duller
     float wetGi = 0.0;
 
@@ -680,7 +691,7 @@ void main() {
     //
     // The UV here is the body's own cylindrical map: u runs round the body
     // with the back at about -1.88, v runs up it at eight units to the metre.
-    if (m != 3 && m != 4) {
+    if (m != 3 && m != 4 && m != 9) {
       float back = 1.0 - smoothstep(0.25, 1.15, abs(abs(v_uv.x) - 1.88));
       float pit = smoothstep(0.35, 1.0, abs(v_uv.x)) * (1.0 - smoothstep(1.0, 1.7, abs(v_uv.x)));
       float up = smoothstep(6.6, 8.4, v_uv.y) * (1.0 - smoothstep(10.6, 11.6, v_uv.y));
@@ -737,8 +748,9 @@ void main() {
     // Light does not reach the bottom of a crease. This is the half of a fold
     // that survives at distance, after the normal has stopped being resolvable.
     albedo *= 1.0 - max(0.0, -fold) * (0.16 + 0.14 * v_bend);
-    rough = mix(m == 3 ? 0.74 : m == 4 ? 0.62 : 0.88, 0.36, wetGi);
-    spec = mix(m == 3 ? 0.14 : m == 4 ? 0.2 : 0.12, 0.46, wetGi);
+    bool belt = m == 3 || m == 9;
+    rough = mix(belt ? 0.74 : m == 4 ? 0.62 : 0.88, 0.36, wetGi);
+    spec = mix(belt ? 0.14 : m == 4 ? 0.2 : 0.12, 0.46, wetGi);
     wrap = 0.32;
   }
 

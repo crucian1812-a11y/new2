@@ -1424,7 +1424,7 @@ window.__bjj = {
   rig, renderer, camera, referee, input, POSES, BONE_INDEX,
   // The ladder's kit and the referee's, so tools/gi-check.mjs can put each of
   // them on the mat and ask whether it can be told from the mat and from him.
-  ROSTER, REF_GI,
+  ROSTER, REF_GI, BELT_COL,
   // The walk onto the mat, so a tool can start one and step it frame by frame.
   // `beginMatch` is what the title card's start button does, and the getter is
   // how a tool knows whether it is still going — the match state says 'ready'
