@@ -89,20 +89,19 @@ const check = (ok, msg, extra = '') => {
   if (!ok) fail++;
 };
 const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
-// Where the library stands, poses and blends together, once the rig began
-// turning upper bones so knees and elbows fold the way they fold
-// (swivelHinges). What is left is where a pose or a blend has put a knee or an
-// elbow somewhere the hip or the shoulder cannot turn it to, and that is the
-// pose's to fix, offline, with pose-relax and the arcs together (LIMB_W; see
-// PLAN.md). Until then a line may not get worse than this, with 5% for the
-// noise a re-solved arc brings. Was, before the rig turned anything: knees
-// sideways 7847, elbows backwards 5178, elbows sideways 10138, hips 1094,
-// shoulders 972. Poses only: all zero but hips 36 and shoulders 98.
-// The one knee folded forwards is a single frame of KNEE_ON_BELLY>ARMBAR at
-// t=0.46, where the leg's own solve flips the knee to the other side of the
-// hip-to-ankle line; before the rig turned anything that knee was folded
-// forwards, and 73° sideways, from t=0.40 to 0.48.
-const NOW = { 'knee-back': 1, 'knee-side': 2103, 'elbow-back': 1372, 'elbow-side': 3718, 'hip-turn': 1093, 'shoulder-turn': 948 };
+// Where the library stands, poses and blends together. Was, before the rig
+// turned anything: knees sideways 7847, elbows backwards 5178, elbows sideways
+// 10138, hips 1094, shoulders 972, knees forwards 119. Once the rig turned
+// upper bones so knees and elbows fold the way they fold (swivelHinges):
+// 2103, 1372, 3718, 1093, 948, 1. Then the grips were made to fold an elbow
+// the pose's way rather than the nearer way (solveTwoBone), the arms that hold
+// grips were put on them where that was worth it (pose-relax --bake-grips) and
+// the arcs were re-solved with the limbs as a tie-break rather than the main
+// term: the numbers below. The poses on their own are all zero but seven knee
+// samples (MOUNT_WORK's top man, 57° sideways) and a few hips and shoulders a
+// handful of degrees over. What is left is mostly in the blends, and a line may
+// not get worse than this, with 5% for the noise a re-solved arc brings.
+const NOW = { 'knee-back': 0, 'knee-side': 789, 'elbow-back': 0, 'elbow-side': 99, 'hip-turn': 209, 'shoulder-turn': 776 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
