@@ -172,7 +172,33 @@ function skinNow() {
 // is what stops the search trading one collision for another: pulling a thigh
 // out of a thigh and into a shin leaves the deepest number flat and the sum
 // unchanged, so a search on the maximum alone wanders forever.
-function penetration(skA, skB, grips = null) {
+// Which declared contacts are the holding itself: the hand and the forearm
+// that hold, on the bone the grip point is on, and the pairs a pose's `hold`
+// names. A declared pair is anything within a palm of a grip point, and a lapel
+// is within a palm of the man's own upper arm — so the arm beside a lapel grip
+// was allowed eleven centimetres into the forearm reaching past it. Once the
+// arms that hold grips were baked into the poses the solver took all eleven,
+// the poses sat on the line, and the first tenth of every blend out of them
+// went over it: forty-three transitions past eleven centimetres against two,
+// nearly all an arm in an arm. Anywhere else an arm is kept clear like any
+// other limb.
+const HOLDING = new Map();
+function holding(id) {
+  if (HOLDING.has(id)) return HOLDING.get(id);
+  const out = new Set();
+  for (const h of POSES[id].hold || []) if (h.of && h.near) out.add([h.of, h.near].sort().join('|'));
+  for (const g of POSES[id].grips || []) {
+    const def = GRIP_POINTS[g.point];
+    if (!def || g.self) continue;
+    const held = g.role === 'A' ? 'B' : 'A';
+    for (const own of ['hand', 'fore']) out.add([`${g.role}.${own}${g.hand}`, `${held}.${def[0]}`].sort().join('|'));
+  }
+  HOLDING.set(id, out);
+  return out;
+}
+const ARMISH = /\.(arm|fore)[LR]$/, HANDISH = /\.(hand|fing)[LR]$/;
+
+function penetration(skA, skB, grips = null, hold = null) {
   const all = overlap.all(skA, skB);
   let sum = 0, worst = 0, where = null, raw = 0;
   for (const p of all) {
@@ -181,7 +207,14 @@ function penetration(skA, skB, grips = null) {
     // enough to cover a jaw, and this cost was charging for it — pushing the
     // search to undo the grips the same pose declares, against an intent term
     // weighted four hundred to keep them.
-    const asked = grips && grips.has(pairKey(p.where));
+    const key = pairKey(p.where);
+    let asked = grips && grips.has(key);
+    // Declared, but an arm beside a grip rather than the grip (see holding):
+    // charged, reported and guarded like any other contact.
+    if (asked && hold && !hold.has(key)) {
+      const [a, b] = key.split('|');
+      if ((ARMISH.test(a) || ARMISH.test(b)) && !HANDISH.test(a) && !HANDISH.test(b)) asked = false;
+    }
     // Charged from inside the line, not at it. See GRIP_MARGIN: the
     // undeclared contact is charged from two and judged at eight, and the
     // declared one was charged and judged at the same twelve.
@@ -527,7 +560,7 @@ function cost(id) {
   skinNow();
   const A = rig.skel.A, B = rig.skel.B;
 
-  const pen = penetration(A, B, declaredPairs(rig.skel, id, overlap));
+  const pen = penetration(A, B, declaredPairs(rig.skel, id, overlap), holding(id));
   let c = pen.sum * 60;
 
   // What the position is. Weighted well above the collision term, because a
@@ -927,6 +960,10 @@ function relax(id) {
 // starts from here, and its guard still answers for everything.
 const BAKE = process.argv.includes('--bake-grips');
 const BAKE_STEPS = +(process.env.BAKE_STEPS || 36);
+// What the arm being placed pays for touching anything, against one for a contact.
+const BAKE_CLEAR_W = +(process.env.BAKE_CLEAR_W || 40);
+// How much better a place has to be to move an arm to it at all.
+const BAKE_MIN = +(process.env.BAKE_MIN || 0.5);
 
 const v3s = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const v3d = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -998,7 +1035,33 @@ function bakeArm(id, role, s) {
   quatFromMat(clavQ, sk.world[BONE_INDEX['clav' + s]]);
   const was = { arm: J[arm].slice(), fore: J[fore].slice() };
   const put = (a, f) => { for (let k = 0; k < 3; k++) { J[arm][k] = a[k]; J[fore][k] = f[k]; } rig.invalidate(id); };
-  let best = cost(id).c, pick = null;
+  // Where the elbow goes is chosen stricter than the pose is then held to.
+  // The cost lets a declared contact sit eleven centimetres deep, and on its
+  // own the circle search took it: forearm across forearm at the sleeve grip,
+  // ten centimetres, where the library had five — and the first tenth of every
+  // blend out of the pose went past the line. So here this arm pays for
+  // anything its two bones touch from two centimetres, and for the thing it
+  // is holding from six, whatever the pose declared; the hand and the fingers
+  // are the grip and are not asked.
+  const mine = [`${role}.${arm}`, `${role}.${fore}`];
+  const target = (() => {
+    const g = (POSES[id].grips || []).find((x) => x.role === role && x.hand === s);
+    const def = g && GRIP_POINTS[g.point];
+    return def && !g.self ? `${role === 'A' ? 'B' : 'A'}.${def[0]}` : null;
+  })();
+  const hold = holding(id);
+  const score = () => {
+    let c = cost(id).c;
+    for (const p of overlap.all(rig.skel.A, rig.skel.B)) {
+      const [a, b] = pairKey(p.where).split('|');
+      const own = mine.includes(a) ? b : mine.includes(b) ? a : null;
+      if (!own || hold.has(pairKey(p.where))) continue;
+      const over = p.pen - (own === target ? 0.06 : ALLOW);
+      if (over > 0) c += over * over * 60 * BAKE_CLEAR_W;
+    }
+    return c;
+  };
+  let best = score(), pick = null;
   const start = best;
   for (let k = 0; k < BAKE_STEPS; k++) {
     const phi = (2 * Math.PI * k) / BAKE_STEPS;
@@ -1012,11 +1075,17 @@ function bakeArm(id, role, s) {
     const n = v3x(u, w), nl = Math.hypot(...n);
     const Qf = nl < 1e-6 ? Qu : qm(qaa(n.map((v) => v / nl), Math.acos(Math.max(-1, Math.min(1, v3d(u, w))))), Qu);
     put(eulerYXZ(qm(qi(clavQ), Qu)), eulerYXZ(qm(qi(Qu), Qf)));
-    const c = cost(id).c;
+    const c = score();
     if (c < best) { best = c; pick = [J[arm].slice(), J[fore].slice()]; }
   }
-  if (pick) put(pick[0], pick[1]); else put(was.arm, was.fore);
-  return { role, s, from: start, to: best, moved: !!pick };
+  // Only for something worth having. An arm the grips already fold the right
+  // way, clear of everybody, is left as it was: moved for a hundredth, it was
+  // moved next to the other man's arms, and the poses were clean while the
+  // blends out of them were not — seventeen blend ends past eleven centimetres
+  // against one.
+  const moved = pick && best < start - BAKE_MIN;
+  if (moved) put(pick[0], pick[1]); else put(was.arm, was.fore);
+  return { role, s, from: start, to: moved ? best : start, moved };
 }
 
 function bakeGrips(id) {
