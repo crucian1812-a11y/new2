@@ -126,7 +126,16 @@ const LOBES = +(process.env.ARC_LOBES || 2);
 const TORSO_W = +(process.env.ARC_TORSO || 300);
 // Hips and shoulders turned past a person, and a knee or an elbow folded the
 // wrong way round — on the same terms as pose-relax (tools/limbs.mjs).
-const LIMB_W = +(process.env.ARC_LIMB || 100);
+//
+// A fifth, not the hundred it opened with. The overlap above is summed in
+// square metres and this in square radians, and at a hundred ten degrees of
+// shoulder in one sample cost what two metres of overlap cost: the first
+// full re-solve under it put thirty-two transitions on blend-check's list
+// against two, every one of them a body in a body, to keep shoulders inside
+// their range. At a fifth ten degrees cost what ten centimetres do. The fold
+// itself no longer needs the weight — the two-bone solve folds a knee and an
+// elbow the pose's way (solveTwoBone) — so what is left here is a tie-break.
+const LIMB_W = +(process.env.ARC_LIMB || 0.2);
 
 const rig = new PairRig();
 // Measuring the path, not a performance of it: the step planner and the
