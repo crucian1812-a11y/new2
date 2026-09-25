@@ -214,7 +214,9 @@ const _q = quat(), _q2 = quat();
 // inverse is more arithmetic than a local-space solve, but it is the only
 // version that stays correct when the fighter's root is upside down, which on
 // the bottom of side control it very often is.
-const _g = v3();
+const _g = v3(), _h = v3(), _i = v3();
+// How bent, as the sine of the fold, a pose's limb must be for its side to count.
+const FOLD_SURE = Math.sin(10 * Math.PI / 180);
 const _kU = quat();
 const _kL = quat();
 
@@ -293,10 +295,30 @@ export function solveTwoBone(sk, upper, lower, end, target, poleDir, weight = 1,
     const ez = _a[2] + v[2] * lenU - _b[2];
     return ex * ex + ey * ey + ez * ez;
   };
+  // Nearer is not the same as folded the same way, and where the two part it
+  // is the fold that matters. The candidates are mirror images across the
+  // line from the shoulder to the target, so when the target lies across the
+  // upper arm from where the pose had the hand, the elbow nearer the pose's
+  // is the one bent the other way round. That is where hinge-check's elbows
+  // folded backwards came from: the poses had every one of them folded
+  // forwards, 75 to 144 degrees, and the grips turned them to -90 and -178 —
+  // the back's bottom man, the choking arm of the rear naked choke, the mount.
+  // So the candidate that folds to the same side as the pose wins, read off
+  // the plane both lie in; nearer decides only when the pose's own arm is too
+  // straight, or bent too far out of that plane, to have a side.
+  //
+  // For a candidate v the fold is v × (target − elbow) = dist · v × d, which is
+  // −e for the first and +e for the second, both times sin angU.
+  v3sub(_h, _b, _a);
+  v3sub(_i, _c, _b);
+  v3cross(_h, _h, _i);
+  const fold = v3dot(_e, _h) / Math.max(1e-6, lenU * lenL);
   if (poleDecides && poleDir) {
     // Which candidate puts the joint on the side the caller asked for.
     const side = (v) => v[0] * poleDir[0] + v[1] * poleDir[1] + v[2] * poleDir[2];
     if (side(_g) > side(_f)) v3copy(_f, _g);
+  } else if (Math.abs(fold) > FOLD_SURE) {
+    if (fold > 0) v3copy(_f, _g);
   } else if (near(_g) < near(_f)) v3copy(_f, _g);
 
   // Solved whole, then eased into — rather than each bone eased separately.
