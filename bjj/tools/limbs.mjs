@@ -20,8 +20,24 @@ import { BONE_INDEX, quatFromMat } from '../src/render/skeleton.js';
 const D = 180 / Math.PI;
 const qa = [0, 0, 0, 1], qb = [0, 0, 0, 1];
 
-// Degrees. A hip turns about 45° either way; a shoulder about 90.
+// Degrees. A hip turns about 45° either way; a shoulder about 90. A knee
+// folds back and hardly sideways; an elbow folds forward, with its carrying
+// angle and a little more sideways. Generous: the job is to catch a limb
+// anybody would call broken.
 export const HIP_TURN = 50, SHOULDER_TURN = 100;
+export const KNEE_BACK = 5, KNEE_SIDE = 15;
+export const ELBOW_BACK = 10, ELBOW_SIDE = 25;
+
+// How far past a person each joint of one reading is, degrees, 0 when fine.
+export function overBy(r) {
+  switch (r.n) {
+    case 'hip': return Math.max(0, Math.abs(r.turn) - HIP_TURN);
+    case 'shoulder': return Math.max(0, Math.abs(r.turn) - SHOULDER_TURN);
+    case 'knee': return Math.max(0, r.fwd - KNEE_BACK) + Math.max(0, Math.abs(r.out) - KNEE_SIDE);
+    case 'elbow': return Math.max(0, -r.fwd - ELBOW_BACK) + Math.max(0, Math.abs(r.out) - ELBOW_SIDE);
+  }
+  return 0;
+}
 
 function rel(sk, iU, iL) {
   quatFromMat(qa, sk.world[iU]); quatFromMat(qb, sk.world[iL]);
@@ -66,14 +82,15 @@ export function readLimbs(sk) {
   return out;
 }
 
-// What the hips and shoulders are turned past a person, as a cost: the sum of
-// the squares, in radians, of how far past their range each is.
+// What the four joints of each limb are past a person, as a cost: the sum of
+// the squares, in radians, of how far past its range each is — the hips and
+// shoulders turned too far, and the knees and elbows the rig could not turn
+// round to fold the right way because the socket above them would not go
+// that far (swivelHinges).
 export function limbCost(sk) {
   let c = 0;
   for (const r of readLimbs(sk)) {
-    const lim = r.n === 'hip' ? HIP_TURN : r.n === 'shoulder' ? SHOULDER_TURN : null;
-    if (lim === null) continue;
-    const over = Math.max(0, Math.abs(r.turn) - lim) / D;
+    const over = overBy(r) / D;
     c += over * over;
   }
   return c;

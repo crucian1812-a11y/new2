@@ -52,7 +52,7 @@ import { Overlap } from '../src/game/collide.js';
 import { SOLVE_STEPS } from './grid.mjs';
 import { SUNK, skinUnder } from './mat-model.mjs';
 import { readTorso, torsoCost, torsoOver } from './torso.mjs';
-import { readLimbs, limbCost } from './limbs.mjs';
+import { limbCost } from './limbs.mjs';
 
 const WRITE = process.argv.includes('--write');
 const FRESH = process.argv.includes('--fresh');
@@ -241,10 +241,6 @@ function measure(from, to) {
     for (const role of ['A', 'B']) {
       const sk = rig.skel[role];
       sum += limbCost(sk) * LIMB_W;
-      for (const r of readLimbs(sk)) {
-        const wrong = r.n === 'knee' ? Math.max(0, r.fwd - 5) : r.n === 'elbow' ? Math.max(0, -r.fwd - 10) : 0;
-        if (wrong > 0) sum += (wrong / 57.3) * (wrong / 57.3) * LIMB_W;
-      }
     }
     for (const role of ['A', 'B']) {
       const tor = readTorso(rig.skel[role]);

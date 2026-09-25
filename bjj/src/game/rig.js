@@ -95,6 +95,8 @@ const LEG_MIN = 0.19;
 // not left through the floor long enough to see.
 const PLANT_EASE = 0.12;
 const ARM_REACH = 0.52;
+// A hand this close to its own shoulder is holding something inside it (_solveGrips).
+export const ARM_NEAR = 0.12;
 // A hand closes on something, and lets go of it, over about a fifth of a
 // second. See the top of _grips for what the number is holding back.
 const GRIP_EASE = 0.20;
@@ -1243,6 +1245,12 @@ export class PairRig {
       sk.boneHead(_t3, upper);
       const d = Math.hypot(_t2[0] - _t3[0], _t2[1] - _t3[1], _t2[2] - _t3[2]);
       let fit = 1 - smooth(clamp((d - ARM_REACH * 0.97) / (ARM_REACH * 0.11), 0, 1));
+      // The near end was written about and never written: the paragraph above
+      // has been here since BACK>RNC, and the code only ever let go at the far
+      // end. It lets go here too now, from sixteen centimetres to twelve —
+      // joint-check found the sleeve inside B's own shoulder once the arms that
+      // hold grips were baked into the poses, and the elbow at 180.
+      fit *= smooth(clamp((d - ARM_NEAR) / 0.04, 0, 1));
       // Remembered for the ease, which needs it a frame before it can be
       // measured. See _grips.
       if (g.st) g.st.fit = fit;

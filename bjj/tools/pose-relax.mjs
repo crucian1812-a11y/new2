@@ -22,13 +22,13 @@
 //   node bjj/tools/pose-relax.mjs            report what it would do
 //   node bjj/tools/pose-relax.mjs --write    and write it into poses.js
 
-import { readFileSync, writeFileSync } from 'node:fs';
-import { PairRig } from '../src/game/rig.js';
+import { readFileSync, writeFileSync, openSync, closeSync, unlinkSync } from 'node:fs';
+import { PairRig, ARM_NEAR } from '../src/game/rig.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { skinLite, skinInto } from './skin-lite.mjs';
 import { POSES } from '../src/game/poses.js';
 import { GRIP_POINTS } from '../src/render/body.js';
-import { BONE_INDEX } from '../src/render/skeleton.js';
+import { BONE_INDEX, quatFromMat } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { intentCost } from '../src/game/intent.js';
 import { declaredPairs, pairKey, GRIP_ALLOW, GRIP_MARGIN } from './grip-pairs.mjs';
@@ -85,6 +85,8 @@ const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 // What a hip or a shoulder turned past its range costs, per radian squared.
 // A knob for the same reason TORSO_W is one: the ranges are a textbook person.
 const LIMB_W = +(process.env.LIMB_W || 200);
+// What a declared contact past its own line costs, against one for the rest.
+const GRIP_PAST_W = +(process.env.GRIP_PAST_W || 100);
 
 const rig = new PairRig();
 // On the ground the cost is measured with the runtime as it plays, foot
@@ -184,7 +186,11 @@ function penetration(skA, skB, grips = null) {
     // undeclared contact is charged from two and judged at eight, and the
     // declared one was charged and judged at the same twelve.
     const over = p.pen - (asked ? GRIP_ALLOW - GRIP_MARGIN : ALLOW);
-    if (over > 0) sum += over * over;
+    // A declared contact past its line is priced like the joints now are.
+    // At one it cost a centimetre what a tenth of a degree of limbCost costs,
+    // and the search parked side control's working frame a centimetre past
+    // the twelve pose-check judges it on, to buy an elbow.
+    if (over > 0) sum += over * over * (asked ? GRIP_PAST_W : 1);
     // The worst is reported without the grips too, because the number a person
     // reads off this tool should be about the pose and not about the shape of
     // a capsule.
@@ -780,6 +786,11 @@ function cost(id) {
     // body, because it looks about as wrong.
     const impossible = d - 0.5;
     if (impossible > 0) c += impossible * impossible * 700;
+    // And the near end, which the rig lets go of too (ARM_NEAR): a grip inside
+    // its own shoulder is a hand the elbow cannot fold far enough to hold.
+    // Charged from a couple of centimetres before the rig starts letting go.
+    const cramped = ARM_NEAR + 0.06 - d;
+    if (cramped > 0) c += cramped * cramped * 700;
   }
 
   // A straight arm. Nothing in grappling holds an arm locked out except an arm
@@ -889,6 +900,138 @@ function relax(id) {
   return best;
 }
 
+// ------------------------------------------------------ arms that hold a grip
+//
+//   node bjj/tools/pose-relax.mjs --bake-grips --write
+//
+// An arm that holds a grip is not where the pose puts it. The grips are
+// two-bone IK and they take the hand the whole way to the lapel, so the
+// authored arm was never checked against anything and it shows: measured
+// across the library, 123 of 127 gripping hands are more than ten centimetres
+// from where the pose has them, and most of them sixty to eighty-five — the
+// top man on the knee-on-belly has both hands above his head, 1.17 m up, and
+// the grips pull them down to the lapel and the belt. What the pose still
+// decides is which way the elbow goes, because the solve keeps its elbow on
+// the pose's side — and a pose that never meant anything by its arm decides
+// that at random. That is where hinge-check's elbows folded backwards came
+// from: 17 in the poses, 1372 in the blends.
+//
+// Twenty-two degrees a joint cannot carry an arm from above the head to the
+// belt, so this does not search the angles. It searches the one thing the
+// grip leaves free: where on the circle about the line from the shoulder to
+// the hand the elbow sits. Each place on the circle is built with the elbow
+// folded forwards and the forearm not twisted against it, written into the
+// pose, and priced with the whole cost — skin through skin, joints past a
+// person (limbCost), what the position is. The arm as authored is one of the
+// candidates, so this never makes the cost worse; the pattern search then
+// starts from here, and its guard still answers for everything.
+const BAKE = process.argv.includes('--bake-grips');
+const BAKE_STEPS = +(process.env.BAKE_STEPS || 36);
+
+const v3s = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const v3d = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const v3x = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const v3n = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const qm = (a, b) => [
+  a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+  a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+  a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+  a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+];
+const qi = (q) => [-q[0], -q[1], -q[2], q[3]];
+const qaa = (ax, ang) => { const s = Math.sin(ang / 2); return [ax[0] * s, ax[1] * s, ax[2] * s, Math.cos(ang / 2)]; };
+// The rotation whose columns are x, y, z.
+function qBasis(x, y, z) {
+  const t = x[0] + y[1] + z[2];
+  let q;
+  if (t > 0) { const s = Math.sqrt(t + 1) * 2; q = [(y[2] - z[1]) / s, (z[0] - x[2]) / s, (x[1] - y[0]) / s, s / 4]; }
+  else if (x[0] > y[1] && x[0] > z[2]) { const s = Math.sqrt(1 + x[0] - y[1] - z[2]) * 2; q = [s / 4, (y[0] + x[1]) / s, (z[0] + x[2]) / s, (y[2] - z[1]) / s]; }
+  else if (y[1] > z[2]) { const s = Math.sqrt(1 + y[1] - x[0] - z[2]) * 2; q = [(y[0] + x[1]) / s, s / 4, (z[1] + y[2]) / s, (z[0] - x[2]) / s]; }
+  else { const s = Math.sqrt(1 + z[2] - x[0] - y[1]) * 2; q = [(z[0] + x[2]) / s, (z[1] + y[2]) / s, s / 4, (x[1] - y[0]) / s]; }
+  const l = Math.hypot(...q);
+  return q.map((v) => v / l);
+}
+// qEuler builds Ry·Rx·Rz; the same inverse tools/waypoint-from.mjs uses.
+function eulerYXZ(q) {
+  const [x, y, z, w] = q;
+  const m10 = 2 * (x * y + w * z), m11 = 1 - 2 * (x * x + z * z), m12 = 2 * (y * z - w * x);
+  const m02 = 2 * (x * z + w * y), m22 = 1 - 2 * (x * x + y * y), m00 = 1 - 2 * (y * y + z * z);
+  const m20 = 2 * (x * z - w * y);
+  const ax = Math.asin(Math.max(-1, Math.min(1, -m12)));
+  let ay, az;
+  if (Math.abs(m12) > 0.9999) { ay = Math.atan2(-m20, m00); az = 0; }
+  else { ay = Math.atan2(m02, m22); az = Math.atan2(m10, m11); }
+  const d = 180 / Math.PI;
+  // The same rotation has a second set of angles — (180 - x, y + 180, z + 180)
+  // — and the solve lands on either; the one with the smaller turns about the
+  // other two axes is the one a person reads as a hinge.
+  const wrap = (a) => ((a + 540) % 360) - 180;
+  const one = [ax * d, ay * d, az * d];
+  const two = [wrap(180 - one[0]), wrap(one[1] + 180), wrap(one[2] + 180)];
+  const off = (e) => Math.abs(e[1]) + Math.abs(e[2]);
+  return off(two) < off(one) ? two : one;
+}
+const headOf = (sk, bone) => { const p = [0, 0, 0]; sk.boneHead(p, bone); return p; };
+
+function bakeArm(id, role, s) {
+  const J = POSES[id][role].j;
+  const arm = 'arm' + s, fore = 'fore' + s;
+  if (!J[arm] || !J[fore]) return null;
+  cost(id);
+  const sk = rig.skel[role];
+  const S = headOf(sk, arm), E0 = headOf(sk, fore), T = headOf(sk, 'hand' + s);
+  const lenU = Math.hypot(...v3s(E0, S)), lenL = Math.hypot(...v3s(T, E0));
+  const d = v3s(T, S), dist = Math.hypot(...d);
+  // A straight arm has no circle to choose on.
+  // And a grip at its own shoulder is let go of (ARM_NEAR in rig.js), so the
+  // arm is the pose's again and there is no grip to put it on.
+  if (dist > (lenU + lenL) * 0.985 || dist < ARM_NEAR + 0.04) return null;
+  const dn = v3n(d);
+  const cosU = (lenU * lenU + dist * dist - lenL * lenL) / (2 * lenU * dist);
+  const sinU = Math.sqrt(Math.max(0, 1 - cosU * cosU));
+  // Two directions across the line, the first towards where the elbow is now.
+  let p1 = v3s(v3s(E0, S), dn.map((v) => v * v3d(v3s(E0, S), dn)));
+  if (Math.hypot(...p1) < 1e-4) p1 = v3x(dn, Math.abs(dn[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]);
+  p1 = v3n(p1);
+  const p2 = v3x(dn, p1);
+  const clavQ = [0, 0, 0, 1];
+  quatFromMat(clavQ, sk.world[BONE_INDEX['clav' + s]]);
+  const was = { arm: J[arm].slice(), fore: J[fore].slice() };
+  const put = (a, f) => { for (let k = 0; k < 3; k++) { J[arm][k] = a[k]; J[fore][k] = f[k]; } rig.invalidate(id); };
+  let best = cost(id).c, pick = null;
+  const start = best;
+  for (let k = 0; k < BAKE_STEPS; k++) {
+    const phi = (2 * Math.PI * k) / BAKE_STEPS;
+    const r = [0, 1, 2].map((i) => p1[i] * Math.cos(phi) + p2[i] * Math.sin(phi));
+    const E = [0, 1, 2].map((i) => S[i] + dn[i] * lenU * cosU + r[i] * lenU * sinU);
+    const u = v3n(v3s(E, S)), w = v3n(v3s(T, E));
+    // The upper bone's front is where the forearm goes: folded forwards.
+    const front = v3n(v3s(w, u.map((v) => v * v3d(u, w))));
+    const yAx = u.map((v) => -v); // a bone's length is its own -y
+    const Qu = qBasis(v3x(yAx, front), yAx, front);
+    const n = v3x(u, w), nl = Math.hypot(...n);
+    const Qf = nl < 1e-6 ? Qu : qm(qaa(n.map((v) => v / nl), Math.acos(Math.max(-1, Math.min(1, v3d(u, w))))), Qu);
+    put(eulerYXZ(qm(qi(clavQ), Qu)), eulerYXZ(qm(qi(Qu), Qf)));
+    const c = cost(id).c;
+    if (c < best) { best = c; pick = [J[arm].slice(), J[fore].slice()]; }
+  }
+  if (pick) put(pick[0], pick[1]); else put(was.arm, was.fore);
+  return { role, s, from: start, to: best, moved: !!pick };
+}
+
+function bakeGrips(id) {
+  const out = [];
+  // Twice round: the second arm is chosen against the first one's answer, and
+  // then the first against the second's.
+  for (let round = 0; round < 2; round++) {
+    for (const g of POSES[id].grips || []) {
+      const r = bakeArm(id, g.role, g.hand);
+      if (r && r.moved) out.push(`${r.role}${r.s} ${r.from.toFixed(1)}→${r.to.toFixed(1)}`);
+    }
+  }
+  return out;
+}
+
 // -------------------------------------------------------------------- run
 
 const ids = (ONLY.length ? ONLY : Object.keys(POSES));
@@ -919,6 +1062,7 @@ for (const id of ids) {
   // its base to twelve, and the total cost went down, which is exactly what a
   // total is for and exactly why a total is not enough.
   const undo = snapshot(id);
+  const baked = BAKE && !POSES[id].mirrorOf ? bakeGrips(id) : [];
   relax(id);
   let after = cost(id).pen;
   let matAfter = underMat();
@@ -961,6 +1105,11 @@ for (const id of ids) {
     refused.push(`overlap ${(before.worst * 100).toFixed(1)}→${(after.worst * 100).toFixed(1)}cm` +
       (straightening ? ` against ${spineWon.toFixed(0)}° of spine` : ''));
   }
+  // The contacts the pose asked for are judged on their own line, and a
+  // search that takes one past it, or deeper past it, is refused like any other.
+  if (after.raw > GRIP_ALLOW + SLACK && after.raw > before.raw + SLACK) {
+    refused.push(`contact ${(before.raw * 100).toFixed(1)}→${(after.raw * 100).toFixed(1)}cm`);
+  }
   if (matAfter.worst > matBefore.worst + SLACK) refused.push(`mat ${(matBefore.worst * 100).toFixed(1)}→${(matAfter.worst * 100).toFixed(1)}cm`);
   // Balance, and not on a waypoint. The cost does not ask a waypoint to keep
   // its weight over its base — the middle of falling into a guard is a pair
@@ -981,8 +1130,11 @@ for (const id of ids) {
   }
   if (lookAfter > lookBefore + 0.05) refused.push('look');
   // And the spine, on the same guard as everything else: a search may not buy
-  // depth with a backbend.
-  if (spineAfter > spineBefore + 1) refused.push(`spine ${spineBefore.toFixed(0)}→${spineAfter.toFixed(0)}°`);
+  // depth with a backbend. A backbend is a spine past a person, so it is the
+  // part past the line that is compared; room given up inside the line is what
+  // `room` reports, and refusing for it threw away the guillotine's working
+  // variant and the choke's with both spines still eleven degrees inside.
+  if (Math.max(0, spineAfter) > Math.max(0, spineBefore) + 1) refused.push(`spine ${spineBefore.toFixed(0)}→${spineAfter.toFixed(0)}°`);
   // Hover, in the same units as everything else it is being weighed against.
   //
   // The cost is a sum of squared gaps, and the guard compared it to a bare
@@ -1030,15 +1182,24 @@ for (const id of ids) {
     `${kept ? ` (kept what it had: ${refused.join(', ')})` : ''}` +
     `${matAfter.worst > 0.03 ? ' ' + matAfter.where : ''}${after.worst > 0.05 ? ' ' + after.where : ''}` +
     `${edgeAfter.length ? '\n     ' + edgeAfter.join('   ') : ''}`
+    + `${baked.length ? '\n     arms put on the grip: ' + baked.join('   ') : ''}`
   );
   changed.push(id);
 }
 
 if (WRITE) {
+  // Read, rewrite and write under a lock, so that several runs on disjoint
+  // poses — one per core — can each write theirs without losing another's.
   const path = new URL('../src/game/poses.js', import.meta.url);
-  let src = readFileSync(path, 'utf8');
-  for (const id of changed) src = writePose(src, id);
-  writeFileSync(path, src);
+  const lock = new URL('../src/game/poses.js.lock', import.meta.url);
+  for (;;) {
+    try { closeSync(openSync(lock, 'wx')); break; } catch { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); }
+  }
+  try {
+    let src = readFileSync(path, 'utf8');
+    for (const id of changed) src = writePose(src, id);
+    writeFileSync(path, src);
+  } finally { unlinkSync(lock); }
   console.log(`\nwrote ${changed.length} pose(s) into src/game/poses.js`);
 }
 

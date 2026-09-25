@@ -40,14 +40,11 @@ import { PairRig } from '../src/game/rig.js';
 import { POSES, HOLD_LOOPS } from '../src/game/poses.js';
 import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { JUDGE_STEPS } from './grid.mjs';
-import { readLimbs, HIP_TURN, SHOULDER_TURN } from './limbs.mjs';
+import { readLimbs, HIP_TURN, SHOULDER_TURN, KNEE_BACK, KNEE_SIDE, ELBOW_BACK, ELBOW_SIDE } from './limbs.mjs';
 
 const ALL = process.argv.includes('--all');
 const POSES_ONLY = process.argv.includes('--poses');
 
-// Degrees. Generous: the job is to catch a limb anybody would call broken.
-const KNEE_BACK = 5, KNEE_SIDE = 15;
-const ELBOW_BACK = 10, ELBOW_SIDE = 25;
 
 const rig = new PairRig();
 rig.live = false;
