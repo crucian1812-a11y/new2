@@ -101,7 +101,7 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // samples (MOUNT_WORK's top man, 57° sideways) and a few hips and shoulders a
 // handful of degrees over. What is left is mostly in the blends, and a line may
 // not get worse than this, with 5% for the noise a re-solved arc brings.
-const NOW = { 'knee-back': 0, 'knee-side': 789, 'elbow-back': 0, 'elbow-side': 99, 'hip-turn': 209, 'shoulder-turn': 776 };
+const NOW = { 'knee-back': 0, 'knee-side': 416, 'elbow-back': 0, 'elbow-side': 95, 'hip-turn': 94, 'shoulder-turn': 724 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
