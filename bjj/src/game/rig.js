@@ -16,6 +16,7 @@
 
 import { POSES, HOLD_LOOPS } from './poses.js';
 import { ARCS, VIAS } from './arcs.js';
+import { BASE_ROOM } from './base-room.js';
 
 // Where along the path a via bites.
 //
@@ -115,6 +116,9 @@ const GRIP_ROUND = 0.09;
 // of a hold loop. Every arm displaced at once, twice per attempt, sixty times
 // a match.
 const DRIVE_EASE = 0.25;
+// Degrees at a full lean on the base: spine, chest, neck, head, and the
+// collarbones brought forward. See _life.
+export const BASE_LEAN = [5, 4, 5, 3, 4];
 const _q = quat();
 const _rq = quat();
 const _b1 = quat();
@@ -234,6 +238,11 @@ export class PairRig {
     // purpose: effort is what a man is doing this second and stops when he
     // stops, and gas is what three minutes have done to him and does not.
     this.gas = { A: 0, B: 0 };
+    // How hard each of them is leaning on the base, 0 to 1: the left thumb
+    // (match.driveOf). On the ground it is weight and frames, and the sim has
+    // always counted it — it moves posture and stamina and the odds of a
+    // move — while the bodies showed nothing of it. See _life.
+    this.press = { A: 0, B: 0 };
     // A hand thrown at the other man's collar: 1 the moment it goes, 0 when it
     // is back. Measurement leaves it at zero, so nothing that judges a pose or
     // a path ever sees it.
@@ -241,7 +250,7 @@ export class PairRig {
     // The same four, as the body has them: what the sim asks for arrives here
     // over DRIVE_EASE rather than in one frame. `fight` is not eased — it is a
     // spike by design, and the reach it drives is already zero at its peak.
-    this.drive = { A: { effort: 0, slack: 0, gas: 0 }, B: { effort: 0, slack: 0, gas: 0 } };
+    this.drive = { A: { effort: 0, slack: 0, gas: 0, press: 0 }, B: { effort: 0, slack: 0, gas: 0, press: 0 } };
     // Where each man is in his own breath. It has to be integrated rather than
     // read off the clock — see _life.
     this.breath = { A: 0, B: 0 };
@@ -888,6 +897,7 @@ export class PairRig {
       d.effort += (this.effort[role] - d.effort) * k;
       d.slack += (this.slack[role] - d.slack) * k;
       d.gas += (this.gas[role] - d.gas) * k;
+      d.press += (this.press[role] - d.press) * k;
     }
   }
 
@@ -968,6 +978,33 @@ export class PairRig {
         addEuler(sk, 'thighL', strain(4.6, 0.9), 0, 0);
         addEuler(sk, 'thighR', strain(4.9, -0.9), 0, 0);
       }
+    }
+
+    // The base. A man leaning on it on the ground gathers into the other man:
+    // the back rounds towards him, the shoulders come forward and the chin
+    // goes down — on top that is weight going onto the man underneath, and
+    // underneath it is the curl a frame is made from. The same few degrees
+    // for both, because which way is "into him" is already written in the
+    // pose: a forward fold of a man lying on his back is a curl up towards
+    // the man above him. Slight on purpose — it answers the thumb, it is not a
+    // move — and measured in pose-check: how far the chest goes towards the
+    // other man at a full lean, and what it costs in depth.
+    //
+    // How much of it each man can show depends on where he is: a man with his
+    // head against the other man's head has no room to round his back into
+    // him. The share is solved per position (tools/base-room.mjs) and slides
+    // across a transition with the pose, so a lean going into a tight
+    // position closes up on the way in rather than at the end.
+    const room = (id) => (POSES[id].ground ? (BASE_ROOM[id] ? BASE_ROOM[id][role] : 1) : 0);
+    const share = e === undefined ? room(to) : room(from) + (room(to) - room(from)) * e;
+    const press = this.drive[role].press * share;
+    if (press > 0.01) {
+      addEuler(sk, 'spine', press * BASE_LEAN[0], 0, 0);
+      addEuler(sk, 'chest', press * BASE_LEAN[1], 0, 0);
+      addEuler(sk, 'neck', press * BASE_LEAN[2], 0, 0);
+      addEuler(sk, 'head', press * BASE_LEAN[3], 0, 0);
+      addEuler(sk, 'clavL', 0, press * BASE_LEAN[4], 0);
+      addEuler(sk, 'clavR', 0, -press * BASE_LEAN[4], 0);
     }
 
     // Posture: as it goes, the spine folds and the head drops. This is the

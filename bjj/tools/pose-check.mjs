@@ -206,6 +206,54 @@ console.log(
   'with effort and posture held'
 );
 
+// Does the base show?
+//
+// The left thumb on the ground is weight and frames, and for most of the
+// game's life it moved posture, stamina and the odds and nothing a player
+// could see. The rig now gathers a leaning man into the other one
+// (BASE_LEAN), scaled per position by what each man has room for
+// (base-room.js). Two numbers: how far his head and shoulders go at a full
+// lean, on average over every man in every position on the ground — it has
+// to be seen — and how much deeper that makes the deepest contact, at the
+// worst — it must not put anybody into anybody.
+const baseShow = (() => {
+  // The checks below run on the same rig and read whatever it was left with.
+  const keep = ['effort', 'slack', 'gas'].map((k) => [k, { ...rig[k] }]);
+  const ids = Object.keys(POSES).filter((id) => POSES[id].ground && !POSES[id].refereeOnly);
+  let sum = 0, n = 0, cost = 0, where = '';
+  for (const id of ids) {
+    for (const role of ['A', 'B']) {
+      const at = (p) => {
+        rig.press.A = rig.press.B = 0;
+        rig.press[role] = p;
+        rig.effort.A = rig.effort.B = 0;
+        rig.slack.A = rig.slack.B = 0;
+        rig.gas.A = rig.gas.B = 0;
+        rig.rewind();
+        rig.invalidate(id);
+        rig.applyAt(id, id, 1, 0.016);
+        const pts = ['head', 'armL', 'armR'].map((b) => { const m = rig.skel[role].world[BONE_INDEX[b]]; return [m[12], m[13], m[14]]; });
+        return { pts, deep: overlap.measure(rig.skel.A, rig.skel.B).deepest };
+      };
+      const a = at(0), b = at(1);
+      for (let i = 0; i < a.pts.length; i++) {
+        sum += Math.hypot(b.pts[i][0] - a.pts[i][0], b.pts[i][1] - a.pts[i][1], b.pts[i][2] - a.pts[i][2]);
+        n++;
+      }
+      if (b.deep - a.deep > cost) { cost = b.deep - a.deep; where = `${role} in ${id}`; }
+    }
+  }
+  rig.press.A = rig.press.B = 0;
+  for (const [k, v] of keep) Object.assign(rig[k], v);
+  return { mean: sum / n, cost, where };
+})();
+const baseOk = baseShow.mean > 0.02 && baseShow.cost < 0.015;
+if (!baseOk) problems++;
+console.log(
+  `${baseOk ? ' ' : '!'} the base shows: head and shoulders move ${(baseShow.mean * 100).toFixed(1)}cm at a full lean ` +
+  `(line 2), and it costs ${(baseShow.cost * 100).toFixed(1)}cm of depth at worst (line 1.5${baseShow.where ? ', ' + baseShow.where : ''})`
+);
+
 /* --------------------------------------------- what the live layers cost */
 
 // The step planner and the inertia depend on the frame before, so every tool
@@ -223,6 +271,9 @@ console.log(
     rig.heldId = null;
     rig.effort.A = rig.effort.B = 0.3;
     rig.slack.A = rig.slack.B = 0;
+    // And both leaning on the base at half, which is how it is played best
+    // (human-check): the lean is a live layer like the others.
+    rig.press.A = rig.press.B = live ? 0.5 : 0;
     rig.rewind();
     rig.origin[0] = 0; rig.origin[2] = 0;
     let worst = 0;
@@ -243,6 +294,7 @@ console.log(
     parts.push(`${id} ${(off * 100).toFixed(0)}→${(on * 100).toFixed(0)}`);
   }
   rig.live = true;
+  rig.press.A = rig.press.B = 0;
   const ok = worstCost < 0.035;
   if (!ok) problems++;
   console.log(`${ok ? ' ' : '!'} living costs ${(worstCost * 100).toFixed(1)}cm of depth at worst  (${parts.join(', ')})`);

@@ -1069,6 +1069,9 @@ function frame(now) {
       0, 1.2
     );
     rig.slack[role] = clamp(1 - f.posture / 100, 0, 1);
+    // The base, as the sim counts it: the left thumb for the player, the
+    // AI's own lean for the other man. See rig._life.
+    rig.press[role] = clamp(match.driveOf[idx] || 0, 0, 1);
     // Fatigue, its own channel: it starts at nothing and only goes one way,
     // and unlike effort it is still there when nobody is doing anything.
     // `__gas` is the measurement override: it lets a check drive fatigue on
