@@ -102,10 +102,15 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // handful of degrees over. Then the foot on the mat was solved in the thigh's
 // own plane (rig._ground) and everything was re-solved again: knees sideways
 // 433 → 72 and shoulders 725 → 617, for elbows sideways 98 → 130 and one
-// elbow sample 6° backwards, in HALF_GUARD>OPEN_GUARD's new route. What is
+// elbow sample 6° backwards, in HALF_GUARD>OPEN_GUARD's new route. Then a hand
+// changing holds was made to travel between them rather than switch at the
+// midpoint (rig collect/alt), which alone took elbows sideways to 187, and the
+// arcs were re-solved against blend-check's refined walk: knees 64, elbows
+// sideways 124 and backwards 0, hips 93; shoulders came back at 642, inside
+// their 5% but not under 617, so that line stays where it was. What is
 // left is mostly in the blends, and a line may not get worse than this, with
 // 5% for the noise a re-solved arc brings.
-const NOW = { 'knee-back': 0, 'knee-side': 72, 'elbow-back': 1, 'elbow-side': 130, 'hip-turn': 97, 'shoulder-turn': 617 };
+const NOW = { 'knee-back': 0, 'knee-side': 64, 'elbow-back': 0, 'elbow-side': 124, 'hip-turn': 93, 'shoulder-turn': 617 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
