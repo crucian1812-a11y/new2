@@ -756,7 +756,15 @@ export class PairRig {
         _t[1] = _t3[1] + dy * k;
         _t[2] = _t3[2] + dz * k;
       }
-      solveTwoBone(sk, th, sh, ft, _t, null, 1);
+      // Bent in the thigh's own plane — the way the kneecap faces — rather
+      // than in whatever plane the knee, the hip and the new foot happen to
+      // make. The foot goes straight up, so the plane through the old knee
+      // tips sideways as it goes, and the knee with it: HALF_GUARD>KNEE_ON_BELLY
+      // had the bottom man's knee eleven degrees sideways in the pose and
+      // fifty-eight once his foot was lifted out of the mat (hinge-check).
+      const m = sk.world[BONE_INDEX[th]];
+      _t4[0] = m[8]; _t4[1] = m[9]; _t4[2] = m[10];
+      solveTwoBone(sk, th, sh, ft, _t, _t4, 1);
     }
   }
 
