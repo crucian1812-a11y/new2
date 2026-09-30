@@ -37,6 +37,7 @@ import { DIRS } from '../src/game/positions.js';
 import { seedRandom, rand, randInt } from '../src/game/rng.js';
 import { SKILL_STEP } from '../src/game/skills.js';
 import { bracket, cupOdds } from '../src/game/cup.js';
+import { FIGHTERS, FIGHTER_BY_ID, rungsFor, statsOf, styleEdge } from '../src/game/roster.js';
 
 const args = process.argv.slice(2);
 const flag = (n, d) => { const i = args.indexOf('--' + n); return i >= 0 ? args[i + 1] : d; };
@@ -300,11 +301,23 @@ class Hand {
 
 /* --------------------------------------------------------------------- run */
 
+// `opts.me` and `opts.him` put two men from the roster on the mat the way
+// main.js does (roster.js): their numbers, his style for the AI, and the edge
+// each style gives the moves it likes. Without them it is the ladder as it was
+// measured before there was a roster, which every line below was written on.
+const YOU_BASE = { technique: 0.55, strength: 0.5, cardio: 0.55 };
+const OPP_BASE = { technique: 0.55, strength: 0.55, cardio: 0.5 };
 function play(level, plan, drive = CFG.drive, greenAt = 0.6, opts = {}) {
-  const m = new Match([new Fighter('вы'), new Fighter('соперник')],
+  const man = opts.me && opts.him;
+  const styles = man ? [opts.me.style, opts.him.style] : null;
+  const drilled = (tr, by) => (by === 0 && CFG.skill ? 1 + SKILL_STEP * CFG.skill : 1);
+  const m = new Match(man
+    ? [new Fighter('вы', statsOf(opts.me, YOU_BASE)), new Fighter('соперник', statsOf(opts.him, OPP_BASE))]
+    : [new Fighter('вы'), new Fighter('соперник')],
     { time: MATCH_TIME, ...(CFG.window ? { denyWindow: +CFG.window } : {}),
-      ...(CFG.skill ? { skill: (tr, by) => (by === 0 ? 1 + SKILL_STEP * CFG.skill : 1) } : {}) });
-  const ai = new AI(1, level);
+      ...(man ? { skill: (tr, by) => drilled(tr, by) * styleEdge(styles[by], tr) }
+        : CFG.skill ? { skill: drilled } : {}) });
+  const ai = man ? new AI(1, level, opts.him.style) : new AI(1, level);
   if (opts.noFeint) ai.level = { ...ai.level, feint: 0 };
   const hand = new Hand(plan, greenAt, !!opts.patient, opts.feint || 0);
   m.start();
@@ -538,6 +551,40 @@ BANDS.forEach(([name, lo, hi], k) => {
   const mean = gains.reduce((a, b) => a + b, 0) / gains.length;
   check(Math.round(mean * 100) >= 10, 'and by enough to feel',
     `+${gains.map((g) => Math.round(g * 100)).join(', +')} points, +${Math.round(mean * 100)} on average, want at least 10`);
+}
+
+// The roster (roster.js): twenty-four men in four weight classes, each with
+// his own game. Whoever the player picks, the first fight of his tournament
+// has to be winnable for this hand — the same line as the white belt above,
+// asked of every man's white belt with both men's styles on — and no pick may
+// be a trap: inside a class the best and the worst choice may not be further
+// apart than FAIR_SPREAD. Opt-in, because it is 24 × 2 × N matches.
+if (args.includes('--roster')) {
+  const M = +(flag('roster-n') || 150);
+  const FAIR_SPREAD = 0.2;
+  console.log(`\n     the roster, ${M} matches a cell (the pick against his white belt and his black):`);
+  for (const [w, list] of Object.entries(FIGHTERS)) {
+    const got = [];
+    for (const f of list) {
+      const me = FIGHTER_BY_ID[f.id];
+      const rungs = rungsFor(f.id);
+      const rate = (i, belt) => {
+        let k = 0;
+        for (let j = 0; j < M; j++) if (play(belt, CFG.plan, CFG.drive, 0.6, { me, him: rungs[i] }).winner === 0) k++;
+        return k / M;
+      };
+      const white = rate(0, 'white'), black = rate(4, 'black');
+      got.push({ me, white, black });
+      console.log(`     ${w.padEnd(8)} ${me.name.padEnd(8)} ${me.style.padEnd(9)} ` +
+        `vs ${rungs[0].name.padEnd(8)} ${(Math.round(white * 100) + '%').padStart(4)}   ` +
+        `vs ${rungs[4].name.padEnd(8)} ${(Math.round(black * 100) + '%').padStart(4)}`);
+      check(white > 0.5, `${me.name} can beat his white belt`, `${Math.round(white * 100)}%`);
+    }
+    const score = (g) => g.white + g.black;
+    const hi = Math.max(...got.map(score)) / 2, lo = Math.min(...got.map(score)) / 2;
+    check(hi - lo <= FAIR_SPREAD, `no pick in ${w} is a trap`,
+      `best ${Math.round(hi * 100)}%, worst ${Math.round(lo * 100)}% on average over his two`);
+  }
 }
 
 console.log(fail ? `\n${fail} check(s) failed` : '\nthe game can be played');

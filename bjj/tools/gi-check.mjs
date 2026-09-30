@@ -57,8 +57,20 @@ page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${PORT}/bjj/index.html?belt=white`, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__bjj && window.__stats, null, { timeout: 60000 });
 
-const roster = await page.evaluate(() => Object.entries(window.__bjj.ROSTER)
-  .map(([belt, r]) => ({ belt, name: r.name, giCol: Array.from(r.giCol) })));
+// The three kimonos a man can wear (GI in roster.js). They were the ladder's
+// five colours, one a rung; since the roster the opponent wears one of these
+// three, whichever stands apart from the player's (rivalGi).
+const roster = await page.evaluate(() => Object.entries(window.__bjj.GI)
+  .map(([belt, r]) => ({ belt, name: r.label, giCol: Array.from(r.col) })));
+const pairs = await page.evaluate(() => {
+  const { GI, rivalGi } = window.__bjj;
+  const out = [];
+  for (const mine of Object.keys(GI)) for (const his of Object.keys(GI)) {
+    const got = rivalGi(mine, his);
+    if (!out.some((p) => p.mine === mine && p.his === got)) out.push({ mine, his: got, a: GI[mine].col, b: GI[got].col });
+  }
+  return out;
+});
 // `--ref r,g,b` dresses the referee in something else for the run.
 const REF = process.argv.includes('--ref') ? process.argv[process.argv.indexOf('--ref') + 1].split(',').map(Number) : null;
 if (REF) await page.evaluate((c) => window.__bjj.REF_GI.set(c), REF);
@@ -71,12 +83,14 @@ if (TRY) {
 // Among candidates, the darkest is the one the referee is judged against.
 const TRY_DARK = TRY ? roster.reduce((a, b) => (b.giCol.reduce((x, y) => x + y) < a.giCol.reduce((x, y) => x + y) ? b : a)).belt : null;
 
-async function look(pose, giCol) {
-  return page.evaluate(async ([p, col]) => {
+async function look(pose, giCol, mineCol = null) {
+  return page.evaluate(async ([p, col, mc]) => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const m = window.__bjj.match();
     if (m.state === 'ready') m.start();
     m.f[1].giCol.set(col);
+    const was = Array.from(m.f[0].giCol);
+    if (mc) m.f[0].giCol.set(mc);
     window.__bjj.setPose(p);
     await wait(600);
     window.__bjj.still(3.0);
@@ -106,10 +120,24 @@ async function look(pose, giCol) {
     // background swallows.
     const edges = [];
     const refPx = [];
+    // And where he borders the other man's kimono rather than the mat: the
+    // two cloths side by side, two steps in on each side of the seam.
+    const other = 3 - mine;
+    const pairEdges = [];
     for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
       const k = y * w + x;
       if (who[k] === 3 && (mat[k * 4] === 1 || mat[k * 4] === 2 || mat[k * 4] === 4)) refPx.push(k);
       if (!isGi(k)) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (who[(y + dy) * w + (x + dx)] !== other) continue;
+        const X = x + dx * 3, Y = y + dy * 3;
+        if (X < 0 || X >= w || Y < 0 || Y >= h) continue;
+        const j = Y * w + X;
+        const mj = mat[j * 4];
+        if (who[j] !== other || !(mj === 1 || mj === 2 || mj === 4)) continue;
+        pairEdges.push([shaded[k * 4], shaded[k * 4 + 1], shaded[k * 4 + 2],
+          shaded[j * 4], shaded[j * 4 + 1], shaded[j * 4 + 2]]);
+      }
       // One step out must be nobody (this is his edge), and the sample is
       // taken five steps out: the outline pass draws a grey rim two or three
       // pixels wide around every body and is not in the identity mask, so the
@@ -134,8 +162,9 @@ async function look(pose, giCol) {
     };
     const giPx = [];
     for (let k = 0; k < w * h; k++) if (isGi(k)) giPx.push(k);
-    return { edges, gi: meanOf(giPx), ref: meanOf(refPx), refN: refPx.length };
-  }, [pose, giCol]);
+    if (mc) m.f[0].giCol.set(was);
+    return { edges, pairEdges, gi: meanOf(giPx), ref: meanOf(refPx), refN: refPx.length };
+  }, [pose, giCol, mineCol]);
 }
 
 // sRGB 0..255 to CIELAB, D65.
@@ -275,6 +304,32 @@ for (const who of [1, 2]) {
     check(worst.share >= LAPEL_SHARE, 'and the opponent\'s is on his', `${line}; want ${LAPEL_SHARE * 100}%`);
   }
 }
+// And the two men against each other. Grappling is two bodies in one
+// silhouette, and what separates them where they touch is the colour of the
+// two cloths and nothing else — the outline pass draws round the pair, not
+// between them. Every pairing rivalGi can produce, in the same five shots:
+// how much of the seam between the two kimonos is closer than ΔE LOST.
+// White against blue is the pairing a competition bracket is dressed in, and
+// the line is that nothing the roster puts on the mat is worse than it by
+// more than PAIR_OVER.
+const PAIR_OVER = 0.1;
+console.log('\n     the seam between the two kimonos, lost (ΔE under ' + LOST + '):');
+const seams = [];
+for (const p of pairs) {
+  let lost = 0, n = 0;
+  for (const pose of SHOTS) {
+    const g = await look(pose, p.b, p.a);
+    for (const e of g.pairEdges || []) { n++; if (dE([e[0], e[1], e[2]], [e[3], e[4], e[5]]) < LOST) lost++; }
+  }
+  const v = n ? lost / n : NaN;
+  seams.push({ ...p, v, n });
+  console.log(`     ${p.mine.padEnd(6)} against ${p.his.padEnd(6)} ${Math.round(v * 100)}% of ${n} pixels`);
+}
+const ref = seams.find((p) => p.mine === 'white' && p.his === 'blue');
+const worstSeam = seams.reduce((a, b) => (b.v > a.v ? b : a));
+check(!ref || worstSeam.v <= ref.v + PAIR_OVER, 'and the two men apart from each other',
+  `worst ${worstSeam.mine} against ${worstSeam.his}, ${Math.round(worstSeam.v * 100)}% of the seam lost, ` +
+  `white against blue ${ref ? Math.round(ref.v * 100) : '—'}%, want no more than ${Math.round(PAIR_OVER * 100)} points over it`);
 check(errors.length === 0, 'no page errors', errors.slice(0, 2).join(' | '));
 
 await browser.close();

@@ -62,6 +62,8 @@ const wait = (ms) => page.waitForTimeout(ms);
 
 await at('title'); await wait(1500);
 await at('room'); await page.evaluate(() => window.__bjj.openGym()); await wait(1200);
+await at('fighter'); await page.evaluate(() => window.__bjj.openFighter()); await wait(1200);
+await page.evaluate(() => window.__bjj.toTitle());
 await at('match');
 await page.evaluate(() => { window.__bjj.toTitle(); window.__bjj.match().start(); });
 const poses = await page.evaluate(() => Object.keys(window.__bjj.POSES).filter((k) => !window.__bjj.POSES[k].waypoint));
@@ -103,7 +105,7 @@ for (const [text, where] of said) {
 }
 const screens = new Set(said.map(([, w]) => w));
 console.log(`     ${said.length} distinct strings on ${screens.size} screens: ${[...screens].join(', ')}`);
-check(['title', 'room', 'match', 'submission', 'result, lost', 'result, won'].every((s) => screens.has(s)),
+check(['title', 'room', 'fighter', 'match', 'submission', 'result, lost', 'result, won'].every((s) => screens.has(s)),
   'every screen was read', [...screens].join(', '));
 check(bad.length === 0, 'the screen speaks Russian',
   bad.length ? `${bad.length} strings in Latin letters: ${bad.slice(0, 6).join(', ')}` : 'Latin only where the list allows it');

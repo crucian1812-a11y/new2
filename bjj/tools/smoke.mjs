@@ -379,6 +379,70 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
   check(after === kept, 'and it survives a reload', `${after}`);
 }
 
+// The fighter door, tapped the way a thumb taps it: at the middle of each
+// rectangle the HUD draws, through the real input handler. The questions are
+// wiring — does the door open, does a tab show its class, does a row make
+// that man the player (and his ladder the next five of his class), does a
+// kimono go on him with the other man in one that stands apart from it, and
+// does ГОТОВО close it. Put back as it was at the end, because the store
+// outlives the page.
+{
+  // A pointer down and up on the HUD canvas, as tap-check sends them, and then
+  // a wait until the frame loop has read it: on a software rasteriser a frame
+  // can be most of a second.
+  let tapId = 900;
+  const tapRect = (r) => page.evaluate(async ([x, y, id]) => {
+    const ui = document.getElementById('ui');
+    const send = (type) => ui.dispatchEvent(new PointerEvent(type, {
+      pointerId: id, clientX: x, clientY: y, bubbles: true, isPrimary: true, pointerType: 'touch' }));
+    const i = window.__bjj.input;
+    send('pointerdown');
+    await new Promise((res) => setTimeout(res, 40));
+    send('pointerup');
+    for (let k = 0; k < 100 && i.tap; k++) await new Promise((res) => setTimeout(res, 50));
+    await new Promise((res) => setTimeout(res, 150));
+  }, [r.x + r.w / 2, r.y + r.h / 2, ++tapId]);
+  const L = await page.evaluate(() => {
+    const g = window.__bjj;
+    g.toTitle();
+    return g.hud.menuLayout().mode(2);
+  });
+  await tapRect(L);
+  const opened = await page.evaluate(() => window.__bjj.screen());
+  const lay = await page.evaluate(() => {
+    const g = window.__bjj, F = g.hud.fighterLayout(), o = g.fighterOpts();
+    return { tab: F.tab(o.weights.findIndex((w) => w.id === 'heavy')), row: F.row(1),
+      gi: F.gi(o.gis.findIndex((k) => k.id === 'black')), back: F.back,
+      was: { id: g.me().id, gi: o.gi } };
+  });
+  await tapRect(lay.tab);
+  const tab = await page.evaluate(() => window.__bjj.fighterOpts());
+  await tapRect(lay.row);
+  const picked = await page.evaluate(() => {
+    const g = window.__bjj, m = g.match();
+    return { id: g.me().id, opp: m.f[1].name, cup: g.progress ? g.progress().cup : null };
+  });
+  await tapRect(lay.gi);
+  const dressed = await page.evaluate(() => {
+    const g = window.__bjj, m = g.match();
+    return { mine: Array.from(m.f[0].giCol), his: Array.from(m.f[1].giCol), black: g.GI.black.col };
+  });
+  await tapRect(lay.back);
+  const closed = await page.evaluate(() => window.__bjj.screen());
+  const want = tab.men[1];
+  check(opened === 'fighter', 'the fighter door opens', opened);
+  check(tab.tab === 'heavy' && tab.men.length === 6, 'a weight tab shows its class',
+    `${tab.tab}: ${tab.men.map((m) => m.name).join(', ')}`);
+  check(picked.id === want.id && picked.opp !== want.name, 'a row makes that man the player',
+    `${picked.id}, and the first man of his ladder is ${picked.opp}`);
+  const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) < 1e-3);
+  check(near(dressed.mine, dressed.black) && !near(dressed.his, dressed.black),
+    'a kimono goes on him, and the other man wears another',
+    `you ${dressed.mine.map((v) => v.toFixed(2))}, him ${dressed.his.map((v) => v.toFixed(2))}`);
+  check(closed === 'title', 'and ГОТОВО goes back to the title', closed);
+  await page.evaluate((w) => window.__bjj.pick(w.id, w.gi), lay.was);
+}
+
 // The room next door. drill-check plays every drill in Node and measures what
 // each round is worth; what it cannot see is the wiring — whether the door on
 // the title card opens, whether a row in the list starts the drill it names,

@@ -56,6 +56,12 @@ const steps = [
   // far a joint folds — and a baked character can be a barrel with arms and
   // pass all of it. This one was: wider at the waist than at the shoulders.
   ['the figure', 'figure-check.mjs', []],
+  // And every build a man in the roster can wear. A weight class is the same
+  // skeleton with more or less on it, and the table of how much is solved
+  // against the pose library (build-solve.mjs); this re-measures it, so a pose
+  // or an arc that moves after the solve cannot quietly put a heavyweight's
+  // arm through a neck.
+  ['weight classes', 'build-solve.mjs', ['--check']],
   // And whether a hand reads as a hand. skin-check answers "is the surface
   // torn", which is a different question from "is this shape a hand": the
   // tearing on the knuckles was found and fixed and the player still saw a

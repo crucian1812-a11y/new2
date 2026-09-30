@@ -47,6 +47,8 @@ import { readFileSync } from 'node:fs';
 import { Skeleton, BONE_INDEX, poseToQuats, HAND_REST, TIP_REST } from '../src/render/skeleton.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { skinLite, skinInto } from './skin-lite.mjs';
+import { shapeMesh } from '../src/render/build.js';
+import { BUILD_ROOM } from '../src/game/build-room.js';
 
 const BANDS = process.argv.includes('--bands');
 
@@ -99,8 +101,13 @@ const say = (ok, name, text) => {
 };
 
 const rows = [];
-for (const file of ['fighter.bin', 'fighter-b.bin']) {
-  const mesh = load(file);
+// Each baked man as he was baked, and at the two ends of the weight classes
+// (src/render/build.js): a heavyweight is still a person, and so is a
+// featherweight, or the build table has made a shape rather than a class.
+const BUILDS = [['', null], [' heavy', BUILD_ROOM.heavy], [' light', BUILD_ROOM.light]];
+for (const [tag, build] of BUILDS) for (const bin of ['fighter.bin', 'fighter-b.bin']) {
+  const file = bin + tag;
+  const mesh = shapeMesh(load(bin), build);
   const lite = skinLite(mesh);
   const n = lite.pos.length / 3;
   // Torso membership off the same weights the skinning uses, so what this

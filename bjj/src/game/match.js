@@ -180,6 +180,9 @@ export class Fighter {
     this.giCol = opts.giCol || new Float32Array([0.86, 0.87, 0.85]);
     this.beltCol = opts.beltCol || new Float32Array([0.05, 0.05, 0.06]);
     this.skinCol = opts.skinCol || new Float32Array([0.62, 0.44, 0.33]);
+    // Only the renderer reads it; null is the hair everybody had before there
+    // was a roster.
+    this.hairCol = opts.hairCol || null;
     this.stamina = 100;
     this.posture = 100;
     this.points = 0;

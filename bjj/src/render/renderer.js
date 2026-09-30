@@ -17,6 +17,10 @@ import { OCCLUDERS } from '../game/collide.js';
 import { BONE_INDEX, BONES } from './skeleton.js';
 import { buildArena } from './arena.js';
 import { BONE_COUNT } from './skeleton.js';
+
+// The hair everybody had before there was a roster: nearly black.
+const HAIR_DEFAULT = new Float32Array([0.035, 0.028, 0.026]);
+const LOOK = new Float32Array(6);
 import { m4, m4mul, m4perspective, m4ortho, m4lookAt, clamp } from '../core/m4.js';
 
 const COMMON = `#version 300 es
@@ -489,7 +493,10 @@ uniform sampler2D u_cloth;
 uniform sampler2D u_skin;
 uniform vec3 u_giCol;
 uniform vec3 u_beltCol;
-uniform vec3 u_skinCol;
+// Skin and hair, one upload: [0] the skin, [1] the hair (HAIR in roster.js).
+// Two vec3s in one array rather than two uniforms, because each is uploaded
+// per fighter and frame-check counts uploads.
+uniform vec3 u_look[2];
 uniform float u_flash;   // hit flash, 0..1
 uniform float u_gas;     // how far out of gas he is, 0..1
 uniform vec4 u_patch[3];      // centre u, half width, centre v, half height
@@ -531,7 +538,7 @@ void main() {
     // body can say about fatigue that a bar cannot: a fresh man is matte, and
     // three minutes in he is lit like a wet road. It is also flushed — blood
     // in the skin, not just water on it — so the albedo warms as it shines.
-    albedo = u_skinCol * t.a * mix(vec3(1.0), vec3(1.06, 0.93, 0.90), u_gas);
+    albedo = u_look[0] * t.a * mix(vec3(1.0), vec3(1.06, 0.93, 0.90), u_gas);
     rough = mix(0.68, 0.30, u_gas);
     spec = mix(0.26, 0.80, u_gas);
     wrap = 0.55;
@@ -572,7 +579,7 @@ void main() {
     vec2 F = vec2(v_uv.x * 6.5, v_uv.y * 8.8);
     vec4 t = texture(u_skin, v_uv * 1.1);
     N = applyBump(N, v_world, v_uv * 1.1, t.rgb * 2.0 - 1.0, 0.3);
-    albedo = u_skinCol * t.a * mix(vec3(1.0), vec3(1.08, 0.90, 0.87), u_gas);
+    albedo = u_look[0] * t.a * mix(vec3(1.0), vec3(1.08, 0.90, 0.87), u_gas);
 
     float ax = abs(F.x);
     // Features fade out towards the temples, where the surface turns away and a
@@ -653,7 +660,7 @@ void main() {
     float strand = sin(v_uv.x * 190.0 + t.a * 6.0) * 0.5 + 0.5;
     float sheen = pow(strand, 3.0);
     float root = smoothstep(0.0, 0.35, t.a);
-    albedo = vec3(0.035, 0.028, 0.026) * (0.55 + t.a * 0.55 + strand * 0.25) * (0.55 + 0.45 * root);
+    albedo = u_look[1] * (0.55 + t.a * 0.55 + strand * 0.25) * (0.55 + 0.45 * root);
     rough = mix(0.52, 0.24, sheen); spec = 0.22 + 0.5 * sheen; wrap = 0.2;
   } else {
     vec4 t = texture(u_cloth, v_uv);
@@ -1877,7 +1884,9 @@ export class Renderer {
       gl.uniform4fv(this.progSkin.u.u_patch, f.gpu.patches || this.patchRects);
       gl.uniform3fv(this.progSkin.u.u_giCol, f.giCol);
       gl.uniform3fv(this.progSkin.u.u_beltCol, f.beltCol);
-      gl.uniform3fv(this.progSkin.u.u_skinCol, f.skinCol);
+      LOOK.set(f.skinCol, 0);
+      LOOK.set(f.hairCol || HAIR_DEFAULT, 3);
+      gl.uniform3fv(this.progSkin.u.u_look, LOOK);
       gl.uniform1f(this.progSkin.u.u_flash, f.flash || 0);
       gl.uniform1f(this.progSkin.u.u_gas, f.gas || 0);
       for (const part of f.gpu.parts) {
