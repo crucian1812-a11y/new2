@@ -829,29 +829,36 @@ export class HUD {
   // bug this exists to prevent. Everything sits in the left half, where the
   // stick is, so the hero on the right stays clear and a thumb can reach it.
   menuLayout() {
-    const left = Math.max(20, this.w * 0.05);
-    const mw = Math.min(236, this.w * 0.37);
-    const top = Math.min(Math.max(46, this.h * 0.14), 96);
-    const rowH = 28, pitch = 32;
-    // Two doors before anything else: the fight, and the room where you drill
-    // it. They sit above the ladder because the ladder is a setting for one of
-    // them and not for the other.
-    // Three now: the fighter is picked before either, and is a door of its
-    // own rather than a row in the ladder, because who you are is not a
-    // setting of the next match.
-    const modeY = top + 18, modeH = 26;
-    const modeW = (mw - 12) / 3;
-    const beltY = modeY + modeH + 26;
-    const timeY = beltY + 5 * pitch + 12;
+    const left = Math.max(22, this.w * 0.05);
+    // A little narrower than it was (0.37 of the width), because the column
+    // now sits on a panel fourteen pixels wider on each side, and the panel —
+    // not the text — is what has to stay clear of the window the picture is
+    // framed into (gallery.js, from 0.43 of the width).
+    const mw = Math.min(236, this.w * 0.35);
+    const top = Math.min(Math.max(50, this.h * 0.15), 96);
+    // Two doors and the fighter's, as one segmented control: three tabs of
+    // one bar read as one choice, three separate buttons read as three.
+    const modeY = top + 18, modeH = 28;
+    const modeW = mw / 3;
+    const beltY = modeY + modeH + 24;
+    // The rows take what the glass leaves. At a fixed 32 pixels a row the
+    // column ran fifteen pixels off the bottom of a phone held sideways, and
+    // the one line of rules under the start button was the part cut off.
+    const tail = 16 + 24 + 12 + 36 + 24;
+    const pitch = Math.max(24, Math.min(32, (this.h - 10 - beltY - tail) / 5));
+    const rowH = pitch - 4;
+    const timeY = beltY + 5 * pitch + 16;
     const timeH = 24;
     const startY = timeY + timeH + 12;
-    const startH = 34;
-    const cw = (mw - 12) / 3;
+    const startH = 36;
+    const cw = mw / 3;
+    const py = Math.max(4, top - 54);
     return {
       left, mw, top, rowH, pitch, beltY, timeY, timeH, startY, startH, modeY, modeH,
-      mode: (i) => ({ x: left + i * (modeW + 6), y: modeY, w: modeW, h: modeH }),
+      panel: { x: left - 14, y: py, w: mw + 28, h: Math.min(this.h - 6, startY + startH + 26) - py },
+      mode: (i) => ({ x: left + i * modeW, y: modeY, w: modeW, h: modeH }),
       belt: (i) => ({ x: left, y: beltY + i * pitch, w: mw, h: rowH }),
-      time: (t) => ({ x: left + TIMES_ORDER.indexOf(t) * (cw + 6), y: timeY, w: cw, h: timeH }),
+      time: (t) => ({ x: left + TIMES_ORDER.indexOf(t) * cw, y: timeY, w: cw, h: timeH }),
       start: { x: left, y: startY, w: mw, h: startH },
     };
   }
@@ -979,16 +986,347 @@ export class HUD {
     }
   }
 
-  _title(opts) {
+  /* --------------------------------------------------------- menu kit */
+
+  // The pieces every menu screen is built of, so the title, the fighter and
+  // the room are one design rather than three. Each draws, and none decides
+  // where: the rectangles come from the layout functions, which the hit tests
+  // read too.
+
+  // Letter spacing, where the browser has it (Chrome 99, Safari 17): the
+  // labels in caps are set wide, the way a broadcast sets them. Where it has
+  // not, the same text at the default spacing.
+  _track(px) {
     const c = this.ctx;
-    // A gradient off the bottom rather than a wash over everything: there is a
-    // fighter standing behind this now, and the point of him is to be seen.
-    const g = c.createLinearGradient(0, this.h * 0.28, 0, this.h);
-    g.addColorStop(0, 'rgba(4,6,10,0)');
-    g.addColorStop(0.42, 'rgba(4,6,10,0.55)');
-    g.addColorStop(1, 'rgba(4,6,10,0.94)');
+    if ('letterSpacing' in c) c.letterSpacing = `${px}px`;
+  }
+
+  // The dimming behind a menu: the picture stays, the left third goes dark
+  // enough that nothing in the hall reads through the panel's edge.
+  _menuShade() {
+    const c = this.ctx;
+    const g = c.createLinearGradient(0, 0, this.w * 0.62, 0);
+    g.addColorStop(0, 'rgba(3,5,9,0.72)');
+    g.addColorStop(0.55, 'rgba(3,5,9,0.38)');
+    g.addColorStop(1, 'rgba(3,5,9,0)');
     c.fillStyle = g;
     c.fillRect(0, 0, this.w, this.h);
+    const b = c.createLinearGradient(0, this.h * 0.55, 0, this.h);
+    b.addColorStop(0, 'rgba(3,5,9,0)');
+    b.addColorStop(1, 'rgba(3,5,9,0.7)');
+    c.fillStyle = b;
+    c.fillRect(0, 0, this.w, this.h);
+  }
+
+  // The panel the column sits on. Before it the rows sat straight on the
+  // picture, and the boards' lettering ran through the middle of them.
+  //
+  // Baked once per size and copied after that: a blurred shadow is the most
+  // expensive thing a 2D canvas does, the menu redraws every frame, and a
+  // phone's canvas pays for the blur whether or not anything moved.
+  _panel(r) {
+    const key = `${Math.round(r.w)}x${Math.round(r.h)}@${this.dpr}`;
+    const pad = 32;
+    if (!this._panelCache || this._panelCache.key !== key) {
+      const cv = document.createElement('canvas');
+      cv.width = Math.ceil((r.w + pad * 2) * this.dpr);
+      cv.height = Math.ceil((r.h + pad * 2) * this.dpr);
+      const k = cv.getContext('2d');
+      k.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      const was = this.ctx;
+      this.ctx = k;
+      this._panelDraw({ x: pad, y: pad, w: r.w, h: r.h });
+      this.ctx = was;
+      this._panelCache = { key, cv };
+    }
+    this.ctx.drawImage(this._panelCache.cv, r.x - pad, r.y - pad, r.w + pad * 2, r.h + pad * 2);
+  }
+
+  _panelDraw(r) {
+    const c = this.ctx;
+    c.save();
+    c.shadowColor = 'rgba(0,0,0,0.55)';
+    c.shadowBlur = 24;
+    c.shadowOffsetY = 6;
+    roundRect(c, r.x, r.y, r.w, r.h, 16);
+    const g = c.createLinearGradient(0, r.y, 0, r.y + r.h);
+    g.addColorStop(0, 'rgba(16,20,30,0.90)');
+    g.addColorStop(1, 'rgba(7,9,14,0.94)');
+    c.fillStyle = g;
+    c.fill();
+    c.restore();
+    roundRect(c, r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 16);
+    c.strokeStyle = 'rgba(255,255,255,0.07)';
+    c.lineWidth = 1;
+    c.stroke();
+    // A gold rule along the top, fading out: the one accent the panel wears.
+    const a = c.createLinearGradient(r.x, 0, r.x + r.w, 0);
+    a.addColorStop(0, 'rgba(255,209,102,0)');
+    a.addColorStop(0.2, 'rgba(255,209,102,0.85)');
+    a.addColorStop(0.8, 'rgba(255,209,102,0.25)');
+    a.addColorStop(1, 'rgba(255,209,102,0)');
+    c.fillStyle = a;
+    c.fillRect(r.x + 16, r.y, r.w - 32, 2);
+  }
+
+  // A belt, drawn as one: the colour, a sheen along it, the rank bar near the
+  // tip (black on every belt but the black one, where it is red) and, when
+  // there are any, the stripes of tape on the bar.
+  _beltBar(x, y, w, h, col, stripes = 0) {
+    const c = this.ctx;
+    roundRect(c, x, y, w, h, Math.min(3, h / 2));
+    c.fillStyle = rgb(col);
+    c.fill();
+    const g = c.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(255,255,255,0.28)');
+    g.addColorStop(0.5, 'rgba(255,255,255,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.25)');
+    c.fillStyle = g;
+    c.fill();
+    const dark = col[0] + col[1] + col[2] < 0.25;
+    const bw = Math.max(8, w * 0.26), bx = x + w - bw - Math.max(3, w * 0.08);
+    c.fillStyle = dark ? '#8a1410' : '#0b0b0c';
+    c.fillRect(bx, y, bw, h);
+    c.fillStyle = 'rgba(240,240,236,0.9)';
+    for (let i = 0; i < stripes; i++) c.fillRect(bx + bw - 3 - i * 4, y, 2, h);
+    roundRect(c, x + 0.5, y + 0.5, w - 1, h - 1, Math.min(3, h / 2));
+    c.strokeStyle = 'rgba(255,255,255,0.22)';
+    c.lineWidth = 1;
+    c.stroke();
+  }
+
+  // A padlock: the shackle and the body, drawn small.
+  _lock(cx, cy, a = 0.45) {
+    const c = this.ctx;
+    c.save();
+    c.strokeStyle = `rgba(255,255,255,${a})`;
+    c.fillStyle = `rgba(255,255,255,${a})`;
+    c.lineWidth = 1.4;
+    c.beginPath();
+    c.arc(cx, cy - 2, 3.2, Math.PI, 0);
+    c.lineTo(cx + 3.2, cy + 0.5);
+    c.moveTo(cx - 3.2, cy + 0.5);
+    c.lineTo(cx - 3.2, cy - 2);
+    c.stroke();
+    roundRect(c, cx - 4.8, cy, 9.6, 7, 1.5);
+    c.fill();
+    c.restore();
+  }
+
+  // A small-caps heading across the column, with a hairline carried on to
+  // the panel's edge, so the column reads in sections.
+  _section(x, y, w, text, col = 'rgba(255,255,255,0.46)') {
+    const c = this.ctx;
+    c.font = `800 9px ${FONT}`;
+    this._track(1.4);
+    c.textAlign = 'left';
+    c.fillStyle = col;
+    c.fillText(text, x, y);
+    const tw = c.measureText(text).width;
+    this._track(0);
+    c.fillStyle = 'rgba(255,255,255,0.08)';
+    c.fillRect(x + tw + 8, Math.round(y), Math.max(0, w - tw - 8), 1);
+  }
+
+  // A segmented control: one track, the chosen segment a gold pill in it.
+  _segments(rects, labels, on, font = 11) {
+    const c = this.ctx;
+    const a = rects[0], z = rects[rects.length - 1];
+    const track = { x: a.x, y: a.y, w: z.x + z.w - a.x, h: a.h };
+    roundRect(c, track.x, track.y, track.w, track.h, track.h / 2);
+    c.fillStyle = 'rgba(255,255,255,0.05)';
+    c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.10)';
+    c.lineWidth = 1;
+    c.stroke();
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (i === on) {
+        c.save();
+        c.shadowColor = 'rgba(255,196,70,0.35)';
+        c.shadowBlur = 10;
+        roundRect(c, r.x + 2, r.y + 2, r.w - 4, r.h - 4, (r.h - 4) / 2);
+        const g = c.createLinearGradient(0, r.y, 0, r.y + r.h);
+        g.addColorStop(0, '#ffe08f');
+        g.addColorStop(1, '#f4bf45');
+        c.fillStyle = g;
+        c.fill();
+        c.restore();
+      } else if (i > 0 && i - 1 !== on) {
+        c.fillStyle = 'rgba(255,255,255,0.08)';
+        c.fillRect(r.x, r.y + 7, 1, r.h - 14);
+      }
+      // The label shrinks until it fits its segment, rather than spilling
+      // into the next one: «ТЯЖЁЛЫЙ» is wider than a quarter of a phone's
+      // column at the size the others are set in.
+      let px = font;
+      this._track(0.8);
+      do { c.font = `800 ${px}px ${FONT}`; } while (px-- > 7 && c.measureText(labels[i]).width > r.w - 10);
+      c.fillStyle = i === on ? '#1a1203' : 'rgba(255,255,255,0.78)';
+      c.textAlign = 'center';
+      c.fillText(labels[i], r.x + r.w / 2, r.y + r.h / 2 + 0.5);
+      this._track(0);
+    }
+    c.textAlign = 'left';
+  }
+
+  // The button that does the thing: gold, lit from above, with a chevron.
+  _primary(r, label) {
+    const c = this.ctx;
+    c.save();
+    c.shadowColor = 'rgba(255,190,60,0.35)';
+    c.shadowBlur = 16;
+    c.shadowOffsetY = 3;
+    roundRect(c, r.x, r.y, r.w, r.h, r.h / 2);
+    const g = c.createLinearGradient(0, r.y, 0, r.y + r.h);
+    g.addColorStop(0, '#ffe39a');
+    g.addColorStop(0.55, '#f7c64f');
+    g.addColorStop(1, '#e0a52c');
+    c.fillStyle = g;
+    c.fill();
+    c.restore();
+    // The sheen, and a slow pulse along it so the one button that starts
+    // something is the one that looks alive.
+    c.save();
+    roundRect(c, r.x, r.y, r.w, r.h, r.h / 2);
+    c.clip();
+    const hi = c.createLinearGradient(0, r.y, 0, r.y + r.h / 2);
+    hi.addColorStop(0, 'rgba(255,255,255,0.32)');
+    hi.addColorStop(1, 'rgba(255,255,255,0.04)');
+    c.fillStyle = hi;
+    c.fillRect(r.x, r.y, r.w, r.h / 2);
+    c.restore();
+    const t = (this.pulse * 0.35) % 1.6;
+    if (t < 1) {
+      c.save();
+      roundRect(c, r.x, r.y, r.w, r.h, r.h / 2);
+      c.clip();
+      const sx = r.x - 60 + (r.w + 120) * t;
+      const s = c.createLinearGradient(sx - 40, 0, sx + 40, 0);
+      s.addColorStop(0, 'rgba(255,255,255,0)');
+      s.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+      s.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = s;
+      c.fillRect(r.x, r.y, r.w, r.h);
+      c.restore();
+    }
+    c.font = `900 14px ${FONT}`;
+    this._track(2);
+    c.fillStyle = '#1a1203';
+    c.textAlign = 'center';
+    c.fillText(label, r.x + r.w / 2 - 6, r.y + r.h / 2 + 0.5);
+    const tw = c.measureText(label).width;
+    this._track(0);
+    const ax = r.x + r.w / 2 - 6 + tw / 2 + 12, ay = r.y + r.h / 2;
+    c.strokeStyle = '#1a1203';
+    c.lineWidth = 2.2;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(ax - 3, ay - 5);
+    c.lineTo(ax + 2, ay);
+    c.lineTo(ax - 3, ay + 5);
+    c.stroke();
+    c.textAlign = 'left';
+  }
+
+  // A plain button: the same shape as the primary, in glass.
+  _ghost(r, label) {
+    const c = this.ctx;
+    roundRect(c, r.x, r.y, r.w, r.h, r.h / 2);
+    c.fillStyle = 'rgba(255,255,255,0.05)';
+    c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.16)';
+    c.lineWidth = 1;
+    c.stroke();
+    c.font = `800 10px ${FONT}`;
+    this._track(1.2);
+    c.fillStyle = 'rgba(255,255,255,0.85)';
+    c.textAlign = 'center';
+    c.fillText(label, r.x + r.w / 2, r.y + r.h / 2 + 0.5);
+    this._track(0);
+    c.textAlign = 'left';
+  }
+
+  // A row of a list: glass, and when it is the chosen one a warmer glass, a
+  // gold edge and a gold bar down its left side.
+  _row(r, on, dim = false) {
+    const c = this.ctx;
+    roundRect(c, r.x, r.y, r.w, r.h, 8);
+    if (on) {
+      const g = c.createLinearGradient(r.x, 0, r.x + r.w, 0);
+      g.addColorStop(0, 'rgba(255,209,102,0.16)');
+      g.addColorStop(1, 'rgba(255,209,102,0.03)');
+      c.fillStyle = g;
+    } else {
+      c.fillStyle = dim ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.045)';
+    }
+    c.fill();
+    c.strokeStyle = on ? 'rgba(255,209,102,0.55)' : 'rgba(255,255,255,0.07)';
+    c.lineWidth = 1;
+    c.stroke();
+    if (on) {
+      roundRect(c, r.x + 3, r.y + 5, 3, r.h - 10, 1.5);
+      c.fillStyle = '#ffd166';
+      c.fill();
+    }
+  }
+
+  // A face, at the size of a thumbnail: his skin, his hair over the crown,
+  // and a ring round it.
+  _face(cx, cy, r, skin, hair, on) {
+    const c = this.ctx;
+    c.save();
+    c.beginPath();
+    c.arc(cx, cy, r, 0, Math.PI * 2);
+    c.clip();
+    const g = c.createRadialGradient(cx - r * 0.3, cy - r * 0.2, r * 0.2, cx, cy, r);
+    g.addColorStop(0, srgb(skin.map((v) => v * 1.15)));
+    g.addColorStop(1, srgb(skin.map((v) => v * 0.8)));
+    c.fillStyle = g;
+    c.fillRect(cx - r, cy - r, r * 2, r * 2);
+    c.fillStyle = srgb(hair);
+    c.beginPath();
+    c.ellipse(cx, cy - r * 0.85, r * 1.05, r * 0.62, 0, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+    c.beginPath();
+    c.arc(cx, cy, r + 1.5, 0, Math.PI * 2);
+    c.strokeStyle = on ? 'rgba(255,209,102,0.9)' : 'rgba(255,255,255,0.22)';
+    c.lineWidth = 1.5;
+    c.stroke();
+  }
+
+  // The brand across the top of the column: a word set wide, and under it
+  // the belt you are wearing, as a belt.
+  _brand(L, title, sub, beltCol, stripes) {
+    const c = this.ctx;
+    c.textAlign = 'left';
+    const size = Math.round(Math.min(26, this.w * 0.04));
+    c.font = `900 ${size}px ${FONT}`;
+    this._track(3);
+    c.fillStyle = '#fff';
+    c.fillText(title, L.left, L.top - 27);
+    const tw = c.measureText(title).width;
+    this._track(0);
+    if (beltCol) this._beltBar(L.left, L.top - 13, Math.min(L.mw, tw + 18), 6, beltCol, stripes);
+    else {
+      c.fillStyle = '#ffd166';
+      c.fillRect(L.left, L.top - 12, 28, 3);
+    }
+    c.font = `700 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.58)';
+    // Too long for the column, it loses its last clause rather than a word
+    // in the middle of one; only a single clause too long is cut short.
+    let s = sub;
+    while (c.measureText(s).width > L.mw && s.includes(' · ')) s = s.slice(0, s.lastIndexOf(' · '));
+    while (s.length > 4 && c.measureText(s).width > L.mw) s = s.slice(0, -2) + '…';
+    c.fillText(s, L.left, L.top + 4);
+  }
+
+  _title(opts) {
+    const c = this.ctx;
+    this._menuShade();
 
     const L = this.menuLayout();
     const sel = opts.selection || { belt: 0, time: 5 };
@@ -997,202 +1335,158 @@ export class HUD {
     const rank = opts.progress ? opts.progress.rank : 0;
     const rec = opts.progress && (opts.progress.wins || opts.progress.losses)
       ? ` · ${opts.progress.wins}—${opts.progress.losses}` : '';
+    this._panel(L.panel);
 
-    // Brand, with the belt you have earned riding the same line.
-    c.textAlign = 'left';
-    c.fillStyle = '#fff';
-    c.font = `800 ${Math.round(Math.min(32, this.w * 0.046))}px ${FONT}`;
-    c.fillText('JIU-JITSU', L.left, L.top - 16);
-    c.font = `600 10px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.55)';
+    // Brand, with the belt you have earned under it — as a belt, the one
+    // thing on this screen that says where a career has got to.
+    const mine = belts.find((b) => b.name === opts.mine);
     const who = opts.fighter ? `${opts.fighter.myName} · ${opts.fighter.myWeight.toLowerCase()} · ` : '';
-    c.fillText(`${who}твой пояс: ${opts.mineLabel || 'БЕЛЫЙ'}${rec}`,
-      L.left, L.top + 4);
+    this._brand(L, 'JIU-JITSU', `${who}пояс: ${(opts.mineLabel || 'БЕЛЫЙ').toLowerCase()}${rec}`,
+      mine ? mine.col : null, opts.progress ? Math.min(4, opts.progress.titles | 0) : 0);
 
-    // The two doors. The fight is where the ladder is climbed; the room is
-    // where a move is drilled until it works. Both are always open — nothing
-    // in the gym is locked behind a belt, because a beginner is exactly who
-    // needs it.
-    const gym = opts.gym || { drilled: 0, total: 0 };
-    for (let i = 0; i < 3; i++) {
-      const r = L.mode(i);
-      const on = (opts.screen === 'gym' ? 'gym' : opts.screen === 'fighter' ? 'fighter' : 'fight') === MODES[i];
-      roundRect(c, r.x, r.y, r.w, r.h, 6);
-      c.fillStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(8,11,17,0.58)';
-      c.fill();
-      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.14)';
-      c.lineWidth = 1;
-      c.stroke();
-      c.font = `800 12px ${FONT}`;
-      c.fillStyle = on ? '#1a1203' : 'rgba(255,255,255,0.82)';
-      c.textAlign = 'center';
-      c.fillText(MODE_LABEL[i], r.x + r.w / 2, r.y + r.h / 2);
-      c.textAlign = 'left';
-    }
+    // The three doors. The fight is where the ladder is climbed, the room is
+    // where a move is drilled until it works, and the fighter is who you are.
+    // All always open — nothing in the gym is locked behind a belt, because a
+    // beginner is exactly who needs it.
+    const door = opts.screen === 'gym' ? 1 : opts.screen === 'fighter' ? 2 : 0;
+    this._segments([0, 1, 2].map((i) => L.mode(i)), MODE_LABEL, door, 11);
 
     // The men. Locked rungs — past the one you have earned — are dimmed and
     // answer nothing; the rest pick the man you fight next. The ones in the
     // tournament's bracket carry their round (see cup.js), and the header says
     // whether the fight picked is the tournament's next one or sparring.
     const cup = opts.cup || null;
-    c.font = `700 9px ${FONT}`;
-    c.fillStyle = cup && !cup.on ? 'rgba(255,255,255,0.42)' : 'rgba(255,209,102,0.8)';
-    c.fillText(!cup ? 'СЛОЖНОСТЬ' : cup.on ? `ТУРНИР · ${cup.round}` : 'СПАРРИНГ · ВНЕ ТУРНИРА',
-      L.left, L.beltY - 12);
+    this._section(L.left, L.beltY - 11, L.mw,
+      !cup ? 'СЛОЖНОСТЬ' : cup.on ? `ТУРНИР · ${cup.round}` : 'СПАРРИНГ · ВНЕ ТУРНИРА',
+      cup && !cup.on ? 'rgba(255,255,255,0.46)' : 'rgba(255,209,102,0.9)');
     for (let i = 0; i < belts.length; i++) {
       const b = belts[i];
       const r = L.belt(i);
       const locked = !opts.forced && i > rank;
       const on = sel.belt === i;
-      c.globalAlpha = locked ? 0.38 : 1;
-      roundRect(c, r.x, r.y, r.w, r.h, 6);
-      c.fillStyle = on ? 'rgba(20,28,40,0.86)' : 'rgba(8,11,17,0.58)';
-      c.fill();
-      c.strokeStyle = on ? 'rgba(255,209,102,0.72)' : 'rgba(255,255,255,0.12)';
-      c.lineWidth = on ? 1.5 : 1;
-      c.stroke();
-      // The belt's colour, the same dot the scorebug wears.
-      c.fillStyle = rgb(b.col);
-      c.beginPath();
-      c.arc(r.x + 14, r.y + r.h / 2, 6, 0, Math.PI * 2);
-      c.fill();
-      c.strokeStyle = 'rgba(255,255,255,0.28)';
-      c.lineWidth = 1;
-      c.stroke();
-      c.font = `700 11px ${FONT}`;
-      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.8)';
-      // The colour on its own, without the word «ПОЯС» after it. The row is
-      // 236 pixels wide on a phone and it now carries four things — the belt's
-      // dot, its name, the record against the man and the man — and the first
-      // draft of this had «ПУРПУРНЫЙ ПОЯС 2—2РАФАЭЛ» running into itself. The
-      // dot beside it and the header above it already say these are belts.
-      c.fillText(b.label, r.x + 28, r.y + r.h / 2);
-      let at = r.x + 28 + c.measureText(b.label).width + 8;
-      // His round in the bracket: done, next, or still ahead.
+      const mid = r.y + r.h / 2;
+      this._row(r, on, locked);
+      c.globalAlpha = locked ? 0.42 : 1;
+      // The belt's own colour, as a belt: the swatch a man ties on.
+      this._beltBar(r.x + 12, mid - 3.5, 22, 7, b.col);
+      c.font = `800 11px ${FONT}`;
+      this._track(0.6);
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.84)';
+      c.textAlign = 'left';
+      c.fillText(b.label, r.x + 42, mid + 0.5);
+      let at = r.x + 42 + c.measureText(b.label).width + 8;
+      this._track(0);
+      // His round in the bracket: done, next, or still ahead — as a chip.
       const j = cup ? cup.rungs.indexOf(i) : -1;
-      if (j >= 0) {
-        const tag = j < cup.stage ? `${cup.rounds[j]} ✓` : cup.rounds[j];
-        c.font = `800 9px ${FONT}`;
-        c.fillStyle = j < cup.stage ? 'rgba(79,212,138,0.85)'
-          : j === cup.stage ? '#ffd166' : 'rgba(255,255,255,0.4)';
-        c.fillText(tag, at, r.y + r.h / 2 + 1);
-        at += c.measureText(tag).width + 7;
-        c.font = `700 11px ${FONT}`;
-      }
-      // What you have done to this man, and he to you. Only once there is
-      // something to say: five rows of «0—0» on a fresh install is a scoreboard
-      // for a career that has not started.
-      const rec = (opts.records && opts.records[i]) || [0, 0];
-      if (rec[0] || rec[1]) {
-        const tail = locked ? 'ЗАКРЫТО' : b.man;
-        c.font = `600 10px ${FONT}`;
-        const room = r.x + r.w - 10 - c.measureText(tail).width - 8;
-        c.font = `600 9px ${FONT}`;
-        const line = `${rec[0]}—${rec[1]}`;
-        // And only where it fits. A name is the row's own, a record is a note
-        // beside it, and a note that overlaps what it is a note about is worse
-        // than no note.
-        if (at + c.measureText(line).width < room) {
-          c.fillStyle = rec[0] > rec[1] ? 'rgba(79,212,138,0.75)'
-            : rec[1] > rec[0] ? 'rgba(255,106,85,0.75)' : 'rgba(255,255,255,0.4)';
-          c.fillText(line, at, r.y + r.h / 2 + 1);
-        }
+      if (j >= 0 && !locked) {
+        const done = j < cup.stage, next = j === cup.stage;
+        const tag = done ? `${cup.rounds[j]} ✓` : cup.rounds[j];
+        c.font = `900 8px ${FONT}`;
+        const tw = c.measureText(tag).width + 10;
+        roundRect(c, at, mid - 7, tw, 14, 7);
+        c.fillStyle = done ? 'rgba(79,212,138,0.16)' : next ? 'rgba(255,209,102,0.2)' : 'rgba(255,255,255,0.06)';
+        c.fill();
+        c.fillStyle = done ? 'rgba(79,212,138,0.95)' : next ? '#ffd166' : 'rgba(255,255,255,0.5)';
+        c.textAlign = 'center';
+        c.fillText(tag, at + tw / 2, mid + 0.5);
+        c.textAlign = 'left';
+        at += tw + 6;
       }
       c.textAlign = 'right';
       if (locked) {
-        c.font = `600 9px ${FONT}`;
-        c.fillStyle = 'rgba(255,255,255,0.45)';
-        c.fillText('ЗАКРЫТО', r.x + r.w - 10, r.y + r.h / 2);
+        this._lock(r.x + r.w - 16, mid - 2);
       } else {
         // And how he fights, under his name. Five men with five styles (see
         // STYLES in ai.js) are five different fights, and a player choosing
         // whom to face next should be able to read which.
-        const two = !!b.style;
-        c.font = `600 10px ${FONT}`;
-        c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.5)';
-        c.fillText(b.man, r.x + r.w - 10, r.y + r.h / 2 - (two ? 5 : 0));
+        const two = !!b.style && r.h >= 20;
+        c.font = `800 10px ${FONT}`;
+        c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.72)';
+        c.fillText(b.man, r.x + r.w - 10, mid - (two ? 5 : 0));
+        const manW = c.measureText(b.man).width;
         if (two) {
           c.font = `600 8px ${FONT}`;
-          c.fillStyle = on ? 'rgba(255,209,102,0.75)' : 'rgba(255,255,255,0.38)';
-          c.fillText(b.style, r.x + r.w - 10, r.y + r.h / 2 + 7);
+          c.fillStyle = on ? 'rgba(255,209,102,0.75)' : 'rgba(255,255,255,0.4)';
+          c.fillText(b.style, r.x + r.w - 10, mid + 7);
+        }
+        // What you have done to this man, and he to you, once there is
+        // something to say — and only where it fits between his name and
+        // the chip.
+        const rc = (opts.records && opts.records[i]) || [0, 0];
+        if (rc[0] || rc[1]) {
+          c.font = `700 9px ${FONT}`;
+          const line = `${rc[0]}—${rc[1]}`;
+          const lw = c.measureText(line).width;
+          if (at + lw < r.x + r.w - 10 - manW - 8) {
+            c.textAlign = 'left';
+            c.fillStyle = rc[0] > rc[1] ? 'rgba(79,212,138,0.8)'
+              : rc[1] > rc[0] ? 'rgba(255,106,85,0.8)' : 'rgba(255,255,255,0.42)';
+            c.fillText(line, at, mid + 0.5);
+          }
         }
       }
       c.textAlign = 'left';
+      c.globalAlpha = 1;
     }
-    c.globalAlpha = 1;
 
     // The match length — the one number that changes the shape of the fight
     // without touching the fight itself.
-    c.font = `700 9px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.42)';
-    c.fillText('РЕГЛАМЕНТ', L.left, L.timeY - 10);
-    for (const t of times) {
-      const r = L.time(t);
-      const on = sel.time === t;
-      roundRect(c, r.x, r.y, r.w, r.h, 5);
-      c.fillStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(8,11,17,0.58)';
-      c.fill();
-      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.12)';
-      c.lineWidth = 1;
-      c.stroke();
-      c.font = `700 11px ${FONT}`;
-      c.fillStyle = on ? '#1a1203' : 'rgba(255,255,255,0.8)';
+    this._section(L.left, L.timeY - 9, L.mw, 'РЕГЛАМЕНТ');
+    this._segments(times.map((t) => L.time(t)), times.map((t) => `${t} МИН`), times.indexOf(sel.time), 10);
+
+    // The start, named for what it starts: the round, or sparring. And the
+    // one rule a new player needs underneath it, where it fits.
+    this._primary(L.start, !cup ? 'В БОЙ' : cup.on ? cup.round : 'СПАРРИНГ');
+    const hintY = L.start.y + L.start.h + 13;
+    if (hintY < L.panel.y + L.panel.h - 4) {
+      const hint = 'очки — за +N на кольце, если удержать 3 секунды';
+      let px = 9;
+      do { c.font = `600 ${px}px ${FONT}`; } while (px-- > 7 && c.measureText(hint).width > L.mw);
+      c.fillStyle = 'rgba(255,255,255,0.46)';
       c.textAlign = 'center';
-      c.fillText(`${t} МИН`, r.x + r.w / 2, r.y + r.h / 2);
+      c.fillText(hint, L.left + L.mw / 2, hintY);
       c.textAlign = 'left';
     }
 
-    // The start, and the one rule a new player needs underneath it.
-    const s = L.start;
-    roundRect(c, s.x, s.y, s.w, s.h, 8);
-    c.fillStyle = 'rgba(255,209,102,0.92)';
-    c.fill();
-    c.font = `800 15px ${FONT}`;
-    c.fillStyle = '#1a1203';
-    c.textAlign = 'center';
-    // Named for what it starts: the round, or sparring.
-    c.fillText(!cup ? 'В БОЙ' : cup.on ? cup.round : 'СПАРРИНГ', s.x + s.w / 2, s.y + s.h / 2);
-    c.textAlign = 'left';
-    c.font = `600 10px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.5)';
-    c.fillText('очки — за +N на кольце, если удержать 3 секунды', L.left, s.y + s.h + 16);
-
-    // What the picture behind all this is a picture of.
-    //
-    // A plate without a caption is decoration; with one it is the only place in
-    // the game where somebody who has never trained is told the name of what he
-    // is looking at, six times over, while he decides which belt to fight. The
-    // words come from the pose library through the gallery — see gallery.js —
-    // and they fade with the page, so the caption is never up over the picture
-    // of something else.
-    if (opts.plate) {
-      const alpha = Math.max(0, Math.min(1, opts.plate.page));
-      const right = this.w - Math.max(16, this.w * 0.04);
-      const base = this.h - 22;
-      c.globalAlpha = alpha;
-      c.textAlign = 'right';
-      c.font = `800 ${Math.round(Math.min(19, this.w * 0.028))}px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.94)';
-      c.fillText(opts.plate.caption.toUpperCase(), right, base);
-      const wide = c.measureText(opts.plate.caption.toUpperCase()).width;
-      c.fillStyle = 'rgba(255,209,102,0.85)';
-      c.fillRect(right - wide, base + 7, wide, 1);
-      c.font = `700 9px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.5)';
-      c.fillText('ПОЗИЦИЯ', right, base - 18);
-      c.globalAlpha = 1;
-      c.textAlign = 'left';
-    }
+    this._caption(opts);
   }
 
-  /* ---------------------------------------------------------------- зал */
-
-  // The drill list. Six at a time and paged, rather than a scrolling list:
-  // scrolling inside a canvas overlay means writing momentum, bounds and a
-  // scrollbar by hand, and every one of those is a place for a tap to be eaten
-  // — which is the bug the ring's own layout function exists to prevent. Six
-  // rows and a "next" is the same information with none of that.
-  GYM_ROWS = 6;
+  // What the picture behind a menu is a picture of.
+  //
+  // A plate without a caption is decoration; with one it is the only place in
+  // the game where somebody who has never trained is told the name of what he
+  // is looking at, six times over, while he decides which belt to fight. The
+  // words come from the pose library through the gallery — see gallery.js —
+  // and they fade with the page, so the caption is never up over the picture
+  // of something else.
+  _caption(opts) {
+    const c = this.ctx;
+    if (!opts.plate) return;
+    const alpha = Math.max(0, Math.min(1, opts.plate.page));
+    const right = this.w - Math.max(18, this.w * 0.04);
+    const base = this.h - 24;
+    c.globalAlpha = alpha;
+    c.textAlign = 'right';
+    const cap = opts.plate.caption.toUpperCase();
+    c.font = `900 ${Math.round(Math.min(20, this.w * 0.028))}px ${FONT}`;
+    this._track(1.5);
+    c.fillStyle = 'rgba(255,255,255,0.96)';
+    c.fillText(cap, right, base);
+    const wide = c.measureText(cap).width;
+    this._track(0);
+    const g = c.createLinearGradient(right - wide, 0, right, 0);
+    g.addColorStop(0, 'rgba(255,209,102,0)');
+    g.addColorStop(1, 'rgba(255,209,102,0.95)');
+    c.fillStyle = g;
+    c.fillRect(right - wide, base + 9, wide, 2);
+    c.font = `800 9px ${FONT}`;
+    this._track(2);
+    c.fillStyle = 'rgba(255,209,102,0.8)';
+    c.fillText('ПОЗИЦИЯ', right, base - 19);
+    this._track(0);
+    c.globalAlpha = 1;
+    c.textAlign = 'left';
+  }
 
   // The fighter: four weight classes across the top, the six men of the one
   // showing, what the chosen man is like, and the three kimonos. The same
@@ -1201,24 +1495,27 @@ export class HUD {
   // the man and the kimono picked here, so a tap on a row changes the body on
   // the mat and not only a word.
   fighterLayout() {
-    const left = Math.max(20, this.w * 0.05);
-    const mw = Math.min(236, this.w * 0.37);
-    const top = Math.min(Math.max(46, this.h * 0.14), 96);
-    const tabY = top + 18, tabH = 26;
-    const tabW = (mw - 18) / 4;
-    const listY = tabY + tabH + 8;
-    const rowH = 24, pitch = 27;
-    const infoY = listY + 6 * pitch + 2;
-    const giY = infoY + 30;
-    const giH = 22;
-    const giW = (mw - 12) / 3;
-    const backY = giY + giH + 8;
+    const M = this.menuLayout();
+    const { left, mw, top } = M;
+    const tabY = top + 18, tabH = 28;
+    const tabW = mw / 4;
+    const listY = tabY + tabH + 12;
+    // Six rows in what the glass leaves, like the title's five.
+    const tail = 48 + 24 + 10 + 34 + 16;
+    const pitch = Math.max(22, Math.min(30, (this.h - 10 - listY - tail) / 6));
+    const rowH = pitch - 3;
+    const infoY = listY + 6 * pitch + 4;
+    const giY = infoY + 48;
+    const giH = 24;
+    const giW = mw / 3;
+    const backY = giY + giH + 10;
     return {
       left, mw, top, tabY, listY, infoY, giY, rowH, pitch,
-      tab: (i) => ({ x: left + i * (tabW + 6), y: tabY, w: tabW, h: tabH }),
+      panel: { x: M.panel.x, y: M.panel.y, w: M.panel.w, h: Math.min(this.h - 6, backY + 34 + 14) - M.panel.y },
+      tab: (i) => ({ x: left + i * tabW, y: tabY, w: tabW, h: tabH }),
       row: (i) => ({ x: left, y: listY + i * pitch, w: mw, h: rowH }),
-      gi: (i) => ({ x: left + i * (giW + 6), y: giY, w: giW, h: giH }),
-      back: { x: left, y: backY, w: mw, h: 28 },
+      gi: (i) => ({ x: left + i * giW, y: giY, w: giW, h: giH }),
+      back: { x: left, y: backY, w: mw, h: 34 },
     };
   }
 
@@ -1236,75 +1533,37 @@ export class HUD {
     const c = this.ctx;
     const f = opts.fighter;
     if (!f) return;
-    const g = c.createLinearGradient(0, this.h * 0.28, 0, this.h);
-    g.addColorStop(0, 'rgba(4,6,10,0)');
-    g.addColorStop(0.42, 'rgba(4,6,10,0.55)');
-    g.addColorStop(1, 'rgba(4,6,10,0.94)');
-    c.fillStyle = g;
-    c.fillRect(0, 0, this.w, this.h);
-
+    this._menuShade();
     const L = this.fighterLayout();
+    this._panel(L.panel);
     const tab = f.weights.find((w) => w.id === f.tab) || f.weights[0];
-    c.textAlign = 'left';
-    c.textBaseline = 'middle';
-    c.fillStyle = '#fff';
-    c.font = `800 ${Math.round(Math.min(26, this.w * 0.038))}px ${FONT}`;
-    c.fillText('БОЕЦ', L.left, L.top - 16);
-    c.font = `600 10px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.55)';
-    c.fillText(`${tab.label.toLowerCase()} · ${tab.limit} · турнир в своём весе`, L.left, L.top + 4);
+    this._brand(L, 'БОЕЦ', `${tab.label.toLowerCase()} · ${tab.limit} · турнир в своём весе`, null, 0);
 
-    // The classes.
-    for (let i = 0; i < f.weights.length; i++) {
-      const r = L.tab(i);
-      const on = f.weights[i].id === f.tab;
-      roundRect(c, r.x, r.y, r.w, r.h, 6);
-      c.fillStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(8,11,17,0.58)';
-      c.fill();
-      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.14)';
-      c.lineWidth = 1;
-      c.stroke();
-      // Four across a phone's column is 54 pixels a tab, and «ТЯЖЁЛЫЙ» at
-      // nine is wider than that: the size comes down until the word fits.
-      let px = 9;
-      do { c.font = `800 ${px}px ${FONT}`; } while (px-- > 6 && c.measureText(f.weights[i].label).width > r.w - 6);
-      c.fillStyle = on ? '#1a1203' : 'rgba(255,255,255,0.82)';
-      c.textAlign = 'center';
-      c.fillText(f.weights[i].label, r.x + r.w / 2, r.y + r.h / 2);
-      c.textAlign = 'left';
-    }
+    // The classes, as one control.
+    this._segments(f.weights.map((_, i) => L.tab(i)), f.weights.map((w) => w.label),
+      f.weights.findIndex((w) => w.id === f.tab), 10);
 
-    // The men. A face is a disc of his skin under a cap of his hair — the two
-    // things about a head that read at the size of a thumbnail.
+    // The men. A face is his skin under a cap of his hair — the two things
+    // about a head that read at the size of a thumbnail.
     let picked = null;
     for (let i = 0; i < f.men.length; i++) {
       const m = f.men[i];
       const r = L.row(i);
       const on = m.id === f.mine;
       if (on) picked = m;
-      roundRect(c, r.x, r.y, r.w, r.h, 6);
-      c.fillStyle = on ? 'rgba(20,28,40,0.86)' : 'rgba(8,11,17,0.58)';
-      c.fill();
-      c.strokeStyle = on ? 'rgba(255,209,102,0.72)' : 'rgba(255,255,255,0.12)';
-      c.lineWidth = on ? 1.5 : 1;
-      c.stroke();
-      const cx = r.x + 14, cy = r.y + r.h / 2;
-      c.fillStyle = srgb(m.skin);
-      c.beginPath();
-      c.arc(cx, cy + 1, 7, 0, Math.PI * 2);
-      c.fill();
-      c.fillStyle = srgb(m.hair);
-      c.beginPath();
-      c.arc(cx, cy + 1, 7, Math.PI * 1.08, Math.PI * 1.92);
-      c.closePath();
-      c.fill();
-      c.font = `700 11px ${FONT}`;
-      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.8)';
-      c.fillText(m.name, r.x + 28, cy);
+      const mid = r.y + r.h / 2;
+      this._row(r, on);
+      this._face(r.x + 22, mid, Math.min(8, r.h / 2 - 3), m.skin, m.hair, on);
+      c.font = `800 11px ${FONT}`;
+      this._track(0.6);
+      c.textAlign = 'left';
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.84)';
+      c.fillText(m.name, r.x + 38, mid + 0.5);
+      this._track(0);
       c.textAlign = 'right';
-      c.font = `600 9px ${FONT}`;
+      c.font = `700 9px ${FONT}`;
       c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.5)';
-      c.fillText(m.style, r.x + r.w - 10, cy);
+      c.fillText(m.style, r.x + r.w - 10, mid + 0.5);
       c.textAlign = 'left';
     }
 
@@ -1313,68 +1572,90 @@ export class HUD {
     // the match reads.
     const show = picked || f.men[0];
     if (show) {
-      c.font = `600 9px ${FONT}`;
-      c.fillStyle = picked ? 'rgba(255,209,102,0.8)' : 'rgba(255,255,255,0.45)';
-      c.fillText(picked ? `ты: ${show.long}` : `коснись, чтобы выбрать`, L.left, L.infoY + 6);
+      c.font = `700 9px ${FONT}`;
+      c.fillStyle = picked ? 'rgba(255,209,102,0.9)' : 'rgba(255,255,255,0.5)';
+      c.fillText(picked ? `ты: ${show.long}` : 'коснись, чтобы выбрать', L.left, L.infoY + 6);
       const bars = [['СИЛА', show.stats.strength], ['ТЕХНИКА', show.stats.technique], ['ДЫХАНИЕ', show.stats.cardio]];
-      const bw = (L.mw - 12) / 3;
+      const bw = (L.mw - 16) / 3;
       for (let k = 0; k < 3; k++) {
-        const x = L.left + k * (bw + 6), y = L.infoY + 20;
-        c.font = `700 7px ${FONT}`;
-        c.fillStyle = 'rgba(255,255,255,0.45)';
-        c.fillText(bars[k][0], x, y - 1);
+        const x = L.left + k * (bw + 8), y = L.infoY + 20;
+        c.font = `800 7px ${FONT}`;
+        this._track(1);
+        c.fillStyle = 'rgba(255,255,255,0.46)';
+        c.fillText(bars[k][0], x, y);
+        this._track(0);
         // Drawn from 0.3: every number in the roster is within a tenth of
         // one half, and a bar from zero would show six identical men.
-        meter(c, x + 44, y - 3, bw - 46, 4, (bars[k][1] - 0.3) / 0.4, '#ffd166', 'rgba(255,255,255,0.12)');
+        meter(c, x, y + 7, bw, 4, (bars[k][1] - 0.3) / 0.4, '#ffd166', 'rgba(255,255,255,0.1)');
       }
     }
 
-    // The kimono.
+    // The kimono: three chips of cloth, the one he wears ringed and ticked.
+    this._section(L.left, L.giY - 10, L.mw, 'КИМОНО');
     for (let i = 0; i < f.gis.length; i++) {
       const k = f.gis[i];
       const r = L.gi(i);
       const on = k.id === f.gi;
-      roundRect(c, r.x, r.y, r.w, r.h, 5);
-      c.fillStyle = 'rgba(8,11,17,0.62)';
+      const cx = r.x + (i === 0 ? 0 : 3), cw = r.w - 3 - (i === 0 ? 0 : 3);
+      roundRect(c, cx, r.y, cw, r.h, r.h / 2);
+      c.fillStyle = on ? 'rgba(255,209,102,0.14)' : 'rgba(255,255,255,0.045)';
       c.fill();
-      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.14)';
+      c.strokeStyle = on ? 'rgba(255,209,102,0.8)' : 'rgba(255,255,255,0.1)';
       c.lineWidth = on ? 1.5 : 1;
       c.stroke();
+      const sx = cx + 12, sy = r.y + r.h / 2;
+      c.beginPath();
+      c.arc(sx, sy, 6, 0, Math.PI * 2);
       c.fillStyle = srgb(k.col);
-      roundRect(c, r.x + 6, r.y + 5, 12, r.h - 10, 2);
       c.fill();
-      c.strokeStyle = 'rgba(255,255,255,0.3)';
+      c.strokeStyle = 'rgba(255,255,255,0.35)';
       c.lineWidth = 1;
       c.stroke();
-      c.font = `700 9px ${FONT}`;
-      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.7)';
-      c.fillText(k.label, r.x + 24, r.y + r.h / 2);
+      if (on) {
+        c.strokeStyle = k.col[0] > 0.5 ? '#1a1203' : '#fff';
+        c.lineWidth = 1.6;
+        c.beginPath();
+        c.moveTo(sx - 2.8, sy);
+        c.lineTo(sx - 0.6, sy + 2.2);
+        c.lineTo(sx + 3, sy - 2.2);
+        c.stroke();
+      }
+      let px = 9;
+      do { c.font = `800 ${px}px ${FONT}`; } while (px-- > 7 && c.measureText(k.label).width > cw - 30);
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.72)';
+      c.fillText(k.label, sx + 11, sy + 0.5);
     }
 
-    const b = L.back;
-    roundRect(c, b.x, b.y, b.w, b.h, 8);
-    c.fillStyle = 'rgba(255,209,102,0.92)';
-    c.fill();
-    c.font = `800 13px ${FONT}`;
-    c.fillStyle = '#1a1203';
-    c.textAlign = 'center';
-    c.fillText('ГОТОВО', b.x + b.w / 2, b.y + b.h / 2);
-    c.textAlign = 'left';
+    this._primary(L.back, 'ГОТОВО');
+    this._caption(opts);
   }
 
+  /* ---------------------------------------------------------------- зал */
+
+  // The drill list. Six at a time and paged, rather than a scrolling list:
+  // scrolling inside a canvas overlay means writing momentum, bounds and a
+  // scrollbar by hand, and every one of those is a place for a tap to be eaten
+  // — which is the bug the ring's own layout function exists to prevent. Six
+  // rows and a "next" is the same information with none of that.
+  GYM_ROWS = 6;
+
+  // The same column as the title's, now: it was nearly half the width and
+  // wider than the window the picture is framed into (gallery.js).
   gymLayout() {
-    const left = Math.max(20, this.w * 0.05);
-    const mw = Math.min(300, this.w * 0.46);
-    const top = Math.min(Math.max(46, this.h * 0.14), 96);
-    const rowH = 30, pitch = 34;
-    const listY = top + 26;
+    const M = this.menuLayout();
+    const { left, mw, top } = M;
+    const listY = top + 20;
+    const tail = 10 + 30 + 14;
+    const pitch = Math.max(30, Math.min(38, (this.h - 10 - listY - tail) / this.GYM_ROWS));
+    const rowH = pitch - 4;
     const footY = listY + this.GYM_ROWS * pitch + 8;
     const fw = (mw - 8) / 2;
     return {
       left, mw, top, rowH, pitch, listY, footY,
+      panel: { x: M.panel.x, y: M.panel.y, w: M.panel.w, h: Math.min(this.h - 6, footY + 30 + 14) - M.panel.y },
       row: (i) => ({ x: left, y: listY + i * pitch, w: mw, h: rowH }),
-      more: { x: left, y: footY, w: fw, h: 26 },
-      back: { x: left + fw + 8, y: footY, w: fw, h: 26 },
+      more: { x: left, y: footY, w: fw, h: 30 },
+      back: { x: left + fw + 8, y: footY, w: fw, h: 30 },
     };
   }
 
@@ -1389,69 +1670,42 @@ export class HUD {
 
   _gym(opts) {
     const c = this.ctx;
-    const g = c.createLinearGradient(0, this.h * 0.2, 0, this.h);
-    g.addColorStop(0, 'rgba(4,6,10,0.2)');
-    g.addColorStop(0.4, 'rgba(4,6,10,0.72)');
-    g.addColorStop(1, 'rgba(4,6,10,0.96)');
-    c.fillStyle = g;
-    c.fillRect(0, 0, this.w, this.h);
-
+    this._menuShade();
     const L = this.gymLayout();
+    this._panel(L.panel);
     const list = opts.gymList || [];
     const gym = opts.gym || { drilled: 0, total: 0, page: 0, pages: 1 };
-
-    c.textAlign = 'left';
-    c.fillStyle = '#fff';
-    c.font = `800 ${Math.round(Math.min(26, this.w * 0.038))}px ${FONT}`;
-    c.fillText('ЗАЛ', L.left, L.top - 16);
-    c.font = `600 10px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.55)';
-    c.fillText(`отработка приёмов · освоено ${gym.drilled} из ${gym.total}`, L.left, L.top + 2);
+    this._brand(L, 'ЗАЛ', `отработка приёмов · освоено ${gym.drilled} из ${gym.total}`, null, 0);
 
     for (let i = 0; i < this.GYM_ROWS; i++) {
       const d = list[i];
       const r = L.row(i);
-      // The row whose move is the picture behind the list, ringed in the
-      // caption's colour, so the picture says which name it belongs to.
-      const shown = d && i === opts.gymFeatured;
-      roundRect(c, r.x, r.y, r.w, r.h, 6);
-      c.fillStyle = shown ? 'rgba(20,18,10,0.78)' : 'rgba(8,11,17,0.62)';
-      c.fill();
-      c.strokeStyle = shown ? 'rgba(255,209,102,0.85)' : 'rgba(255,255,255,0.12)';
-      c.lineWidth = shown ? 1.5 : 1;
-      c.stroke();
+      // The row whose move is the picture behind the list is the chosen one,
+      // so the picture says which name it belongs to.
+      const shown = !!d && i === opts.gymFeatured;
+      this._row(r, shown, !d);
       if (!d) continue;
-      c.font = `700 11px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.9)';
-      c.fillText(d.name, r.x + 10, r.y + r.h / 2 - 5);
+      const mid = r.y + r.h / 2;
+      c.textAlign = 'left';
+      c.font = `800 11px ${FONT}`;
+      c.fillStyle = shown ? '#fff' : 'rgba(255,255,255,0.88)';
+      c.fillText(d.name, r.x + 14, mid - 6);
       c.font = `600 9px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.45)';
-      c.fillText(`${d.from} · ${d.round}`, r.x + 10, r.y + r.h / 2 + 8);
-      // Three dots: the rounds passed. A drill is a ladder of three and the
-      // level is which rung you are standing on, so three marks say it without
-      // a word.
+      c.fillStyle = 'rgba(255,255,255,0.46)';
+      c.fillText(`${d.from} · ${d.round}`, r.x + 14, mid + 8);
+      // Three marks: the rounds passed, as three stripes of tape — a drill
+      // is a ladder of three, and a stripe is how a gym says you climbed one.
       for (let k = 0; k < 3; k++) {
         const on = d.level > k;
-        c.beginPath();
-        c.arc(r.x + r.w - 14 - k * 12, r.y + r.h / 2, 4, 0, Math.PI * 2);
-        c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.16)';
+        roundRect(c, r.x + r.w - 16 - k * 9, mid - 7, 5, 14, 1.5);
+        c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.12)';
         c.fill();
       }
     }
 
-    for (const [rect, label] of [[L.more, `ЕЩЁ · ${gym.page + 1}/${gym.pages}`], [L.back, 'НАЗАД']]) {
-      roundRect(c, rect.x, rect.y, rect.w, rect.h, 6);
-      c.fillStyle = 'rgba(8,11,17,0.62)';
-      c.fill();
-      c.strokeStyle = 'rgba(255,255,255,0.16)';
-      c.lineWidth = 1;
-      c.stroke();
-      c.font = `700 10px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.82)';
-      c.textAlign = 'center';
-      c.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
-      c.textAlign = 'left';
-    }
+    this._ghost(L.more, `ЕЩЁ · ${gym.page + 1}/${gym.pages}`);
+    this._ghost(L.back, 'НАЗАД');
+    this._caption(opts);
   }
 
   // The banner over a drill in progress. It takes the scorebug's place rather

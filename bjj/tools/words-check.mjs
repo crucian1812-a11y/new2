@@ -60,9 +60,15 @@ await page.waitForFunction(() => window.__bjj && window.__stats, null, { timeout
 const at = (name) => page.evaluate((n) => { window.__screen = n; }, name);
 const wait = (ms) => page.waitForTimeout(ms);
 
-await at('title'); await wait(1500);
-await at('room'); await page.evaluate(() => window.__bjj.openGym()); await wait(1200);
-await at('fighter'); await page.evaluate(() => window.__bjj.openFighter()); await wait(1200);
+// Until the screen has drawn at least one string of its own, not for a fixed
+// time: on a software rasteriser one frame of the gallery behind a menu can
+// take longer than the second and a half this used to wait, and the check
+// then failed on whichever screen the slow frame happened to land on.
+const drawn = (name) => page.waitForFunction((n) => [...window.__said.values()].some((v) => v[1] === n),
+  name, { timeout: 20000 }).catch(() => {});
+await at('title'); await drawn('title'); await wait(300);
+await at('room'); await page.evaluate(() => window.__bjj.openGym()); await drawn('room'); await wait(300);
+await at('fighter'); await page.evaluate(() => window.__bjj.openFighter()); await drawn('fighter'); await wait(300);
 await page.evaluate(() => window.__bjj.toTitle());
 await at('match');
 await page.evaluate(() => { window.__bjj.toTitle(); window.__bjj.match().start(); });
