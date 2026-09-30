@@ -99,9 +99,13 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // the arcs were re-solved with the limbs as a tie-break rather than the main
 // term: the numbers below. The poses on their own are all zero but seven knee
 // samples (MOUNT_WORK's top man, 57° sideways) and a few hips and shoulders a
-// handful of degrees over. What is left is mostly in the blends, and a line may
-// not get worse than this, with 5% for the noise a re-solved arc brings.
-const NOW = { 'knee-back': 0, 'knee-side': 433, 'elbow-back': 0, 'elbow-side': 98, 'hip-turn': 93, 'shoulder-turn': 725 };
+// handful of degrees over. Then the foot on the mat was solved in the thigh's
+// own plane (rig._ground) and everything was re-solved again: knees sideways
+// 433 → 72 and shoulders 725 → 617, for elbows sideways 98 → 130 and one
+// elbow sample 6° backwards, in HALF_GUARD>OPEN_GUARD's new route. What is
+// left is mostly in the blends, and a line may not get worse than this, with
+// 5% for the noise a re-solved arc brings.
+const NOW = { 'knee-back': 0, 'knee-side': 72, 'elbow-back': 1, 'elbow-side': 130, 'hip-turn': 97, 'shoulder-turn': 617 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
