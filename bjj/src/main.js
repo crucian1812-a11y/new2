@@ -8,7 +8,7 @@ import { PairRig } from './game/rig.js';
 import { BONE_INDEX } from './render/skeleton.js';
 import { Match, Fighter, MATCH_TIME, thumb } from './game/match.js';
 import { seedRandom } from './game/rng.js';
-import { AI, STYLE_OF } from './game/ai.js';
+import { AI } from './game/ai.js';
 import { Skills } from './game/skills.js';
 import { Drill, drillOrder, ROUNDS, REPS, NEED } from './game/drills.js';
 import { Tutorial } from './game/tutorial.js';
@@ -24,6 +24,12 @@ import { Gallery } from './game/gallery.js';
 import { Replay } from './game/replay.js';
 import { bracket, roundName, cupMan, cupAfter } from './game/cup.js';
 import { clamp, v3 } from './core/m4.js';
+import {
+  GI, GI_ORDER, WEIGHTS, FIGHTERS, FIGHTER_BY_ID, DEFAULT_FIGHTER, STYLE_INFO,
+  rivalGi, rungsFor, massOf, statsOf, styleEdge,
+} from './game/roster.js';
+import { shapeMesh, buildAt } from './render/build.js';
+import { BUILD_ROOM } from './game/build-room.js';
 
 const glCanvas = document.getElementById('gl');
 const uiCanvas = document.getElementById('ui');
@@ -80,6 +86,32 @@ try {
 } catch (e) {
   console.info('using the procedural body:', e.message);
 }
+// The referee is the baked man as he was baked: no weight class, no roster.
+const gpuRef = gpuYou;
+// The second head, once it lands.
+let bakedB = null;
+
+// A man from the roster, as the GPU draws him: his head's baked mesh with his
+// build on it (src/render/build.js). Shaped once per head and build and kept —
+// a tournament is six men and the menu is twenty-four, and a shaped copy is a
+// few milliseconds and a few hundred kilobytes.
+//
+// Until the second head has arrived its men wear the first one, under a key
+// of their own, so the right head replaces it the moment it lands rather than
+// the cache handing the stand-in back for good.
+const gpuCache = new Map();
+function gpuFor(f) {
+  if (!baked) return gpuYou;
+  const useB = f.head === 'B' && bakedB;
+  const m = massOf(f);
+  const key = `${useB ? 'B' : 'A'}:${m.toFixed(3)}`;
+  let g = gpuCache.get(key);
+  if (!g) {
+    g = renderer.makeFighterGPU([shapeMesh(useB ? bakedB : baked, buildAt(m, BUILD_ROOM))]);
+    gpuCache.set(key, g);
+  }
+  return g;
+}
 
 // The opponent is a second character when there is one. He is optional on
 // purpose: the game has to keep working with the assets folder deleted, and one
@@ -96,8 +128,9 @@ try {
 // landed at 6.9 seconds either way — so it starts as early as it can.
 loadFighter(new URL('../assets/fighter-b.bin', import.meta.url).href)
     .then((other) => {
-      gpuOpp = renderer.makeFighterGPU([other]);
+      bakedB = other;
       bodySource += ` + opponent (${(other.count / 3) | 0} tris)`;
+      dress();
     })
     .catch((e) => console.info('the opponent is the same man in another gi:', e.message));
 
@@ -184,14 +217,19 @@ function loadProgress() {
         // save has neither and starts at the first round, which is where a
         // ladder player is anyway.
         const cup = Math.max(0, Math.min(bracket(rank).length - 1, p.cup | 0));
+        // Who you are and what you wear, from the save that has them. Anything
+        // else — an old save, a man since renamed — is the default man in white.
+        const fighter = FIGHTER_BY_ID[p.fighter] ? p.fighter : DEFAULT_FIGHTER;
+        const gi = GI[p.gi] ? p.gi : 'white';
         return { rank, wins: p.wins | 0, losses: p.losses | 0, champion: !!p.champion, rec,
-                 cup, titles: p.titles | 0 };
+                 cup, titles: p.titles | 0, fighter, gi };
       }
     }
   } catch { /* no store, or somebody else's data in it */ }
   const rec = {};
   for (const b of LADDER) rec[b] = [0, 0];
-  return { rank: 0, wins: 0, losses: 0, champion: false, rec, cup: 0, titles: 0 };
+  return { rank: 0, wins: 0, losses: 0, champion: false, rec, cup: 0, titles: 0,
+           fighter: DEFAULT_FIGHTER, gi: 'white' };
 }
 function saveProgress() {
   if (FORCED) return;
@@ -296,7 +334,7 @@ document.addEventListener('webkitfullscreenchange', layout);
 // Everything the HUD needs each frame, built once so the draw calls stay short.
 const hudOpts = () => ({
   level: oppBelt(), mine: myBelt(), mineLabel: BELT_LABEL[myBelt()], progress, result: lastResult, tutorial: tut,
-  selection, belts: MENU_BELTS, times: TIMES, veil, forced: !!FORCED,
+  selection, belts: menuBelts(), times: TIMES, fighter: fighterOpts(), veil, forced: !!FORCED,
   records: LADDER.map((b) => (progress.rec && progress.rec[b]) || [0, 0]),
   // The bracket: whose rows are in it, what each round is called, which one
   // is next, and whether the menu is pointed at it.
@@ -333,38 +371,47 @@ const hudOpts = () => ({
   replay: replay.holding ? { playing: replay.playing, progress: replay.progress } : null,
 });
 
-// The men on the ladder. Not "a blue belt" — a person: a name, a gi, a skin.
-// Five fictional fighters, one per rung, so beating the ladder feels like
-// beating five different men rather than the same man in five belts. The last
-// one carries the master's name, which is the club whose name is on the mat.
+// The men on the ladder. Not "a blue belt" — a person: a name, a face, a
+// build and a way of fighting. They come from the roster (src/game/roster.js):
+// the player picks a man in a weight class, and the ladder is the other five
+// in that class, white belt to black. The master's name is still on the last
+// rung of the middle class, which is the club whose name is on the mat.
 //
-// The player wears white, so every opponent wears something that is not white:
-// a white gi against a white gi is two men the eye cannot tell apart, which is
-// exactly what the first match was. The first man comes out in competition
-// blue — the white-vs-blue a televised bracket actually starts with — and the
-// rest keep their own hue so the ladder reads as five men.
-//
-// Royal blue rather than the mid blue it was: on this mat the mid blue was the
-// kimono that lost most of its outline, 21% of the edge the same colour as
-// what was behind it, against 17% for this one and 13% for the player's white
-// (tools/gi-check.mjs). The navy, purple and brown measured fine.
-const ROSTER = {
-  white:  { name: 'МАРК',   of: 'МАРКА',   giCol: [0.10, 0.30, 0.85], skinCol: [0.66, 0.50, 0.40] },
-  blue:   { name: 'ДЕНИС',  of: 'ДЕНИСА',  giCol: [0.06, 0.12, 0.36], skinCol: [0.58, 0.40, 0.30] },
-  purple: { name: 'РАФАЭЛ', of: 'РАФАЭЛА', giCol: [0.24, 0.15, 0.38], skinCol: [0.46, 0.31, 0.23] },
-  brown:  { name: 'АНДРЕЙ', of: 'АНДРЕЯ',  giCol: [0.32, 0.25, 0.18], skinCol: [0.56, 0.41, 0.32] },
-  black:  { name: 'ОЛАВО',  of: 'ОЛАВО',   giCol: [0.05, 0.06, 0.07], skinCol: [0.40, 0.26, 0.19] },
-};
+// What they wear is the kimono they came with, unless it is too close to
+// yours — then the one of the three that stands furthest from it (rivalGi).
+const me = () => FIGHTER_BY_ID[progress.fighter] || FIGHTER_BY_ID[DEFAULT_FIGHTER];
+const rungMan = (belt) => rungsFor(me().id)[LADDER.indexOf(belt)];
 
 // What the menu shows: the belt's Russian label, its colour for the dot, and
 // the man who wears it. One list the HUD can draw and hit-test without knowing
 // the ladder's internals.
 const BELT_LABEL = { white: 'БЕЛЫЙ', blue: 'СИНИЙ', purple: 'ПУРПУРНЫЙ', brown: 'КОРИЧНЕВЫЙ', black: 'ЧЁРНЫЙ' };
-// How each of them fights, in the words a coach would use. The style itself
-// lives with the AI (STYLE_OF in ai.js); this is only what it is called.
-const STYLE_LABEL = { wrestler: 'борец', guard: 'гардовый', escape: 'выворотливый', pressure: 'давит сверху', finisher: 'добивает' };
-const MENU_BELTS = LADDER.map((b) => ({ name: b, label: BELT_LABEL[b], col: BELT_COL[b], man: ROSTER[b].name,
-  style: STYLE_LABEL[STYLE_OF[b]] }));
+// How each of them fights, in the words a coach would use (STYLE_INFO).
+const menuBelts = () => LADDER.map((b) => ({ name: b, label: BELT_LABEL[b], col: BELT_COL[b], man: rungMan(b).name,
+  style: STYLE_INFO[rungMan(b).style].label }));
+// The fighter screen: the four classes, the six men in the one showing, and
+// the three kimonos. `weightTab` is which class is showing, which is the
+// player's own until he looks at another.
+let weightTab = null;
+const fighterOpts = () => {
+  const mine = me();
+  const tab = weightTab || mine.weight;
+  return {
+    weights: WEIGHTS.map((w) => ({ id: w.id, label: w.label, limit: w.limit })),
+    tab,
+    men: FIGHTERS[tab].map((f) => {
+      const full = FIGHTER_BY_ID[f.id];
+      const st = statsOf(full, YOU_BASE);
+      return { id: f.id, name: f.name, style: STYLE_INFO[f.style].label, long: STYLE_INFO[f.style].long,
+        skin: f.skinCol, hair: f.hairCol, stats: st };
+    }),
+    mine: mine.id,
+    myName: mine.name,
+    myWeight: WEIGHTS.find((w) => w.id === mine.weight).label,
+    gi: progress.gi,
+    gis: GI_ORDER.map((k) => ({ id: k, label: GI[k].label, col: GI[k].col })),
+  };
+};
 const TIMES = [3, 5, 10];
 
 // What the player has drilled, and the room they drill it in.
@@ -395,27 +442,63 @@ const gymRows = () => {
   return all.slice(at, at + GYM_ROWS);
 };
 
+// A new man, a new kimono, or both. Another man is another bracket — the
+// five he fights are not the five you were fighting — so the tournament starts
+// again from its first round; your belt is yours and stays.
+function pickFighter(id, gi) {
+  if (id && FIGHTER_BY_ID[id] && id !== progress.fighter) {
+    progress.fighter = id;
+    progress.cup = 0;
+    selection.belt = nextCup();
+    weightTab = null;
+  }
+  if (gi && GI[gi]) progress.gi = gi;
+  saveProgress();
+  newMatch();
+}
+
 let match, ai;
+// The two men of the match as the roster has them, and their meshes.
+let fighters = null;
+function dress() {
+  if (!fighters) return;
+  gpuYou = gpuFor(fighters[0]);
+  gpuOpp = gpuFor(fighters[1]);
+}
+// The numbers each side started from before there was a roster; a man's class
+// and style move them a little either way (statsOf).
+const YOU_BASE = { technique: 0.55, strength: 0.5, cardio: 0.55 };
+const OPP_BASE = { technique: 0.55, strength: 0.55, cardio: 0.5 };
 function newMatch() {
+  const mine = me();
+  const his = rungMan(oppBelt());
+  const yourStats = statsOf(mine, YOU_BASE);
+  const hisStats = statsOf(his, OPP_BASE);
   const you = new Fighter('ВЫ', {
-    giCol: new Float32Array([0.88, 0.89, 0.87]),
+    giCol: new Float32Array(GI[progress.gi].col),
     beltCol: new Float32Array(BELT_COL[myBelt()]),
-    skinCol: new Float32Array([0.60, 0.42, 0.31]),
-    technique: 0.55, strength: 0.5, cardio: 0.55,
+    skinCol: new Float32Array(mine.skinCol),
+    hairCol: new Float32Array(mine.hairCol),
+    ...yourStats,
   });
-  const opp = new Fighter(ROSTER[oppBelt()].name, {
-    giCol: new Float32Array(ROSTER[oppBelt()].giCol),
+  const opp = new Fighter(his.name, {
+    giCol: new Float32Array(GI[rivalGi(progress.gi, his.gi)].col),
     beltCol: new Float32Array(BELT_COL[oppBelt()]),
-    skinCol: new Float32Array(ROSTER[oppBelt()].skinCol),
-    technique: 0.55, strength: 0.55, cardio: 0.5,
+    skinCol: new Float32Array(his.skinCol),
+    hairCol: new Float32Array(his.hairCol),
+    ...hisStats,
   });
+  const styleOf = [mine.style, his.style];
   match = new Match([you, opp], {
     time: selection.time * 60, onEvent: onMatchEvent,
-    // Only the player's side. The opponent is a belt, and the belt is his
-    // skill; giving him a drill store too would be two ladders doing one job.
-    skill: (tr, by) => (by === 0 ? skills.bonus(tr) : 1),
+    // What the player has drilled, on his side only: the opponent is a belt,
+    // and the belt is his skill. And, for both, the kind of move each man's
+    // style lands more often (STYLE_EDGE in roster.js).
+    skill: (tr, by) => (by === 0 ? skills.bonus(tr) : 1) * styleEdge(styleOf[by], tr),
   });
-  ai = new AI(1, oppBelt());
+  ai = new AI(1, oppBelt(), his.style);
+  fighters = [mine, his];
+  dress();
   replay.reset();
   rig.origin[0] = 0;
   rig.origin[2] = 0;
@@ -590,11 +673,11 @@ function onMatchEvent(e) {
       // after it and the man in it, or the round it ended in.
       cup: cup && { kind: cup.kind, round: cup.round.toLowerCase(), size: bracket(was.rank).length,
         nextRound: (cup.nextRound || '').toLowerCase(),
-        nextMan: ROSTER[LADDER[nextCup()]].name,
+        nextMan: rungMan(LADDER[nextCup()]).name,
         first: roundName(progress.rank, 0).toLowerCase() },
       spar: !cupFight && !FORCED,
       cupRound: roundName(progress.rank, progress.cup).toLowerCase(),
-      cupMan: ROSTER[LADDER[nextCup()]].name };
+      cupMan: rungMan(LADDER[nextCup()]).name };
     // What to take next door. The разбор counts what the player kept reaching
     // for; the room puts that on the first row.
     const db = match.debrief();
@@ -610,10 +693,10 @@ function onMatchEvent(e) {
         // «выиграл у ДЕНИСА» — the card names the man, and a name in Russian
         // has to be in the right case to be a sentence rather than a label.
         // Five names, written out beside the five men in the roster.
-        beatOf: ROSTER[beat].of, beatBelt: BELT_LABEL[beat],
+        beatOf: rungMan(beat).of, beatBelt: BELT_LABEL[beat],
         // Whoever is standing at the new rung, which after a promotion is the
         // man wearing the belt just taken.
-        nextMan: ROSTER[myBelt()].name,
+        nextMan: rungMan(myBelt()).name,
         champion: progress.champion && progress.rank === LADDER.length - 1,
         // Won in a final rather than in a single fight, from purple on a
         // bracket of three.
@@ -972,11 +1055,18 @@ function frame(now) {
       } else if (hit && hit.kind === 'back') {
         screen = 'title'; audio.click();
       }
+    } else if (match.state === 'ready' && screen === 'fighter') {
+      const hit = hud.fighterHit(input.tapAt, fighterOpts());
+      if (hit && hit.kind === 'weight') { weightTab = hit.value; audio.click(); }
+      else if (hit && hit.kind === 'man') { pickFighter(hit.value, null); audio.click(); }
+      else if (hit && hit.kind === 'gi') { pickFighter(null, hit.value); audio.click(); }
+      else if (hit && hit.kind === 'back') { screen = 'title'; weightTab = null; audio.click(); }
     } else if (match.state === 'ready') {
       const hit = hud.menuHit(input.tapAt);
       if (hit && hit.kind === 'mode') {
-        screen = hit.value === 'gym' ? 'gym' : 'title';
+        screen = hit.value === 'fight' ? 'title' : hit.value;
         gymPage = 0;
+        weightTab = null;
         audio.click();
       } else if (hit && hit.kind === 'belt') {
         if (!FORCED && hit.value <= progress.rank) { selection.belt = hit.value; audio.click(); }
@@ -1215,10 +1305,10 @@ function drawFrame(now, real) {
       camera, time: now / 1000, focus: focusW,
       fighters: [
         { skeleton: walkout.a.skel, gpu: gpuYou, giCol: fa.giCol, beltCol: fa.beltCol,
-          skinCol: fa.skinCol, flash: 0, gas: 0 },
+          skinCol: fa.skinCol, hairCol: fa.hairCol, flash: 0, gas: 0 },
         { skeleton: walkout.b.skel, gpu: gpuOpp || gpuYou, giCol: fb.giCol, beltCol: fb.beltCol,
-          skinCol: fb.skinCol, flash: 0, gas: 0 },
-        { skeleton: referee.skel, gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT,
+          skinCol: fb.skinCol, hairCol: fb.hairCol, flash: 0, gas: 0 },
+        { skeleton: referee.skel, gpu: gpuRef, giCol: REF_GI, beltCol: REF_BELT,
           skinCol: REF_SKIN, flash: 0, gas: 0 },
       ],
       // The room, as two numbers rather than as the object that holds them.
@@ -1259,13 +1349,15 @@ function drawFrame(now, real) {
       camera: gallery.camera, time: now / 1000, focus: gallery.focus,
       fighters: [
         { skeleton: gallery.skel.A, gpu: gpuYou, giCol: fa.giCol, beltCol: fa.beltCol,
-          skinCol: fa.skinCol, flash: 0, gas: 0 },
+          skinCol: fa.skinCol, hairCol: fa.hairCol, flash: 0, gas: 0 },
         { skeleton: gallery.skel.B, gpu: gpuOpp || gpuYou, giCol: fb.giCol, beltCol: fb.beltCol,
-          skinCol: fb.skinCol, flash: 0, gas: 0 },
+          skinCol: fb.skinCol, hairCol: fb.hairCol, flash: 0, gas: 0 },
       ],
       score: [match.f[0].points, match.f[1].points], clock: match.time,
       // A print, not a hall frame. See u_print in renderer.js.
-      fill: window.__fill || PLATE_FILL, print: 1, page: gallery.page,
+      // Except behind the fighter screen, where the point of the picture is
+      // the kimono just picked, and a two-colour print has no kimono colours.
+      fill: window.__fill || PLATE_FILL, print: screen === 'fighter' ? 0 : 1, page: gallery.page,
       ramp: window.__ramp || PLATE_RAMP,
     });
     hud.draw(match, input, 1 / 60, hudOpts());
@@ -1282,11 +1374,11 @@ function drawFrame(now, real) {
       renderer.render({
         camera: replay.camera, time: window.__still != null ? window.__still : now / 1000, focus: replay.camera.at,
         fighters: [
-          { skeleton: sk[0], gpu: body(sh.ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol,
+          { skeleton: sk[0], gpu: body(sh.ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol, hairCol: fa.hairCol,
             flash: sh.flash[0], gas: sh.gas[0] },
-          { skeleton: sk[1], gpu: body(sh.ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol,
+          { skeleton: sk[1], gpu: body(sh.ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol, hairCol: fb.hairCol,
             flash: sh.flash[1], gas: sh.gas[1] },
-          { skeleton: sk[2], gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
+          { skeleton: sk[2], gpu: gpuRef, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
             flash: 0, gas: 0 },
         ],
         crowd: sh.crowd, spot: sh.spot, score: sh.score, clock: sh.clock,
@@ -1347,11 +1439,11 @@ function drawFrame(now, real) {
     // A list, and it always was one: the renderer has never known how many
     // bodies are on the mat, and this is where the third one joins.
     fighters: [
-      { skeleton: rig.skel.A, gpu: body(ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol,
+      { skeleton: rig.skel.A, gpu: body(ia), giCol: fa.giCol, beltCol: fa.beltCol, skinCol: fa.skinCol, hairCol: fa.hairCol,
         flash: fa.flash, gas: window.__gas != null ? window.__gas : clamp(1 - fa.stamina / 100, 0, 1) },
-      { skeleton: rig.skel.B, gpu: body(ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol,
+      { skeleton: rig.skel.B, gpu: body(ib), giCol: fb.giCol, beltCol: fb.beltCol, skinCol: fb.skinCol, hairCol: fb.hairCol,
         flash: fb.flash, gas: window.__gas != null ? window.__gas : clamp(1 - fb.stamina / 100, 0, 1) },
-      { skeleton: referee.skel, gpu: gpuYou, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
+      { skeleton: referee.skel, gpu: gpuRef, giCol: REF_GI, beltCol: REF_BELT, skinCol: REF_SKIN,
         flash: 0, gas: 0 },
     ],
     // The room, watching. Handed to the arena shader every frame; the title
@@ -1396,6 +1488,11 @@ window.__bjj = {
   skills,
   gym: () => ({ screen, page: gymPage % gymPages(), pages: gymPages(), rows: gymRows(), first: gymFirst }),
   openGym: () => { screen = 'gym'; gymPage = 0; },
+  // The fighter door, and which screen is up, so smoke can tap through it the
+  // way a thumb does and words-check can read what it says.
+  openFighter: () => { screen = 'fighter'; weightTab = null; },
+  screen: () => screen,
+  fighterOpts,
   startDrill: (i) => { const all = drillOrder(skills); startDrill(all[i % all.length]); },
   drill: () => drill,
   drillOver: () => drillOver,
@@ -1419,7 +1516,8 @@ window.__bjj = {
   rig, renderer, camera, referee, input, POSES, BONE_INDEX,
   // The ladder's kit and the referee's, so tools/gi-check.mjs can put each of
   // them on the mat and ask whether it can be told from the mat and from him.
-  ROSTER, REF_GI, BELT_COL,
+  GI, FIGHTERS, rivalGi, REF_GI, BELT_COL, me,
+  pick: (id, gi) => pickFighter(id, gi),
   // The walk onto the mat, so a tool can start one and step it frame by frame.
   // `beginMatch` is what the title card's start button does, and the getter is
   // how a tool knows whether it is still going — the match state says 'ready'

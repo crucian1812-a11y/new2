@@ -83,6 +83,7 @@ export class HUD {
     // scorebug above was taken off the title card for.
     if (match.state === 'ready' && !opts.walkout) {
       if (opts.screen === 'gym') this._gym(opts);
+      else if (opts.screen === 'fighter') this._fighter(opts);
       else this._title(opts);
     }
     if (opts.drill && (match.state === 'live' || match.state === 'sub')) this._drillBar(opts.drill);
@@ -835,8 +836,11 @@ export class HUD {
     // Two doors before anything else: the fight, and the room where you drill
     // it. They sit above the ladder because the ladder is a setting for one of
     // them and not for the other.
+    // Three now: the fighter is picked before either, and is a door of its
+    // own rather than a row in the ladder, because who you are is not a
+    // setting of the next match.
     const modeY = top + 18, modeH = 26;
-    const modeW = (mw - 8) / 2;
+    const modeW = (mw - 12) / 3;
     const beltY = modeY + modeH + 26;
     const timeY = beltY + 5 * pitch + 12;
     const timeH = 24;
@@ -845,7 +849,7 @@ export class HUD {
     const cw = (mw - 12) / 3;
     return {
       left, mw, top, rowH, pitch, beltY, timeY, timeH, startY, startH, modeY, modeH,
-      mode: (i) => ({ x: left + i * (modeW + 8), y: modeY, w: modeW, h: modeH }),
+      mode: (i) => ({ x: left + i * (modeW + 6), y: modeY, w: modeW, h: modeH }),
       belt: (i) => ({ x: left, y: beltY + i * pitch, w: mw, h: rowH }),
       time: (t) => ({ x: left + TIMES_ORDER.indexOf(t) * (cw + 6), y: timeY, w: cw, h: timeH }),
       start: { x: left, y: startY, w: mw, h: startH },
@@ -857,7 +861,7 @@ export class HUD {
   menuHit(p) {
     if (!p) return null;
     const L = this.menuLayout();
-    for (let i = 0; i < 2; i++) if (inside(p, L.mode(i))) return { kind: 'mode', value: i ? 'gym' : 'fight' };
+    for (let i = 0; i < 3; i++) if (inside(p, L.mode(i))) return { kind: 'mode', value: MODES[i] };
     if (inside(p, L.start)) return { kind: 'start' };
     for (let i = 0; i < 5; i++) if (inside(p, L.belt(i))) return { kind: 'belt', value: i };
     for (const t of TIMES_ORDER) if (inside(p, L.time(t))) return { kind: 'time', value: t };
@@ -1001,7 +1005,8 @@ export class HUD {
     c.fillText('JIU-JITSU', L.left, L.top - 16);
     c.font = `600 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.55)';
-    c.fillText(`позиционная борьба · твой пояс: ${opts.mineLabel || 'БЕЛЫЙ'}${rec}`,
+    const who = opts.fighter ? `${opts.fighter.myName} · ${opts.fighter.myWeight.toLowerCase()} · ` : '';
+    c.fillText(`${who}твой пояс: ${opts.mineLabel || 'БЕЛЫЙ'}${rec}`,
       L.left, L.top + 4);
 
     // The two doors. The fight is where the ladder is climbed; the room is
@@ -1009,9 +1014,9 @@ export class HUD {
     // in the gym is locked behind a belt, because a beginner is exactly who
     // needs it.
     const gym = opts.gym || { drilled: 0, total: 0 };
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       const r = L.mode(i);
-      const on = (opts.screen === 'gym') === (i === 1);
+      const on = (opts.screen === 'gym' ? 'gym' : opts.screen === 'fighter' ? 'fighter' : 'fight') === MODES[i];
       roundRect(c, r.x, r.y, r.w, r.h, 6);
       c.fillStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(8,11,17,0.58)';
       c.fill();
@@ -1021,7 +1026,7 @@ export class HUD {
       c.font = `800 12px ${FONT}`;
       c.fillStyle = on ? '#1a1203' : 'rgba(255,255,255,0.82)';
       c.textAlign = 'center';
-      c.fillText(i ? 'ЗАЛ' : 'БОЙ', r.x + r.w / 2, r.y + r.h / 2);
+      c.fillText(MODE_LABEL[i], r.x + r.w / 2, r.y + r.h / 2);
       c.textAlign = 'left';
     }
 
@@ -1188,6 +1193,174 @@ export class HUD {
   // — which is the bug the ring's own layout function exists to prevent. Six
   // rows and a "next" is the same information with none of that.
   GYM_ROWS = 6;
+
+  // The fighter: four weight classes across the top, the six men of the one
+  // showing, what the chosen man is like, and the three kimonos. The same
+  // column as the title menu, so the picture behind it has the same window —
+  // and the picture is the point: it is the pair from the ladder, drawn with
+  // the man and the kimono picked here, so a tap on a row changes the body on
+  // the mat and not only a word.
+  fighterLayout() {
+    const left = Math.max(20, this.w * 0.05);
+    const mw = Math.min(236, this.w * 0.37);
+    const top = Math.min(Math.max(46, this.h * 0.14), 96);
+    const tabY = top + 18, tabH = 26;
+    const tabW = (mw - 18) / 4;
+    const listY = tabY + tabH + 8;
+    const rowH = 24, pitch = 27;
+    const infoY = listY + 6 * pitch + 2;
+    const giY = infoY + 30;
+    const giH = 22;
+    const giW = (mw - 12) / 3;
+    const backY = giY + giH + 8;
+    return {
+      left, mw, top, tabY, listY, infoY, giY, rowH, pitch,
+      tab: (i) => ({ x: left + i * (tabW + 6), y: tabY, w: tabW, h: tabH }),
+      row: (i) => ({ x: left, y: listY + i * pitch, w: mw, h: rowH }),
+      gi: (i) => ({ x: left + i * (giW + 6), y: giY, w: giW, h: giH }),
+      back: { x: left, y: backY, w: mw, h: 28 },
+    };
+  }
+
+  fighterHit(p, f) {
+    if (!p || !f) return null;
+    const L = this.fighterLayout();
+    for (let i = 0; i < f.weights.length; i++) if (inside(p, L.tab(i))) return { kind: 'weight', value: f.weights[i].id };
+    for (let i = 0; i < f.men.length; i++) if (inside(p, L.row(i))) return { kind: 'man', value: f.men[i].id };
+    for (let i = 0; i < f.gis.length; i++) if (inside(p, L.gi(i))) return { kind: 'gi', value: f.gis[i].id };
+    if (inside(p, L.back)) return { kind: 'back' };
+    return null;
+  }
+
+  _fighter(opts) {
+    const c = this.ctx;
+    const f = opts.fighter;
+    if (!f) return;
+    const g = c.createLinearGradient(0, this.h * 0.28, 0, this.h);
+    g.addColorStop(0, 'rgba(4,6,10,0)');
+    g.addColorStop(0.42, 'rgba(4,6,10,0.55)');
+    g.addColorStop(1, 'rgba(4,6,10,0.94)');
+    c.fillStyle = g;
+    c.fillRect(0, 0, this.w, this.h);
+
+    const L = this.fighterLayout();
+    const tab = f.weights.find((w) => w.id === f.tab) || f.weights[0];
+    c.textAlign = 'left';
+    c.textBaseline = 'middle';
+    c.fillStyle = '#fff';
+    c.font = `800 ${Math.round(Math.min(26, this.w * 0.038))}px ${FONT}`;
+    c.fillText('БОЕЦ', L.left, L.top - 16);
+    c.font = `600 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    c.fillText(`${tab.label.toLowerCase()} · ${tab.limit} · турнир в своём весе`, L.left, L.top + 4);
+
+    // The classes.
+    for (let i = 0; i < f.weights.length; i++) {
+      const r = L.tab(i);
+      const on = f.weights[i].id === f.tab;
+      roundRect(c, r.x, r.y, r.w, r.h, 6);
+      c.fillStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(8,11,17,0.58)';
+      c.fill();
+      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.14)';
+      c.lineWidth = 1;
+      c.stroke();
+      // Four across a phone's column is 54 pixels a tab, and «ТЯЖЁЛЫЙ» at
+      // nine is wider than that: the size comes down until the word fits.
+      let px = 9;
+      do { c.font = `800 ${px}px ${FONT}`; } while (px-- > 6 && c.measureText(f.weights[i].label).width > r.w - 6);
+      c.fillStyle = on ? '#1a1203' : 'rgba(255,255,255,0.82)';
+      c.textAlign = 'center';
+      c.fillText(f.weights[i].label, r.x + r.w / 2, r.y + r.h / 2);
+      c.textAlign = 'left';
+    }
+
+    // The men. A face is a disc of his skin under a cap of his hair — the two
+    // things about a head that read at the size of a thumbnail.
+    let picked = null;
+    for (let i = 0; i < f.men.length; i++) {
+      const m = f.men[i];
+      const r = L.row(i);
+      const on = m.id === f.mine;
+      if (on) picked = m;
+      roundRect(c, r.x, r.y, r.w, r.h, 6);
+      c.fillStyle = on ? 'rgba(20,28,40,0.86)' : 'rgba(8,11,17,0.58)';
+      c.fill();
+      c.strokeStyle = on ? 'rgba(255,209,102,0.72)' : 'rgba(255,255,255,0.12)';
+      c.lineWidth = on ? 1.5 : 1;
+      c.stroke();
+      const cx = r.x + 14, cy = r.y + r.h / 2;
+      c.fillStyle = srgb(m.skin);
+      c.beginPath();
+      c.arc(cx, cy + 1, 7, 0, Math.PI * 2);
+      c.fill();
+      c.fillStyle = srgb(m.hair);
+      c.beginPath();
+      c.arc(cx, cy + 1, 7, Math.PI * 1.08, Math.PI * 1.92);
+      c.closePath();
+      c.fill();
+      c.font = `700 11px ${FONT}`;
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.8)';
+      c.fillText(m.name, r.x + 28, cy);
+      c.textAlign = 'right';
+      c.font = `600 9px ${FONT}`;
+      c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.5)';
+      c.fillText(m.style, r.x + r.w - 10, cy);
+      c.textAlign = 'left';
+    }
+
+    // What the picked man is like: his game in words, and his three numbers
+    // as bars — the same three a Fighter carries, so what is drawn is what
+    // the match reads.
+    const show = picked || f.men[0];
+    if (show) {
+      c.font = `600 9px ${FONT}`;
+      c.fillStyle = picked ? 'rgba(255,209,102,0.8)' : 'rgba(255,255,255,0.45)';
+      c.fillText(picked ? `ты: ${show.long}` : `коснись, чтобы выбрать`, L.left, L.infoY + 6);
+      const bars = [['СИЛА', show.stats.strength], ['ТЕХНИКА', show.stats.technique], ['ДЫХАНИЕ', show.stats.cardio]];
+      const bw = (L.mw - 12) / 3;
+      for (let k = 0; k < 3; k++) {
+        const x = L.left + k * (bw + 6), y = L.infoY + 20;
+        c.font = `700 7px ${FONT}`;
+        c.fillStyle = 'rgba(255,255,255,0.45)';
+        c.fillText(bars[k][0], x, y - 1);
+        // Drawn from 0.3: every number in the roster is within a tenth of
+        // one half, and a bar from zero would show six identical men.
+        meter(c, x + 44, y - 3, bw - 46, 4, (bars[k][1] - 0.3) / 0.4, '#ffd166', 'rgba(255,255,255,0.12)');
+      }
+    }
+
+    // The kimono.
+    for (let i = 0; i < f.gis.length; i++) {
+      const k = f.gis[i];
+      const r = L.gi(i);
+      const on = k.id === f.gi;
+      roundRect(c, r.x, r.y, r.w, r.h, 5);
+      c.fillStyle = 'rgba(8,11,17,0.62)';
+      c.fill();
+      c.strokeStyle = on ? 'rgba(255,209,102,0.92)' : 'rgba(255,255,255,0.14)';
+      c.lineWidth = on ? 1.5 : 1;
+      c.stroke();
+      c.fillStyle = srgb(k.col);
+      roundRect(c, r.x + 6, r.y + 5, 12, r.h - 10, 2);
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.3)';
+      c.lineWidth = 1;
+      c.stroke();
+      c.font = `700 9px ${FONT}`;
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.7)';
+      c.fillText(k.label, r.x + 24, r.y + r.h / 2);
+    }
+
+    const b = L.back;
+    roundRect(c, b.x, b.y, b.w, b.h, 8);
+    c.fillStyle = 'rgba(255,209,102,0.92)';
+    c.fill();
+    c.font = `800 13px ${FONT}`;
+    c.fillStyle = '#1a1203';
+    c.textAlign = 'center';
+    c.fillText('ГОТОВО', b.x + b.w / 2, b.y + b.h / 2);
+    c.textAlign = 'left';
+  }
 
   gymLayout() {
     const left = Math.max(20, this.w * 0.05);
@@ -1657,6 +1830,14 @@ const COLORS = {
 const tau = (p) => -Math.PI / 2 + Math.PI * 2 * p;
 const clampN = (v, a, b) => (v < a ? a : v > b ? b : v);
 const TIMES_ORDER = [3, 5, 10];
+const MODES = ['fight', 'gym', 'fighter'];
+const MODE_LABEL = ['БОЙ', 'ЗАЛ', 'БОЕЦ'];
+// A linear albedo as the eye sees it on the mat, for a swatch: the renderer
+// lights and tone-maps what it is given, a canvas does not.
+function srgb(c) {
+  const g = (v) => Math.round(255 * Math.pow(Math.max(0, Math.min(1, v)), 1 / 2.2));
+  return `rgb(${g(c[0])},${g(c[1])},${g(c[2])})`;
+}
 const inside = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 
 function rgb(c) {

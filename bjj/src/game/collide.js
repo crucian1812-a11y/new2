@@ -30,12 +30,13 @@
 
 import { Skeleton, BONE_INDEX } from '../render/skeleton.js';
 import { v3, v3set, v3len, clamp } from '../core/m4.js';
+import { capsuleScale } from '../render/build.js';
 
 // [bone, child, r0, r1, squashZ0, squashZ1] — r is the half-width across the
 // body, squashZ scales it front-to-back. Same convention as body.js, and the
 // numbers are the gi's where the gi covers the limb, the skin's where it does
 // not (head, hands, feet) plus a couple of millimetres for skin itself.
-const CAPSULES = [
+export const CAPSULES = [
   ['hips', 'spine', 0.190, 0.184, 0.78, 0.76],
   ['spine', 'chest', 0.186, 0.212, 0.76, 0.72],
   ['chest', 'neck', 0.212, 0.112, 0.72, 0.86],
@@ -180,11 +181,25 @@ export class Overlap {
     for (const side of [0, 1]) {
       CAPSULES.forEach(([a, b, r0, r1, z0, z1], i) => {
         this.caps[side].push({
-          a, b, r0, r1, z0, z1, bind: BIND[i],
+          a, b, r0, r1, z0, z1, bind: BIND[i], base: [r0, r1, z0, z1],
           p: v3(), q: v3(), sx: [1, 0, 0], sz: [0, 0, 1],
         });
       });
     }
+  }
+
+  // How each of the two is built — see src/render/build.js. A build scales a
+  // capsule across its bone and never along it, exactly as it moves the skin:
+  // the width by one number, the depth by the other, which for the squash
+  // ratio here is the second over the first. Null is the baked man.
+  setBuild(side, build) {
+    for (const c of this.caps[side]) {
+      const [sw, sd] = capsuleScale(build, c.a);
+      const [r0, r1, z0, z1] = c.base;
+      c.r0 = r0 * sw; c.r1 = r1 * sw;
+      c.z0 = z0 * sd / sw; c.z1 = z1 * sd / sw;
+    }
+    return this;
   }
 
   _gather(sk, list) {
@@ -267,6 +282,28 @@ export class Overlap {
       if (d < r + margin) out.push(c.a);
     }
     return out;
+  }
+
+  // Every pair's penetration, negative where they are apart, into `out` (one
+  // slot per pair, A's capsules major). The build solver needs each contact
+  // on its own: the deepest one hides every other, and an arm sunk two more
+  // centimetres into a neck is invisible to a maximum held by two chests.
+  pens(skA, skB, out) {
+    this._gather(skA, this.caps[0]);
+    this._gather(skB, this.caps[1]);
+    let k = 0;
+    for (const ca of this.caps[0]) for (const cb of this.caps[1]) out[k++] = this._pairSigned(ca, cb);
+    return out;
+  }
+
+  _pairSigned(ca, cb) {
+    const [s, t] = segClosest(ca.p, ca.q, cb.p, cb.q, _a, _b);
+    v3set(_n, _a[0] - _b[0], _a[1] - _b[1], _a[2] - _b[2]);
+    const d = v3len(_n);
+    const ux = d > 1e-6 ? _n[0] / d : 0;
+    const uy = d > 1e-6 ? _n[1] / d : 1;
+    const uz = d > 1e-6 ? _n[2] / d : 0;
+    return radiusToward(ca, s, -ux, -uy, -uz) + radiusToward(cb, t, ux, uy, uz) - d;
   }
 
   // The deepest overlap between the two, and which pair of parts caused it.
