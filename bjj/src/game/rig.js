@@ -1350,7 +1350,21 @@ function collect(out, grips, w) {
       // A hand that slides from a lapel to a neck over half a second is not
       // somewhere neither pose asked for. It is a hand letting go of one thing
       // and taking another, which is what the transition is.
-      if (w > found.w) { found.point = g.point; found.self = g.self; found.w = Math.max(found.w, w); }
+      //
+      // And not a switch, even though the live hand eases across one. The
+      // switch was at the midpoint, `w > found.w`, and every tool that samples
+      // the path — blend-check, arc-solve, pose-relax — samples it with the
+      // live ease off, so to them the goal jumped from one hold to the other
+      // between two neighbouring samples: forty to a hundred centimetres of
+      // hand in a two-thousandth of the blend, and whatever the arm swept
+      // through on the way was never measured by anything. The crossfade in
+      // space was written for exactly this (see `alt` in _goal: round the
+      // shoulder, not through it) and never wired. It is now: the goal slides
+      // from the old hold to the new one as the blend runs, so the path the
+      // tools judge is the path the hand takes.
+      found.alt = { point: g.point, self: g.self, w };
+      found.baseW = found.w;
+      found.w = Math.max(found.w, w);
       continue;
     }
     out.push({ ...g, w });

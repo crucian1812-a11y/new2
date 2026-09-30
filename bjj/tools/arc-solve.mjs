@@ -49,12 +49,15 @@ import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { HOLD_LOOPS } from '../src/game/poses.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
-import { SOLVE_STEPS } from './grid.mjs';
+import { SOLVE_STEPS, walkBlend, jointsOf } from './grid.mjs';
 import { SUNK, skinUnder } from './mat-model.mjs';
 import { readTorso, torsoCost, torsoOver } from './torso.mjs';
 import { limbCost } from './limbs.mjs';
 
 const WRITE = process.argv.includes('--write');
+// Where blend-check starts listing a blend: depth, lift off the mat, skin
+// under it. A number under its line is not on anybody's list.
+const LIST_DEPTH = 0.11, LIST_LIFT = 0.06, LIST_SINK = 0.06;
 const FRESH = process.argv.includes('--fresh');
 // Skip the search and only ask the question the search cannot: is this blend
 // better with no correction than with the one it has? Ten seconds over the
@@ -185,11 +188,14 @@ function fold(sk, upper, mid, low) {
   return Math.acos(Math.min(1, Math.max(-1, d))) * (180 / Math.PI);
 }
 
+const JOINTS = 2 * rig.skel.A.world.length * 3;
 function measure(from, to) {
   let sum = 0, worst = 0, where = null, deepestFold = 0, deepestSink = 0, worstSpine = 0;
   const low = new Array(STEPS);
-  for (let i = 0; i < STEPS; i++) {
-    const t = i / (STEPS - 1);
+  // The grid and the points between it where the path is fast — the judge's
+  // own walk (grid.mjs), so a release that swings an arm through a body in a
+  // thousandth of the blend is charged here as it is shipped there.
+  walkBlend(STEPS, (t, i) => {
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
     rig.rewind();
@@ -221,7 +227,7 @@ function measure(from, to) {
     for (const role of ['A', 'B']) {
       for (const b of LOW) lo = Math.min(lo, rig.skel[role].world[BONE_INDEX[b]][13]);
     }
-    low[i] = lo;
+    if (i >= 0) low[i] = lo;
     // Nor into an arm that cannot exist.
     //
     // Sideways is handled by construction now — a forearm and a shin get one
@@ -267,7 +273,8 @@ function measure(from, to) {
         if (a > FOLD_FAIL) sum += (a - FOLD_FAIL) * (a - FOLD_FAIL) * 0.05;
       }
     }
-  }
+    return jointsOf(rig, new Float64Array(JOINTS));
+  });
   // Nor off it.
   //
   // Everything above this asks the correction not to put bodies inside each
@@ -391,8 +398,13 @@ for (const key of keys.slice()) {
 // unknowns for a correction that only ever needs a few.
 function culprits(from, to) {
   const count = new Map();
-  for (let i = 1; i < STEPS - 1; i++) {
-    const t = i / (STEPS - 1);
+  // On the same walk as the cost, so the bones behind a fast release are
+  // bones the search is allowed to move.
+  walkBlend(STEPS, (t, i) => {
+    if (i === 0 || i === STEPS - 1) {
+      rig.rewind(); rig.applyAt(from, to, t, 0.016);
+      return jointsOf(rig, new Float64Array(JOINTS));
+    }
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
     rig.rewind();
@@ -423,7 +435,8 @@ function culprits(from, to) {
         if (under > 0) count.set(role + '.' + b, (count.get(role + '.' + b) || 0) + under);
       }
     }
-  }
+    return jointsOf(rig, new Float64Array(JOINTS));
+  });
   const ranked = [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, CULPRITS);
   const out = [];
   for (const [name] of ranked) {
@@ -658,7 +671,30 @@ for (const key of keys) {
   const shippable = (m) => m.fold <= FOLD_FAIL && m.worst <= SHIP_DEPTH
     && m.lift <= SHIP_LIFT && m.sink <= SHIP_SINK;
   const rescue = !shippable(incoming[key]) && shippable(after);
-  if (!rescue && (worseCost || worseDepth || worseLift || worseFold || worseSink || worseSpine)) {
+  // And the guard is about lines, not about millimetres.
+  //
+  // Every number above is refused on any worsening at all, and that was
+  // right when each of them sat near its line. It is wrong for a number far
+  // under it: KNEE_ON_BELLY>MOUNT came back with its elbows out of the way —
+  // the whole cost 7.1 → 1.9, nearly all of it the limbs hinge-check counts —
+  // and was refused for 4 mm of depth, 8.0 → 8.4 cm, three centimetres under
+  // where blend-check starts listing anything. CLOSED_GUARD_WORK came back
+  // shallower and cheaper and was refused for 3 mm of lift with the line at
+  // six centimetres. So each number may move while it stays under the line
+  // the judge lists it on — and the whole cost may not grow; past its line
+  // the rule is what it was.
+  const past = {
+    depth: worseDepth && after.worst > LIST_DEPTH,
+    lift: worseLift && after.lift > LIST_LIFT,
+    sink: worseSink && after.sink > LIST_SINK,
+    fold: worseFold && after.fold > FOLD_OK,
+  };
+  if (!rescue && (worseCost || past.depth || past.lift || past.fold || past.sink || worseSpine)) {
+    // Say what the refused answer was and what it lost on: a refusal with no
+    // numbers is a run that cannot be learned from.
+    const f = (m) => `${(m.worst * 100).toFixed(1)}cm, lift ${(m.lift * 100).toFixed(1)}, sink ${(m.sink * 100).toFixed(1)}, ` +
+      `fold ${m.fold.toFixed(0)}°, spine ${(m.spine ?? 0).toFixed(1)}°, cost ${m.sum.toFixed(3)}`;
+    process.stderr.write(`${key} refused: ${f(after)}\n  against ${f(incoming[key])}\n`);
     if (shipped[key]) ARCS[key] = JSON.parse(JSON.stringify(shipped[key]));
     else delete ARCS[key];
     after = measure(from, to);

@@ -43,3 +43,60 @@ if (!Number.isInteger(ratio) || ratio < 1) {
     `the solver's grid must refine the judge's: ${SOLVE_STEPS} samples do not contain all ${JUDGE_STEPS}`
   );
 }
+
+// And between the points, wherever the path moves too fast to be judged by
+// them.
+//
+// Eighty-one points are a fine grid for a path that is smooth, and the path is
+// not smooth everywhere. A grip lets go when its target leaves the arm's reach
+// or comes inside its own shoulder, and two men holding each other's sleeves
+// move each other's targets, so a release can run in a thousandth of the
+// blend: a hand swings forty to seventy centimetres back to where the pose has
+// it and passes through whatever is in the way. Walked on a grid twenty-five
+// times finer, forty-five blends were deeper than this file's grid said by two
+// centimetres or more, four of them past the line the judge ships on
+// (MOUNT>CLOSED_GUARD_X 17 → 28 cm, OPEN_GUARD>MOUNT_X 9 → 26). In the game
+// the hand is eased in time, so the sweep takes a fifth of a second instead
+// of none — which is exactly long enough to see.
+//
+// A finer grid everywhere costs everywhere. So the grid stays, and any
+// interval across which some joint moves more than REFINE_JUMP is split in
+// two, and again, until nothing jumps or the pieces are REFINE_DEPTH halvings
+// deep: the extra samples land exactly where the path is fast. One walk for
+// every tool that judges a blend, so the solver and the judge still look at
+// the same points.
+export const REFINE_JUMP = 0.08;   // 4 cm added half as many points again as the grid has and found the same worst to a centimetre
+export const REFINE_DEPTH = 6;
+
+// Both men's joints, where they are now: the snapshot a walk compares.
+export function jointsOf(rig, out) {
+  let k = 0;
+  for (const role of ['A', 'B']) {
+    for (const m of rig.skel[role].world) { out[k++] = m[12]; out[k++] = m[13]; out[k++] = m[14]; }
+  }
+  return out;
+}
+
+// `at(t, i)` poses the rig at t and measures whatever its caller measures; `i`
+// is the grid index, or -1 for a point added between two of them. It returns
+// the joints (jointsOf) — a fresh array, which the walk keeps.
+export function walkBlend(steps, at) {
+  const snaps = new Array(steps);
+  for (let i = 0; i < steps; i++) snaps[i] = at(i / (steps - 1), i);
+  const moved = (p, q) => {
+    let m = 0;
+    for (let k = 0; k < p.length; k += 3) {
+      const d = Math.hypot(p[k] - q[k], p[k + 1] - q[k + 1], p[k + 2] - q[k + 2]);
+      if (d > m) m = d;
+    }
+    return m;
+  };
+  const split = (t0, p0, t1, p1, depth) => {
+    if (depth >= REFINE_DEPTH || moved(p0, p1) <= REFINE_JUMP) return;
+    const tm = (t0 + t1) / 2;
+    const pm = at(tm, -1);
+    split(t0, p0, tm, pm, depth + 1);
+    split(tm, pm, t1, p1, depth + 1);
+  };
+  for (let i = 0; i < steps - 1; i++) split(i / (steps - 1), snaps[i], (i + 1) / (steps - 1), snaps[i + 1], 0);
+}

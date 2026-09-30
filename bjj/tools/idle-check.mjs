@@ -27,7 +27,7 @@ import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { skinLite, skinInto } from './skin-lite.mjs';
-import { JUDGE_STEPS as STEPS } from './grid.mjs';
+import { JUDGE_STEPS as STEPS, walkBlend, jointsOf } from './grid.mjs';
 
 const MAT_Y = 0.05;
 const ARCS_PATH = new URL('../src/game/arcs.js', import.meta.url);
@@ -47,16 +47,21 @@ const rig = new PairRig(); rig.live = false;
 const overlap = new Overlap();
 function walk(from, to) {
   let worst = 0, sunk = 0; const low = new Array(STEPS);
-  for (let i = 0; i < STEPS; i++) {
+  // The judge's walk (grid.mjs): the grid, and the points between it where the
+  // path is fast.
+  walkBlend(STEPS, (t, i) => {
     rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.rewind();
-    rig.applyAt(from, to, i / (STEPS - 1), 0.016);
+    rig.applyAt(from, to, t, 0.016);
     const d = overlap.measure(rig.skel.A, rig.skel.B).deepest;
     if (d > worst) worst = d;
     for (const r of ['A','B']) { const s = sink(rig.skel[r]); if (s > sunk) sunk = s; }
-    let lo = Infinity;
-    for (const r of ['A','B']) for (const b of LOW) lo = Math.min(lo, rig.skel[r].world[BONE_INDEX[b]][13]);
-    low[i] = lo;
-  }
+    if (i >= 0) {
+      let lo = Infinity;
+      for (const r of ['A','B']) for (const b of LOW) lo = Math.min(lo, rig.skel[r].world[BONE_INDEX[b]][13]);
+      low[i] = lo;
+    }
+    return jointsOf(rig, new Float64Array(2 * rig.skel.A.world.length * 3));
+  });
   let lift = 0;
   for (let i = 1; i < STEPS - 1; i++) {
     const base = low[0] + (low[STEPS-1] - low[0]) * (i / (STEPS - 1));

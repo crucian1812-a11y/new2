@@ -22,7 +22,7 @@ import { readFileSync } from 'node:fs';
 import { decodeFighter } from '../src/render/asset.js';
 import { skinLite, skinInto } from './skin-lite.mjs';
 import { Overlap } from '../src/game/collide.js';
-import { JUDGE_STEPS } from './grid.mjs';
+import { JUDGE_STEPS, walkBlend, jointsOf } from './grid.mjs';
 
 const ALL = process.argv.includes('--all');
 // Forty-one samples, not thirteen.
@@ -143,15 +143,16 @@ const BLENDS = [
 
 const rows = [];
 const seen = new Set();
+let refined = 0;
 for (const tr of BLENDS) {
   const key = `${tr.from}>${tr.to}`;
   if (tr.from === tr.to || seen.has(key)) continue;
   seen.add(key);
 
-  let worst = 0, at = 0, where = null, sunk = 0, sunkAt = 0, sunkWho = null, ends = 0;
+  let worst = 0, at = 0, where = null, sunk = 0, sunkAt = 0, sunkWho = null, ends = 0, extra = 0;
   const low = new Array(STEPS);
-  for (let i = 0; i < STEPS; i++) {
-    const t = i / (STEPS - 1);
+  // The grid, and between its points wherever the path is fast (grid.mjs).
+  walkBlend(STEPS, (t, i) => {
     // Fresh every sample: the rig integrates breathing off its own clock, and
     // a measurement that depends on how many frames came before it is not a
     // measurement.
@@ -159,6 +160,7 @@ for (const tr of BLENDS) {
     rig.slack.A = rig.slack.B = 0;
     rig.rewind();
     rig.applyAt(tr.from, tr.to, t, 0.016);
+    if (i < 0) extra++;
 
     const ov = overlap.measure(rig.skel.A, rig.skel.B);
     if (ov.deepest > worst) { worst = ov.deepest; at = t; where = ov.where; }
@@ -168,12 +170,18 @@ for (const tr of BLENDS) {
       const under = skinUnder(rig.skel[role]);
       if (under > sunk) { sunk = under; sunkAt = t; sunkWho = role; }
     }
-    let lo = Infinity;
-    for (const role of ['A', 'B']) {
-      for (const b of LOW) lo = Math.min(lo, rig.skel[role].world[BONE_INDEX[b]][13]);
+    // The lift is a line between the grid's own points; the points between
+    // them answer the other questions.
+    if (i >= 0) {
+      let lo = Infinity;
+      for (const role of ['A', 'B']) {
+        for (const b of LOW) lo = Math.min(lo, rig.skel[role].world[BONE_INDEX[b]][13]);
+      }
+      low[i] = lo;
     }
-    low[i] = lo;
-  }
+    return jointsOf(rig, new Float64Array(2 * rig.skel.A.world.length * 3));
+  });
+  refined += extra;
   // How far the pair came off the mat, over and above the straight line
   // between where it sits at either end.
   let lift = 0, liftAt = 0;
@@ -248,6 +256,7 @@ console.log(
   `${rows.length - holds.length} transitions, worst moment ${(worstOverall * 100).toFixed(0)}cm — ` +
   verdict(rows.length - holds.length, fails.move, bad.move)
 );
+console.log(`${refined} points added between the grid's ${rows.length * STEPS}, where the path moves faster than the grid`);
 const worstSunk = rows.reduce((m, r) => Math.max(m, r.sunk), 0);
 const inMat = rows.filter((r) => r.sunk > SUNK_LIMIT).length;
 console.log(

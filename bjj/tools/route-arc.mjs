@@ -35,7 +35,7 @@ import { POSITION_IDS, WAYPOINT_IDS, HOLD_LOOPS } from '../src/game/poses.js';
 import { VIAS } from '../src/game/arcs.js';
 import { BONE_INDEX } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
-import { JUDGE_STEPS as STEPS } from './grid.mjs';
+import { JUDGE_STEPS as STEPS, walkBlend, jointsOf } from './grid.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ARCS_PATH = join(here, '../src/game/arcs.js');
@@ -64,11 +64,13 @@ const TOGETHER = 0.30;
 // number that comes back from the child process after an arc has been solved.
 function walk(from, to) {
   let worst = 0, apart = 0;
-  for (let i = 1; i < STEPS - 1; i++) {
+  walkBlend(STEPS, (t, i) => {
     rig.effort.A = rig.effort.B = 0;
     rig.slack.A = rig.slack.B = 0;
     rig.rewind();
-    rig.applyAt(from, to, i / (STEPS - 1), 0.016);
+    rig.applyAt(from, to, t, 0.016);
+    const snap = jointsOf(rig, new Float64Array(2 * rig.skel.A.world.length * 3));
+    if (i === 0 || i === STEPS - 1) return snap;
     const ov = overlap.measure(rig.skel.A, rig.skel.B);
     if (ov.deepest > worst) worst = ov.deepest;
     let closest = 1e9;
@@ -81,7 +83,8 @@ function walk(from, to) {
       }
     }
     if (closest > apart) apart = closest;
-  }
+    return snap;
+  });
   return { worst, apart };
 }
 
@@ -145,14 +148,16 @@ function measureFresh(key) {
     import { PairRig } from '${join(here, '../src/game/rig.js')}';
     import { Overlap } from '${join(here, '../src/game/collide.js')}';
     import { BONE_INDEX } from '${join(here, '../src/render/skeleton.js')}';
-    import { JUDGE_STEPS as S } from '${join(here, 'grid.mjs')}';
+    import { JUDGE_STEPS as S, walkBlend, jointsOf } from '${join(here, 'grid.mjs')}';
     import { readTorso, torsoOver } from '${join(here, 'torso.mjs')}';
     const rig = new PairRig(), ov = new Overlap();
     rig.live = false;
     let worst = 0, spine = 0;
-    for (let i = 1; i < S - 1; i++) {
+    walkBlend(S, (t, i) => {
       rig.effort.A = rig.effort.B = 0; rig.slack.A = rig.slack.B = 0; rig.time = 0;
-      rig.applyAt('${from}', '${to}', i / (S - 1), 0.016);
+      rig.applyAt('${from}', '${to}', t, 0.016);
+      const snap = jointsOf(rig, new Float64Array(2 * rig.skel.A.world.length * 3));
+      if (i === 0 || i === S - 1) return snap;
       const d = ov.measure(rig.skel.A, rig.skel.B).deepest;
       if (d > worst) worst = d;
       // And the spine, for the same reason arc-solve now charges for it: a
@@ -164,7 +169,8 @@ function measureFresh(key) {
         const over = torsoOver(readTorso(rig.skel[role]));
         if (over > spine) spine = over;
       }
-    }
+      return snap;
+    });
     const STEP = 1 / 60, LEN = 0.55;
     rig.heldId = null;
     rig.lag = false;
