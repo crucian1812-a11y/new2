@@ -8,8 +8,9 @@
 // until a transition through it spun a thigh in its socket. Nobody on a real
 // mat can be photographed like that. So this reads what the cameras saw.
 //
-// What comes in is joint *positions*: COCO-WholeBody, 133 keypoints a person
-// a frame, in metres. What the rig wants is joint *rotations* in its own frame
+// What comes in is joint *positions* in metres: COCO-17 (body only, which is
+// what processed_data/poses3d actually holds — x, y, z and a confidence a
+// keypoint), or COCO-WholeBody's 133 if it ever comes that way. What the rig wants is joint *rotations* in its own frame
 // with its own bone lengths. So only directions are taken from the data — each
 // bone is turned so it points where the person's bone pointed, and is twisted
 // by the next bone along (a thigh by its shin, a shin by its foot, an upper arm
@@ -23,14 +24,20 @@
 // the round trip, so whatever it gets wrong, the round trip cannot hide by
 // agreeing with itself on everything else.
 //
-//   node bjj/tools/h4d.mjs --roundtrip     every pose here → keypoints → back;
-//                                          the converter's own error, in cm
+//   node bjj/tools/h4d.mjs --roundtrip [--body17]
+//                                          every pose here → keypoints → back;
+//                                          the converter's own error, in cm;
+//                                          --body17 with only what the data has
+//   node bjj/tools/h4d.mjs --scan CATEGORY_DIR
+//                                          where in it the pair is on the mat
 //   node bjj/tools/h4d.mjs SEQ_DIR [from] [to] [--every N]
 //                                          a downloaded sequence: per frame,
 //                                          the pair as a pose block
 //
-// SEQ_DIR is one sequence of the dataset, e.g. train/02_grappling/001_grappling,
-// with processed_data/poses3d/*.npy in it. Reading .npy needs no Python: the
+// The data comes down with tools/h4d-fetch.mjs into bjj/data/h4d (not in
+// git). SEQ_DIR is one sequence of it, e.g.
+// bjj/data/h4d/train/02_grappling/024_grappling, with
+// processed_data/poses3d/*.npy in it. Reading .npy needs no Python: the
 // files are pickled dicts of float arrays, and the reader below takes only the
 // one shape they come in.
 
@@ -172,6 +179,60 @@ const NECK_REACH = len(sub(mid(BIND.earL, BIND.earR), BIND.neck));
 const CLAV_LEN = len(sub(BIND.armL, BIND.clavL));
 // How high a heel keypoint sits off the mat under a standing man.
 const HEEL_UP = 0.03;
+
+// --- the body-only set the dataset actually ships -------------------------
+// processed_data/poses3d holds COCO-17: (x, y, z, confidence) for the body,
+// no feet, no hands. Without toes a shin's twist and a foot's aim are unknown;
+// without knuckles a forearm's. So they are made, with the least assumption
+// each allows, and put in as keypoints, so the solver above runs unchanged:
+//  - a foot stands square to its shin and points where the shin's front
+//    faces, which is the knee's front carried through its bend (a straight
+//    leg's knee faces where the pelvis does). The ankle is at neutral, and
+//    the knee has no twist.
+//  - a hand carries on along its forearm, and the forearm has no twist of its
+//    own: the upper arm's frame is carried through the elbow's bend by the
+//    shortest turn, and the thumb side is wherever that leaves it.
+// The round trip's --body17 says what these guesses cost.
+export const BODY17 = ['nose', 'eyeL', 'eyeR', 'earL', 'earR', 'shoL', 'shoR', 'elbL', 'elbR',
+  'wriL', 'wriR', 'hipL', 'hipR', 'kneeL', 'kneeR', 'ankL', 'ankR'];
+export function fillBody17(k) {
+  const P = {};
+  for (const n of BODY17) P[n] = k[n];
+  const xh = norm(sub(k.hipL, k.hipR));
+  const trunkUp = sub(mid(k.shoL, k.shoR), mid(k.hipL, k.hipR));
+  const pelvisFwd = norm(cross(xh, trunkUp));
+  const xs = norm(sub(k.shoL, k.shoR));
+  const chestFwd = norm(cross(xs, trunkUp));
+  // A site of `bone` placed in the frame (y along -bone direction, z given).
+  const placeIn = (at, yUp, zFwd, site) => {
+    const Y = norm(yUp), Z = norm(across(zFwd, Y)), X = cross(Y, Z);
+    const o = SITES[site][1];
+    return add(at, add(add(mul(X, o[0]), mul(Y, o[1])), mul(Z, o[2])));
+  };
+  for (const s of ['L', 'R']) {
+    const th = sub(k['knee' + s], k['hip' + s]), sh = sub(k['ank' + s], k['knee' + s]);
+    // twistRef with sign -1 gives the thigh's +z, the way the knee faces;
+    // the shin's front is that carried through the knee's bend. (Not that
+    // projected across the shin: past a right angle that flips, since a
+    // shin folded under its thigh faces backward.)
+    const kneeFaces = norm(across(twistRef(th, sh, -1, pelvisFwd), norm(th)));
+    const shinFront = mVec(turnBetween(norm(th), norm(sh)), kneeFaces);
+    for (const site of ['bigToe', 'smallToe', 'heel']) P[site + s] = placeIn(k['ank' + s], mul(sh, -1), shinFront, site + s);
+    const ua = sub(k['elb' + s], k['sho' + s]), fa = sub(k['wri' + s], k['elb' + s]);
+    // The upper arm's +z, as the solver will set it; then through the bend.
+    const armZ = norm(across(twistRef(ua, fa, +1, chestFwd), norm(ua)));
+    const bend = turnBetween(norm(ua), norm(fa));
+    const thumb = mVec(bend, armZ);
+    for (const site of ['index', 'middle', 'pinky']) P[site + s] = placeIn(k['wri' + s], mul(fa, -1), thumb, site + s);
+  }
+  return P;
+}
+// The shortest rotation carrying unit a onto unit b.
+function turnBetween(a, b) {
+  const c = dot(a, b), ax = cross(a, b), s = len(ax);
+  if (s < 1e-9) return mFromCols([1, 0, 0], [0, 1, 0], [0, 0, 1]);
+  return axisAngle(mul(ax, 1 / s), Math.atan2(s, c) * D);
+}
 
 // --- keypoints off one of our own skeletons (for the round trip) ----------
 export function keypointsOf(sk) {
@@ -332,14 +393,23 @@ export function skeletonOf(pose) {
 }
 
 // --- the round trip --------------------------------------------------------
-function roundtrip() {
+function roundtrip(body17) {
+  // With --body17 the solver sees only what the dataset ships, and the feet
+  // and hands it is given are the ones fillBody17 makes up.
+  const seen = (sk) => {
+    const k = keypointsOf(sk);
+    if (!body17) return k;
+    const b = {};
+    for (const n of BODY17) b[n] = k[n];
+    return fillBody17(b);
+  };
   const per = {};
   let worst = { d: 0 };
   for (const [id, pose] of Object.entries(POSES)) {
     for (const role of ['A', 'B']) {
       if (!pose[role]) continue;
       const sk = skeletonOf(pose[role]);
-      const got = skeletonOf(solve(keypointsOf(sk)));
+      const got = skeletonOf(solve(seen(sk)));
       for (const [b] of BONES) {
         const m1 = sk.world[BONE_INDEX[b]], m2 = got.world[BONE_INDEX[b]];
         const d = Math.hypot(m1[12] - m2[12], m1[13] - m2[13], m1[14] - m2[14]);
@@ -362,7 +432,7 @@ function roundtrip() {
   for (const pose of Object.values(POSES)) for (const role of ['A', 'B']) {
     if (!pose[role]) continue;
     const sk = skeletonOf(pose[role]);
-    const k0 = keypointsOf(sk), k1 = keypointsOf(skeletonOf(solve(k0)));
+    const k0 = keypointsOf(sk), k1 = keypointsOf(skeletonOf(solve(seen(sk))));
     for (const n in k0) (kpErr[n.replace(/[LR]$/, '')] ||= []).push(len(sub(k0[n], k1[n])));
   }
   console.log('\nkeypoint   median   p90    max   (cm, what a camera sees)');
@@ -451,34 +521,66 @@ function build(o, st) {
 }
 
 // --- a downloaded sequence -------------------------------------------------
-export function convertSequence(dir, from = 0, to = 1e9, every = 1) {
+// Every frame of a sequence, with the data's up and floor. Those come from
+// the whole sequence even when only a few frames are wanted: a stretch on the
+// ground has nobody standing in it to say which way is up.
+export function readSequence(dir) {
   const pd = join(dir, 'processed_data', 'poses3d');
   if (!existsSync(pd)) throw new Error(`no ${pd}`);
-  const files = readdirSync(pd).filter((f) => f.endsWith('.npy')).sort()
-    .filter((f) => { const n = parseInt(f, 10); return n >= from && n <= to; })
-    .filter((_, i) => i % every === 0);
+  const files = readdirSync(pd).filter((f) => f.endsWith('.npy')).sort();
   const frames = files.map((f) => {
     const d = readPoseNpy(join(pd, f));
     const people = [...d.keys()].sort().map((name) => {
       const a = d.get(name);
-      const c = a.shape[1];
+      const [rows, c] = a.shape;
+      const at = (idx) => [a.data[idx * c], a.data[idx * c + 1], a.data[idx * c + 2]];
       const kp = {};
-      for (const [n, idx] of Object.entries(KP)) kp[n] = [a.data[idx * c], a.data[idx * c + 1], a.data[idx * c + 2]];
-      return { name, kp };
+      if (rows === 17) for (const [i, n] of BODY17.entries()) kp[n] = at(i);
+      else for (const [n, idx] of Object.entries(KP)) kp[n] = at(idx);
+      return { name, kp, body17: rows === 17 };
     });
-    return { f, people };
-  });
+    return { f, n: parseInt(f, 10), people };
+  }).filter((fr) => fr.people.length === 2);
   // The data's own up: the ankles of a whole sequence spread over the mat,
   // so the direction they vary least in is the floor's normal.
   const ankles = frames.flatMap((fr) => fr.people.flatMap((p) => [p.kp.ankL, p.kp.ankR]));
   const { up, floor } = floorOf(ankles, frames);
+  return { frames, up, floor };
+}
+export function convertSequence(dir, from = 0, to = 1e9, every = 1) {
+  const { frames, up, floor } = readSequence(dir);
   const legOf = (kp) => (len(sub(kp.kneeL, kp.hipL)) + len(sub(kp.ankL, kp.kneeL)) + len(sub(kp.kneeR, kp.hipR)) + len(sub(kp.ankR, kp.kneeR))) / 2;
   const ours = len(restDir('thighL', 'shinL')) + len(restDir('shinL', 'footL'));
-  return frames.map((fr) => ({
+  return frames.filter((fr) => fr.n >= from && fr.n <= to).filter((_, i) => i % every === 0).map((fr) => ({
     f: fr.f,
     names: fr.people.map((p) => p.name),
-    poses: fr.people.map((p) => solve(toYUp(p.kp, up, floor), ours / legOf(p.kp))),
+    poses: fr.people.map((p) => {
+      const k = toYUp(p.kp, up, floor);
+      return solve(p.body17 ? fillBody17(k) : k, ours / legOf(p.kp));
+    }),
   }));
+}
+// Where in a category the pair is on the mat: per sequence a strip, one
+// character a frame — G both pelvises below 65 cm off the mat (kneeling or
+// lower), g one below 55, . neither —
+// and the frame ranges of the G runs. These are the frames worth converting:
+// most of a grappling bout here is on its feet.
+function scan(root) {
+  const seqs = readdirSync(root).filter((d) => existsSync(join(root, d, 'processed_data', 'poses3d'))).sort();
+  let total = 0, ground = 0;
+  for (const seq of seqs) {
+    const { frames, up, floor } = readSequence(join(root, seq));
+    const pelvis = (p) => dot(mid(p.kp.hipL, p.kp.hipR), up) - floor;
+    const strip = frames.map((fr) => {
+      const [a, b] = fr.people.map(pelvis);
+      return a < 0.65 && b < 0.65 ? 'G' : a < 0.55 || b < 0.55 ? 'g' : '.';
+    }).join('');
+    const runs = [...strip.matchAll(/G+/g)].map((m) => `${frames[m.index].n}-${frames[m.index + m[0].length - 1].n}`);
+    const g = (strip.match(/G/g) || []).length;
+    total += frames.length; ground += g;
+    if (g || strip.includes('g')) console.log(`${seq.padEnd(16)} ${String(g).padStart(4)}/${String(frames.length).padEnd(4)} ${runs.join(' ')}\n  ${strip.replace(/(.{100})(?=.)/g, '$1\n  ')}`);
+  }
+  console.log(`${ground} of ${total} frames with both on the mat, in ${seqs.length} sequences`);
 }
 function sequence(dir, from, to, every) {
   for (const fr of convertSequence(dir, from, to, every)) {
@@ -512,9 +614,12 @@ function floorOf(pts, frames) {
   if (standing.length) up = norm(standing.reduce((a2, d) => add(a2, norm(d)), [0, 0, 0]));
   // The floor: each frame's lowest keypoint is on the mat or near it, and
   // one triangulation glitch in a thousand frames should not sink the rest,
-  // so a low percentile of those, less the height a heel keypoint sits at.
+  // so a low percentile of those, less the height that keypoint sits at: a
+  // heel's, or with no feet in the data an ankle's, which is a heel's plus
+  // the heel's drop below the ankle on this rig.
   const lows = frames.map((fr) => Math.min(...fr.people.flatMap((p) => Object.values(p.kp).map((q) => dot(q, up))))).sort((a2, b2) => a2 - b2);
-  const floor = lows[Math.floor((lows.length - 1) * 0.02)] - HEEL_UP;
+  const body17 = frames.some((fr) => fr.people.some((p) => p.body17));
+  const floor = lows[Math.floor((lows.length - 1) * 0.02)] - (body17 ? HEEL_UP - SITES.heelL[1][1] : HEEL_UP);
   return { up, floor };
 }
 function solve3(m, b) {
@@ -534,14 +639,15 @@ function toYUp(kp, up, floor) {
 // --- CLI ------------------------------------------------------------------
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
-  if (args.includes('--roundtrip')) roundtrip();
+  if (args.includes('--roundtrip')) roundtrip(args.includes('--body17'));
+  else if (args[0] === '--scan') scan(args[1]);
   else if (args[0]) {
     const ev = args.indexOf('--every');
     const every = ev >= 0 ? +args[ev + 1] : 1;
     const nums = args.slice(1).filter((a, i, all) => /^\d+$/.test(a) && all[i - 1] !== '--every').map(Number);
     sequence(args[0], nums[0] ?? 0, nums[1] ?? 1e9, every);
   } else {
-    console.error('node bjj/tools/h4d.mjs --roundtrip | SEQ_DIR [from] [to] [--every N]');
+    console.error('node bjj/tools/h4d.mjs --roundtrip [--body17] | --scan CATEGORY_DIR | SEQ_DIR [from] [to] [--every N]');
     process.exit(1);
   }
 }
