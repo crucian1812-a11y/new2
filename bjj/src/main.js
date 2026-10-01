@@ -334,7 +334,10 @@ document.addEventListener('webkitfullscreenchange', layout);
 // Everything the HUD needs each frame, built once so the draw calls stay short.
 const hudOpts = () => ({
   level: oppBelt(), mine: myBelt(), mineLabel: BELT_LABEL[myBelt()], progress, result: lastResult, tutorial: tut,
-  selection, belts: menuBelts(), times: TIMES, fighter: fighterOpts(), veil, forced: !!FORCED,
+  selection, belts: menuBelts(), times: TIMES, fighter: fighterOpts(),
+  // The two men of this match as portraits, for the result card.
+  faces: fighters ? [faceOf(fighters[0], progress.gi), faceOf(fighters[1], rivalGi(progress.gi, fighters[1].gi))] : null,
+  paused, veil, forced: !!FORCED,
   records: LADDER.map((b) => (progress.rec && progress.rec[b]) || [0, 0]),
   // The bracket: whose rows are in it, what each round is called, which one
   // is next, and whether the menu is pointed at it.
@@ -388,7 +391,13 @@ const rungMan = (belt) => rungsFor(me().id)[LADDER.indexOf(belt)];
 const BELT_LABEL = { white: 'БЕЛЫЙ', blue: 'СИНИЙ', purple: 'ПУРПУРНЫЙ', brown: 'КОРИЧНЕВЫЙ', black: 'ЧЁРНЫЙ' };
 // How each of them fights, in the words a coach would use (STYLE_INFO).
 const menuBelts = () => LADDER.map((b) => ({ name: b, label: BELT_LABEL[b], col: BELT_COL[b], man: rungMan(b).name,
-  style: STYLE_INFO[rungMan(b).style].label }));
+  style: STYLE_INFO[rungMan(b).style].label, face: faceOf(rungMan(b), rivalGi(progress.gi, rungMan(b).gi)) }));
+// What the HUD needs to draw a man's portrait (hud.js, _avatar): his skin,
+// hair and haircut, the kimono he is in, and his style for the card's colour.
+function faceOf(f, gi) {
+  return { id: f.id, skin: f.skinCol, hair: f.hairCol, look: f.look || 'crop',
+    gi: GI[gi] ? GI[gi].col : GI.white.col, style: f.style };
+}
 // The fighter screen: the four classes, the six men in the one showing, and
 // the three kimonos. `weightTab` is which class is showing, which is the
 // player's own until he looks at another.
@@ -403,7 +412,8 @@ const fighterOpts = () => {
       const full = FIGHTER_BY_ID[f.id];
       const st = statsOf(full, YOU_BASE);
       return { id: f.id, name: f.name, style: STYLE_INFO[f.style].label, long: STYLE_INFO[f.style].long,
-        skin: f.skinCol, hair: f.hairCol, stats: st };
+        skin: f.skinCol, hair: f.hairCol, stats: st,
+        face: faceOf(full, f.id === mine.id ? progress.gi : f.gi) };
     }),
     mine: mine.id,
     myName: mine.name,
@@ -423,6 +433,22 @@ const skills = new Skills();
 // Which of the two title screens is up, which page of the drill list is
 // showing, and the drill in progress if there is one.
 let screen = 'title';
+// The pause: the fight stands still under a card with two ways out of it.
+// Without it the only way out of a match was to lose it or to win it.
+let paused = false;
+// Back to the title card, from wherever: the fight abandoned, the menu on the
+// next fight of the ladder.
+function toMenu() {
+  paused = false;
+  walkout = null;
+  drill = null;
+  drillOver = null;
+  promo = null;
+  screen = 'title';
+  selection.belt = nextCup();
+  newMatch();
+  fade();
+}
 let gymPage = 0;
 let drill = null;
 let drillOver = null;
@@ -983,8 +1009,14 @@ function frame(now) {
       // second, and a thumb still moving from the last exchange would skip it.
       if (promo.t > 0.8) { promo = null; fade(); audio.click(); }
     } else if (match.state === 'over' && !onFs) {
-      selection.belt = nextCup();
-      beginMatch();
+      // Two ways off the card: on to the next fight — anywhere on it, as it
+      // always was — or back to the menu, which until now there was no way
+      // to reach after the first match without reloading the page.
+      if (hud.resultHit(input.pressAt) === 'menu') { audio.click(); toMenu(); }
+      else {
+        selection.belt = nextCup();
+        beginMatch();
+      }
     } else if (tut && tut.done && !onFs) {
       // The lesson is over; the next touch brings out a real opponent.
       selection.belt = nextCup();
@@ -994,7 +1026,7 @@ function frame(now) {
   }
 
   did.stick = input.stick.active || input.stick.mag > 0.3;
-  if (input.flick) {
+  if (input.flick && !paused) {
     const r = match.input(0, input.flick);
     if (r === 'deny') { did.denied = true; audio.click(); }
     else if (r === 'escape') audio.cloth(0.7);
@@ -1037,6 +1069,14 @@ function frame(now) {
     // everything else so a tap on it is never read as a grip or a menu row.
     if (hud.fsHit(input.tapAt)) {
       toggleFullscreen();
+      audio.click();
+    } else if (paused) {
+      const hit = hud.pauseHit(input.tapAt);
+      if (hit === 'resume') { paused = false; audio.click(); }
+      else if (hit === 'menu') { audio.click(); toMenu(); }
+    } else if (!drill && !walkout && (match.state === 'live' || match.state === 'sub')
+               && hud.pauseButtonHit(input.tapAt)) {
+      paused = true;
       audio.click();
     } else if (drillOver) {
       const hit = hud.drillOverHit(input.tapAt);
@@ -1083,6 +1123,16 @@ function frame(now) {
   }
 
   /* --- AI --------------------------------------------------------------- */
+  // Paused, nothing moves: no AI, no clock, no blend — the frame is drawn
+  // with no time in it, under the pause card.
+  if (paused) {
+    drawFrame(now, 0);
+    // The tap that paused is spent here too, or the next frame reads it again
+    // and pauses whatever comes after — a fight started from the menu included.
+    input.endFrame();
+    requestAnimationFrame(frame);
+    return;
+  }
   // The art tooling freezes the sim so a pose can be photographed without the
   // AI walking out of frame mid-shutter.
   if (window.__frozen) {
@@ -1458,7 +1508,7 @@ function drawFrame(now, real) {
   });
   // And onto the tape, exactly as it was drawn. Not while a tool has the
   // picture pinned: a held frame is not something that happened.
-  if (!window.__frozen && window.__still == null) {
+  if (!window.__frozen && window.__still == null && !paused) {
     replay.record(dt, [rig.skel.A, rig.skel.B, referee.skel], camera, {
       ia, ib, flash: [fa.flash, fb.flash],
       gas: [clamp(1 - fa.stamina / 100, 0, 1), clamp(1 - fb.stamina / 100, 0, 1)],
@@ -1491,6 +1541,9 @@ window.__bjj = {
   // The fighter door, and which screen is up, so smoke can tap through it the
   // way a thumb does and words-check can read what it says.
   openFighter: () => { screen = 'fighter'; weightTab = null; },
+  // The pause and the way back to the menu, for smoke.
+  paused: () => paused,
+  toMenu,
   screen: () => screen,
   fighterOpts,
   startDrill: (i) => { const all = drillOrder(skills); startDrill(all[i % all.length]); },

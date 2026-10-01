@@ -411,7 +411,7 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
   const opened = await page.evaluate(() => window.__bjj.screen());
   const lay = await page.evaluate(() => {
     const g = window.__bjj, F = g.hud.fighterLayout(), o = g.fighterOpts();
-    return { tab: F.tab(o.weights.findIndex((w) => w.id === 'heavy')), row: F.row(1),
+    return { tab: F.tab(o.weights.findIndex((w) => w.id === 'heavy')), row: F.card(1),
       gi: F.gi(o.gis.findIndex((k) => k.id === 'black')), back: F.back,
       was: { id: g.me().id, gi: o.gi } };
   });
@@ -441,6 +441,59 @@ check(shot.length > 20000, 'the frame encodes to a real image', `${(shot.length 
     `you ${dressed.mine.map((v) => v.toFixed(2))}, him ${dressed.his.map((v) => v.toFixed(2))}`);
   check(closed === 'title', 'and ГОТОВО goes back to the title', closed);
   await page.evaluate((w) => window.__bjj.pick(w.id, w.gi), lay.was);
+
+  // And the way back from every screen, tapped. The room's and the fighter's
+  // in the header, where no height of glass can push it off; the fight's
+  // through the pause, with the fight standing still behind it; and the
+  // result card's, which until now did not exist — any press there started
+  // the next fight, and nothing led back to the menu at all.
+  const gymBack = await page.evaluate(() => { const g = window.__bjj; g.openGym(); return g.hud.gymLayout().head; });
+  await tapRect(gymBack);
+  const fromGym = await page.evaluate(() => window.__bjj.screen());
+  const figBack = await page.evaluate(() => { const g = window.__bjj; g.openFighter(); return g.hud.fighterLayout().head; });
+  await tapRect(figBack);
+  const fromFighter = await page.evaluate(() => window.__bjj.screen());
+  check(fromGym === 'title' && fromFighter === 'title', 'the room and the fighter go back from their headers',
+    `${fromGym}, ${fromFighter}`);
+
+  const pb = await page.evaluate(() => { const g = window.__bjj; g.toTitle(); g.match().start(); return g.hud.pauseButton(); });
+  await tapRect(pb);
+  const paused = await page.evaluate(async () => {
+    const g = window.__bjj, m = g.match(), t = m.time;
+    await new Promise((r) => setTimeout(r, 1500));
+    return { on: g.paused(), still: m.time === t };
+  });
+  const resume = await page.evaluate(() => window.__bjj.hud.pauseLayout().resume);
+  await tapRect(resume);
+  const resumed = await page.evaluate(() => !window.__bjj.paused());
+  await tapRect(pb);
+  const menuR = await page.evaluate(() => window.__bjj.hud.pauseLayout().menu);
+  await tapRect(menuR);
+  const left = await page.evaluate(() => ({ screen: window.__bjj.screen(), state: window.__bjj.match().state, paused: window.__bjj.paused() }));
+  check(paused.on && paused.still, 'the fight pauses and stands still', JSON.stringify(paused));
+  check(resumed, 'ПРОДОЛЖИТЬ takes it back up');
+  check(left.screen === 'title' && left.state === 'ready' && !left.paused, 'and ВЫЙТИ В МЕНЮ leaves it for the title',
+    JSON.stringify(left));
+
+  const menuOff = await page.evaluate(async () => {
+    const g = window.__bjj;
+    window.__noReplay = true;
+    const m = g.match();
+    m.start();
+    m.f[1].points = 2;
+    m.time = 0.1;
+    for (let i = 0; i < 200 && m.state !== 'over'; i++) await new Promise((r) => setTimeout(r, 100));
+    // The card fits its разбор to the glass when it is drawn; read the
+    // button off the layout it was drawn with.
+    for (let i = 0; i < 100 && g.hud._dbLines === undefined; i++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 1200));
+    return g.hud.resultLayout(g.hud._dbLines ?? 3).menu;
+  });
+  await tapRect(menuOff);
+  const after = await page.evaluate(() => ({ screen: window.__bjj.screen(), state: window.__bjj.match().state, walk: !!window.__bjj.walkout() }));
+  check(after.screen === 'title' && after.state === 'ready' && !after.walk, 'the result card has a way back to the menu',
+    JSON.stringify(after));
+  await page.evaluate(() => { window.__noReplay = false; });
 }
 
 // The room next door. drill-check plays every drill in Node and measures what

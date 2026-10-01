@@ -69,6 +69,7 @@ export class HUD {
     if (match.state === 'live' || match.state === 'sub') {
       this._ring(match, input);
       this._stick(input);
+      if (!opts.drill && !opts.walkout) this._pauseButton();
     }
     // Points, said out loud. Not on a drill: a drill has no score, and a pill
     // announcing four points for a rep would be announcing a number the room
@@ -95,12 +96,13 @@ export class HUD {
     // still there — it is what the same press hands back.
     if (match.state === 'over') this.result = opts.result;
     if (opts.promo) this._promo(opts.promo);
-    else if (match.state === 'over' && !opts.replay) this._result(match);
+    else if (match.state === 'over' && !opts.replay) this._result(match, opts);
     // The first minute's coach, above everything except the result card.
     if (opts.tutorial) {
       if (opts.tutorial.done) this._tutorialDone();
       else if (match.state === 'live' || match.state === 'sub') this._tutorial(opts.tutorial);
     }
+    if (opts.paused) this._pause();
     // The full-screen button and its one-line hint, on every screen.
     this._fullscreen(opts);
     // The cut between screens: a fade from black that covers everything while
@@ -845,7 +847,7 @@ export class HUD {
     // column ran fifteen pixels off the bottom of a phone held sideways, and
     // the one line of rules under the start button was the part cut off.
     const tail = 16 + 24 + 12 + 36 + 24;
-    const pitch = Math.max(24, Math.min(32, (this.h - 10 - beltY - tail) / 5));
+    const pitch = Math.max(20, Math.min(32, (this.h - 10 - beltY - tail) / 5));
     const rowH = pitch - 4;
     const timeY = beltY + 5 * pitch + 16;
     const timeH = 24;
@@ -1027,7 +1029,9 @@ export class HUD {
   _panel(r) {
     const key = `${Math.round(r.w)}x${Math.round(r.h)}@${this.dpr}`;
     const pad = 32;
-    if (!this._panelCache || this._panelCache.key !== key) {
+    this._panels = this._panels || new Map();
+    let cached = this._panels.get(key);
+    if (!cached) {
       const cv = document.createElement('canvas');
       cv.width = Math.ceil((r.w + pad * 2) * this.dpr);
       cv.height = Math.ceil((r.h + pad * 2) * this.dpr);
@@ -1037,9 +1041,11 @@ export class HUD {
       this.ctx = k;
       this._panelDraw({ x: pad, y: pad, w: r.w, h: r.h });
       this.ctx = was;
-      this._panelCache = { key, cv };
+      if (this._panels.size > 12) this._panels.clear();
+      cached = cv;
+      this._panels.set(key, cv);
     }
-    this.ctx.drawImage(this._panelCache.cv, r.x - pad, r.y - pad, r.w + pad * 2, r.h + pad * 2);
+    this.ctx.drawImage(cached, r.x - pad, r.y - pad, r.w + pad * 2, r.h + pad * 2);
   }
 
   _panelDraw(r) {
@@ -1297,22 +1303,93 @@ export class HUD {
     c.stroke();
   }
 
+  // A fighter's portrait: a bust on a badge the colour of his game.
+  //
+  // The men on the mat are two baked heads; a card can afford more than that,
+  // and a list of twenty-four men needs it — so the portrait is drawn, not
+  // rendered: shoulders in the kimono he wears, a neck, a head lit from the
+  // upper left, his haircut (roster.js, `look`) and his beard if he has one,
+  // brows set low the way a fighter's are. Baked once per man and size and
+  // copied after that, like the panel.
+  _avatar(x, y, s, face, on = false) {
+    if (!face) return;
+    const key = `${face.id}|${face.gi}|${Math.round(s)}|${this.dpr}`;
+    this._avatars = this._avatars || new Map();
+    let cv = this._avatars.get(key);
+    if (!cv) {
+      cv = document.createElement('canvas');
+      cv.width = Math.ceil(s * this.dpr);
+      cv.height = Math.ceil(s * this.dpr);
+      const k = cv.getContext('2d');
+      k.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+      drawPortrait(k, s, face);
+      if (this._avatars.size > 96) this._avatars.clear();
+      this._avatars.set(key, cv);
+    }
+    const c = this.ctx;
+    const r = Math.max(4, s * 0.22);
+    if (on) {
+      c.save();
+      c.shadowColor = 'rgba(255,200,80,0.55)';
+      c.shadowBlur = 12;
+      roundRect(c, x, y, s, s, r);
+      c.fillStyle = '#ffd166';
+      c.fill();
+      c.restore();
+    }
+    c.drawImage(cv, x, y, s, s);
+    roundRect(c, x + 0.5, y + 0.5, s - 1, s - 1, r);
+    c.strokeStyle = on ? '#ffd166' : 'rgba(255,255,255,0.18)';
+    c.lineWidth = on ? 2 : 1;
+    c.stroke();
+  }
+
+  // A round button with a chevron, for the way back: in the header of every
+  // screen that is not the title, where no screen size can push it off.
+  _backButton(r) {
+    const c = this.ctx;
+    const cx = r.x + r.w / 2, cy = r.y + r.h / 2, rad = Math.min(r.w, r.h) / 2 - 2;
+    c.beginPath();
+    c.arc(cx, cy, rad, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(255,255,255,0.07)';
+    c.fill();
+    c.strokeStyle = 'rgba(255,209,102,0.55)';
+    c.lineWidth = 1.2;
+    c.stroke();
+    c.strokeStyle = '#ffd166';
+    c.lineWidth = 2.2;
+    c.lineCap = 'round';
+    c.lineJoin = 'round';
+    c.beginPath();
+    c.moveTo(cx + 2, cy - 5.5);
+    c.lineTo(cx - 3.5, cy);
+    c.lineTo(cx + 2, cy + 5.5);
+    c.stroke();
+  }
+
+  // The header back of a sub-screen: the button, where it sits.
+  headBack(L) {
+    return { x: L.left - 6, y: L.top - 44, w: 32, h: 32 };
+  }
+
   // The brand across the top of the column: a word set wide, and under it
   // the belt you are wearing, as a belt.
-  _brand(L, title, sub, beltCol, stripes) {
+  _brand(L, title, sub, beltCol, stripes, back = null) {
     const c = this.ctx;
     c.textAlign = 'left';
+    if (back) this._backButton(back);
+    const tx = back ? back.x + back.w + 8 : L.left;
     const size = Math.round(Math.min(26, this.w * 0.04));
     c.font = `900 ${size}px ${FONT}`;
     this._track(3);
     c.fillStyle = '#fff';
-    c.fillText(title, L.left, L.top - 27);
+    c.fillText(title, tx, L.top - 27);
     const tw = c.measureText(title).width;
     this._track(0);
-    if (beltCol) this._beltBar(L.left, L.top - 13, Math.min(L.mw, tw + 18), 6, beltCol, stripes);
+    if (beltCol) this._beltBar(tx, L.top - 13, Math.min(L.mw, tw + 18), 6, beltCol, stripes);
     else {
       c.fillStyle = '#ffd166';
-      c.fillRect(L.left, L.top - 12, 28, 3);
+      c.fillRect(tx, L.top - 12, 28, 3);
     }
     c.font = `700 10px ${FONT}`;
     c.fillStyle = 'rgba(255,255,255,0.58)';
@@ -1399,15 +1476,23 @@ export class HUD {
         // And how he fights, under his name. Five men with five styles (see
         // STYLES in ai.js) are five different fights, and a player choosing
         // whom to face next should be able to read which.
-        const two = !!b.style && r.h >= 20;
+        // His face, at the end of the row: the man, not the belt.
+        const as = Math.min(r.h - 4, 24);
+        this._avatar(r.x + r.w - 6 - as, mid - as / 2, as, b.face, on);
+        const nx = r.x + r.w - 12 - as;
+        // His style under his name where the row has room for both — and
+        // not where the round's chip already reaches into it.
+        c.font = `600 8px ${FONT}`;
+        const styleW = b.style ? c.measureText(b.style).width : 0;
+        const two = !!b.style && r.h >= 20 && at + 4 < nx - styleW;
         c.font = `800 10px ${FONT}`;
         c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.72)';
-        c.fillText(b.man, r.x + r.w - 10, mid - (two ? 5 : 0));
-        const manW = c.measureText(b.man).width;
+        c.fillText(b.man, nx, mid - (two ? 5 : 0));
+        const manW = c.measureText(b.man).width + as + 6;
         if (two) {
           c.font = `600 8px ${FONT}`;
           c.fillStyle = on ? 'rgba(255,209,102,0.75)' : 'rgba(255,255,255,0.4)';
-          c.fillText(b.style, r.x + r.w - 10, mid + 7);
+          c.fillText(b.style, nx, mid + 7);
         }
         // What you have done to this man, and he to you, once there is
         // something to say — and only where it fits between his name and
@@ -1489,31 +1574,38 @@ export class HUD {
   }
 
   // The fighter: four weight classes across the top, the six men of the one
-  // showing, what the chosen man is like, and the three kimonos. The same
-  // column as the title menu, so the picture behind it has the same window —
-  // and the picture is the point: it is the pair from the ladder, drawn with
-  // the man and the kimono picked here, so a tap on a row changes the body on
-  // the mat and not only a word.
+  // showing as cards with their portraits, what the chosen man is like, and
+  // the three kimonos. The same column as the title menu, so the picture
+  // behind it has the same window — and the picture is the point: it is the
+  // pair from the ladder, drawn with the man and the kimono picked here, so a
+  // tap on a card changes the body on the mat and not only a word.
   fighterLayout() {
     const M = this.menuLayout();
     const { left, mw, top } = M;
-    const tabY = top + 18, tabH = 28;
+    const tabY = top + 18, tabH = 26;
     const tabW = mw / 4;
-    const listY = tabY + tabH + 12;
-    // Six rows in what the glass leaves, like the title's five.
-    const tail = 48 + 24 + 10 + 34 + 16;
-    const pitch = Math.max(22, Math.min(30, (this.h - 10 - listY - tail) / 6));
-    const rowH = pitch - 3;
-    const infoY = listY + 6 * pitch + 4;
-    const giY = infoY + 48;
+    const gridY = tabY + tabH + 10;
+    const GAP = 6;
+    const cardW = (mw - GAP * 2) / 3;
+    // Two rows of three in what the glass leaves. Where it leaves too little
+    // for a face anybody can read, the line about the chosen man goes first.
+    const tailFull = 40 + 12 + 24 + 10 + 34 + 6;
+    const tailShort = 12 + 24 + 10 + 34 + 6;
+    let info = true;
+    let cardH = (this.h - 10 - gridY - tailFull - GAP) / 2;
+    if (cardH < 50) { info = false; cardH = (this.h - 10 - gridY - tailShort - GAP) / 2; }
+    cardH = Math.max(40, Math.min(84, cardH));
+    const infoY = gridY + cardH * 2 + GAP + 6;
+    const giY = infoY + (info ? 40 : 0) + 12;
     const giH = 24;
     const giW = mw / 3;
     const backY = giY + giH + 10;
     return {
-      left, mw, top, tabY, listY, infoY, giY, rowH, pitch,
+      left, mw, top, tabY, gridY, cardW, cardH, info, infoY, giY,
       panel: { x: M.panel.x, y: M.panel.y, w: M.panel.w, h: Math.min(this.h - 6, backY + 34 + 14) - M.panel.y },
+      head: this.headBack(M),
       tab: (i) => ({ x: left + i * tabW, y: tabY, w: tabW, h: tabH }),
-      row: (i) => ({ x: left, y: listY + i * pitch, w: mw, h: rowH }),
+      card: (i) => ({ x: left + (i % 3) * (cardW + GAP), y: gridY + Math.floor(i / 3) * (cardH + GAP), w: cardW, h: cardH }),
       gi: (i) => ({ x: left + i * giW, y: giY, w: giW, h: giH }),
       back: { x: left, y: backY, w: mw, h: 34 },
     };
@@ -1522,8 +1614,9 @@ export class HUD {
   fighterHit(p, f) {
     if (!p || !f) return null;
     const L = this.fighterLayout();
+    if (inside(p, L.head)) return { kind: 'back' };
     for (let i = 0; i < f.weights.length; i++) if (inside(p, L.tab(i))) return { kind: 'weight', value: f.weights[i].id };
-    for (let i = 0; i < f.men.length; i++) if (inside(p, L.row(i))) return { kind: 'man', value: f.men[i].id };
+    for (let i = 0; i < f.men.length; i++) if (inside(p, L.card(i))) return { kind: 'man', value: f.men[i].id };
     for (let i = 0; i < f.gis.length; i++) if (inside(p, L.gi(i))) return { kind: 'gi', value: f.gis[i].id };
     if (inside(p, L.back)) return { kind: 'back' };
     return null;
@@ -1537,33 +1630,46 @@ export class HUD {
     const L = this.fighterLayout();
     this._panel(L.panel);
     const tab = f.weights.find((w) => w.id === f.tab) || f.weights[0];
-    this._brand(L, 'БОЕЦ', `${tab.label.toLowerCase()} · ${tab.limit} · турнир в своём весе`, null, 0);
+    this._brand(L, 'БОЕЦ', `${tab.label.toLowerCase()} · ${tab.limit} · турнир в своём весе`, null, 0, L.head);
 
     // The classes, as one control.
     this._segments(f.weights.map((_, i) => L.tab(i)), f.weights.map((w) => w.label),
       f.weights.findIndex((w) => w.id === f.tab), 10);
 
-    // The men. A face is his skin under a cap of his hair — the two things
-    // about a head that read at the size of a thumbnail.
+    // The men, as cards: his portrait, his name, his game.
     let picked = null;
     for (let i = 0; i < f.men.length; i++) {
       const m = f.men[i];
-      const r = L.row(i);
+      const r = L.card(i);
       const on = m.id === f.mine;
       if (on) picked = m;
-      const mid = r.y + r.h / 2;
-      this._row(r, on);
-      this._face(r.x + 22, mid, Math.min(8, r.h / 2 - 3), m.skin, m.hair, on);
-      c.font = `800 11px ${FONT}`;
-      this._track(0.6);
-      c.textAlign = 'left';
-      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.84)';
-      c.fillText(m.name, r.x + 38, mid + 0.5);
+      roundRect(c, r.x, r.y, r.w, r.h, 10);
+      if (on) {
+        const g = c.createLinearGradient(0, r.y, 0, r.y + r.h);
+        g.addColorStop(0, 'rgba(255,209,102,0.2)');
+        g.addColorStop(1, 'rgba(255,209,102,0.05)');
+        c.fillStyle = g;
+      } else c.fillStyle = 'rgba(255,255,255,0.045)';
+      c.fill();
+      c.strokeStyle = on ? 'rgba(255,209,102,0.8)' : 'rgba(255,255,255,0.08)';
+      c.lineWidth = on ? 1.5 : 1;
+      c.stroke();
+      const nameH = r.h >= 56 ? 22 : 13;
+      const s = Math.max(20, Math.min(r.w - 14, r.h - nameH - 10));
+      this._avatar(r.x + (r.w - s) / 2, r.y + 5, s, m.face, on);
+      c.textAlign = 'center';
+      let px = 10;
+      this._track(0.5);
+      do { c.font = `800 ${px}px ${FONT}`; } while (px-- > 7 && c.measureText(m.name).width > r.w - 6);
+      c.fillStyle = on ? '#fff' : 'rgba(255,255,255,0.86)';
+      c.fillText(m.name, r.x + r.w / 2, r.y + 5 + s + (nameH > 13 ? 8 : 7));
       this._track(0);
-      c.textAlign = 'right';
-      c.font = `700 9px ${FONT}`;
-      c.fillStyle = on ? '#ffd166' : 'rgba(255,255,255,0.5)';
-      c.fillText(m.style, r.x + r.w - 10, mid + 0.5);
+      if (nameH > 13) {
+        let sp = 8;
+        do { c.font = `700 ${sp}px ${FONT}`; } while (sp-- > 6 && c.measureText(m.style).width > r.w - 6);
+        c.fillStyle = on ? 'rgba(255,209,102,0.9)' : 'rgba(255,255,255,0.46)';
+        c.fillText(m.style, r.x + r.w / 2, r.y + 5 + s + 19);
+      }
       c.textAlign = 'left';
     }
 
@@ -1571,14 +1677,15 @@ export class HUD {
     // as bars — the same three a Fighter carries, so what is drawn is what
     // the match reads.
     const show = picked || f.men[0];
-    if (show) {
+    if (show && L.info) {
       c.font = `700 9px ${FONT}`;
       c.fillStyle = picked ? 'rgba(255,209,102,0.9)' : 'rgba(255,255,255,0.5)';
-      c.fillText(picked ? `ты: ${show.long}` : 'коснись, чтобы выбрать', L.left, L.infoY + 6);
+      c.fillText(picked ? `${show.name.charAt(0)}${show.name.slice(1).toLowerCase()} — ${show.long}` : 'коснись, чтобы выбрать',
+        L.left, L.infoY + 6);
       const bars = [['СИЛА', show.stats.strength], ['ТЕХНИКА', show.stats.technique], ['ДЫХАНИЕ', show.stats.cardio]];
       const bw = (L.mw - 16) / 3;
       for (let k = 0; k < 3; k++) {
-        const x = L.left + k * (bw + 8), y = L.infoY + 20;
+        const x = L.left + k * (bw + 8), y = L.infoY + 21;
         c.font = `800 7px ${FONT}`;
         this._track(1);
         c.fillStyle = 'rgba(255,255,255,0.46)';
@@ -1653,6 +1760,7 @@ export class HUD {
     return {
       left, mw, top, rowH, pitch, listY, footY,
       panel: { x: M.panel.x, y: M.panel.y, w: M.panel.w, h: Math.min(this.h - 6, footY + 30 + 14) - M.panel.y },
+      head: this.headBack(M),
       row: (i) => ({ x: left, y: listY + i * pitch, w: mw, h: rowH }),
       more: { x: left, y: footY, w: fw, h: 30 },
       back: { x: left + fw + 8, y: footY, w: fw, h: 30 },
@@ -1662,6 +1770,7 @@ export class HUD {
   gymHit(p) {
     if (!p) return null;
     const L = this.gymLayout();
+    if (inside(p, L.head)) return { kind: 'back' };
     if (inside(p, L.more)) return { kind: 'more' };
     if (inside(p, L.back)) return { kind: 'back' };
     for (let i = 0; i < this.GYM_ROWS; i++) if (inside(p, L.row(i))) return { kind: 'drill', value: i };
@@ -1675,7 +1784,7 @@ export class HUD {
     this._panel(L.panel);
     const list = opts.gymList || [];
     const gym = opts.gym || { drilled: 0, total: 0, page: 0, pages: 1 };
-    this._brand(L, 'ЗАЛ', `отработка приёмов · освоено ${gym.drilled} из ${gym.total}`, null, 0);
+    this._brand(L, 'ЗАЛ', `отработка приёмов · освоено ${gym.drilled} из ${gym.total}`, null, 0, L.head);
 
     for (let i = 0; i < this.GYM_ROWS; i++) {
       const d = list[i];
@@ -1716,7 +1825,7 @@ export class HUD {
     // scorebug is not drawn, and both bottom corners are under a thumb for the
     // whole session. It first sat bottom right and landed on the ring's own
     // label for the button underneath it.
-    return { x: 16, y: 16, w: 62, h: 22 };
+    return { x: 10, y: 12, w: 36, h: 36 };
   }
 
   drillExitHit(p) {
@@ -1725,30 +1834,30 @@ export class HUD {
 
   _drillBar(d) {
     const c = this.ctx;
-    const w = Math.min(560, this.w - 28);
-    const x = (this.w - w) / 2;
-    roundRect(c, x, 8, w, 42, 8);
-    c.fillStyle = 'rgba(6,9,14,0.78)';
-    c.fill();
-    c.strokeStyle = 'rgba(255,255,255,0.10)';
-    c.lineWidth = 1;
-    c.stroke();
+    const ex = this.drillExit();
+    // Beside the way out, not over it: centred, the banner sat on top of the
+    // exit button on any phone narrower than about seven hundred pixels.
+    const x = Math.max((this.w - Math.min(560, this.w - 28)) / 2, ex.x + ex.w + 10);
+    const w = Math.min(560, this.w - x - 14);
+    this._panel({ x, y: 8, w, h: 44 });
 
     c.textAlign = 'left';
-    c.font = `800 13px ${FONT}`;
+    c.font = `900 13px ${FONT}`;
+    this._track(0.8);
     c.fillStyle = '#fff';
-    c.fillText(d.name, x + 12, 22);
-    c.font = `600 9px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.5)';
-    c.fillText(`${d.from} · ${d.round} · нужно ${d.need} из ${d.reps}`, x + 12, 37);
+    c.fillText(d.name, x + 14, 23);
+    this._track(0);
+    c.font = `700 9px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.52)';
+    c.fillText(`${d.from} · ${d.round} · нужно ${d.need} из ${d.reps}`, x + 14, 38);
 
     // Six pips, filled as the attempts go by. Green landed, red not; the ones
     // still to come are hollow, so the row reads as "how much of this is left"
     // as well as "how it is going".
     for (let i = 0; i < d.reps; i++) {
-      const px = x + w - 14 - (d.reps - 1 - i) * 15;
+      const px = x + w - 16 - (d.reps - 1 - i) * 15;
       c.beginPath();
-      c.arc(px, 26, 5, 0, Math.PI * 2);
+      c.arc(px, 30, 5, 0, Math.PI * 2);
       const r = d.marks[i];
       c.fillStyle = r === 'hit' ? 'rgba(110,220,140,0.95)'
         : r ? 'rgba(230,110,110,0.85)' : 'rgba(255,255,255,0.14)';
@@ -1759,35 +1868,102 @@ export class HUD {
     // thumbs.
     c.textAlign = 'center';
     c.font = `600 11px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.62)';
-    c.fillText(d.hint, this.w / 2, 62);
+    c.fillStyle = 'rgba(255,255,255,0.66)';
+    c.fillText(d.hint, this.w / 2, 66);
     c.textAlign = 'left';
 
-    const b = this.drillExit();
-    roundRect(c, b.x, b.y, b.w, b.h, 6);
-    c.fillStyle = 'rgba(8,11,17,0.62)';
+    // The way out, as the menu's own back button.
+    this._backButton({ x: ex.x, y: ex.y, w: 36, h: 36 });
+  }
+
+
+  /* ---------------------------------------------------------- cards */
+
+  // A card in the middle of the glass: the menu's panel, centred, over a
+  // dimmed frame. The pause, the end of a drill and the result are all one.
+  _cardBack(a = 0.66) {
+    const c = this.ctx;
+    c.fillStyle = `rgba(3,5,9,${a})`;
+    c.fillRect(0, 0, this.w, this.h);
+  }
+
+  // The pause button, in the fight: under the scorebug on the left, the one
+  // corner of a phone held sideways that no thumb and no number is using.
+  pauseButton() {
+    return { x: 10, y: 72, w: 36, h: 36 };
+  }
+
+  pauseButtonHit(p) {
+    return !!p && inside(p, this.pauseButton());
+  }
+
+  _pauseButton() {
+    const c = this.ctx;
+    const b = this.pauseButton();
+    const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    c.beginPath();
+    c.arc(cx, cy, 15, 0, Math.PI * 2);
+    c.fillStyle = 'rgba(8,11,17,0.55)';
     c.fill();
-    c.strokeStyle = 'rgba(255,255,255,0.16)';
+    c.strokeStyle = 'rgba(255,255,255,0.18)';
     c.lineWidth = 1;
     c.stroke();
-    c.font = `700 10px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.8)';
+    c.fillStyle = 'rgba(255,255,255,0.88)';
+    roundRect(c, cx - 5, cy - 6, 3.5, 12, 1.2);
+    c.fill();
+    roundRect(c, cx + 1.5, cy - 6, 3.5, 12, 1.2);
+    c.fill();
+  }
+
+  pauseLayout() {
+    const w = Math.min(300, this.w - 40);
+    const h = 156;
+    const x = (this.w - w) / 2, y = (this.h - h) / 2;
+    return {
+      panel: { x, y, w, h },
+      resume: { x: x + 20, y: y + 62, w: w - 40, h: 36 },
+      menu: { x: x + 20, y: y + 106, w: w - 40, h: 32 },
+    };
+  }
+
+  pauseHit(p) {
+    if (!p) return null;
+    const L = this.pauseLayout();
+    if (inside(p, L.resume)) return 'resume';
+    if (inside(p, L.menu)) return 'menu';
+    return null;
+  }
+
+  _pause() {
+    const c = this.ctx;
+    this._cardBack(0.6);
+    const L = this.pauseLayout();
+    this._panel(L.panel);
     c.textAlign = 'center';
-    c.fillText('ВЫЙТИ', b.x + b.w / 2, b.y + b.h / 2);
-    c.textAlign = 'left';
+    c.font = `900 20px ${FONT}`;
+    this._track(3);
+    c.fillStyle = '#fff';
+    c.fillText('ПАУЗА', L.panel.x + L.panel.w / 2, L.panel.y + 28);
+    this._track(0);
+    c.font = `600 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.fillText('выход в меню — бой не засчитывается', L.panel.x + L.panel.w / 2, L.panel.y + 46);
+    this._primary(L.resume, 'ПРОДОЛЖИТЬ');
+    this._ghost(L.menu, 'ВЫЙТИ В МЕНЮ');
   }
 
   // What a finished round says. Two buttons, because after a drill there are
   // exactly two things anybody wants: again, or something else.
   drillOverLayout() {
-    const w = Math.min(320, this.w * 0.6);
+    const w = Math.min(320, this.w - 40);
     const x = (this.w - w) / 2;
-    const y = this.h * 0.5 - 40;
-    const bw = (w - 10) / 2;
+    const h = 146;
+    const y = (this.h - h) / 2;
+    const bw = (w - 40 - 10) / 2;
     return {
-      x, y, w, h: 120,
-      again: { x, y: y + 78, w: bw, h: 30 },
-      back: { x: x + bw + 10, y: y + 78, w: bw, h: 30 },
+      x, y, w, h,
+      again: { x: x + 20, y: y + h - 50, w: bw, h: 34 },
+      back: { x: x + 20 + bw + 10, y: y + h - 50, w: bw, h: 34 },
     };
   }
 
@@ -1801,39 +1977,170 @@ export class HUD {
 
   _drillOver(d) {
     const c = this.ctx;
-    c.fillStyle = 'rgba(3,5,9,0.66)';
-    c.fillRect(0, 0, this.w, this.h);
+    this._cardBack(0.66);
     const L = this.drillOverLayout();
-    roundRect(c, L.x, L.y, L.w, L.h, 10);
-    c.fillStyle = 'rgba(9,13,20,0.94)';
-    c.fill();
-    c.strokeStyle = d.passed ? 'rgba(255,209,102,0.6)' : 'rgba(255,255,255,0.14)';
-    c.lineWidth = 1;
-    c.stroke();
+    this._panel({ x: L.x, y: L.y, w: L.w, h: L.h });
+    const mx = L.x + L.w / 2;
+    c.textAlign = 'center';
+    c.font = `900 20px ${FONT}`;
+    this._track(3);
+    c.fillStyle = d.passed ? '#ffd166' : 'rgba(255,255,255,0.92)';
+    c.fillText(d.passed ? 'СДАНО' : 'НЕ СДАНО', mx, L.y + 28);
+    this._track(0);
+    // The attempts as the banner showed them: one pip each, green or not.
+    const n = d.reps || 0;
+    for (let i = 0; i < n; i++) {
+      const px = mx - (n - 1) * 8 + i * 16;
+      c.beginPath();
+      c.arc(px, L.y + 50, 5, 0, Math.PI * 2);
+      c.fillStyle = i < d.hits ? 'rgba(110,220,140,0.95)' : 'rgba(255,255,255,0.14)';
+      c.fill();
+    }
+    c.font = `600 10px ${FONT}`;
+    c.fillStyle = d.raised ? '#ffd166' : 'rgba(255,255,255,0.55)';
+    c.fillText(`${d.hits} из ${d.reps} · нужно ${d.need} · ${d.note}`, mx, L.y + 70);
+    c.textAlign = 'left';
+    this._primary(L.again, 'ЕЩЁ РАЗ');
+    this._ghost(L.back, 'В ЗАЛ');
+  }
+
+  // The result: who won and how, the two men face to face with the score
+  // between them, what it meant for the tournament, the разбор, and two ways
+  // on — the next fight, which any press still is, and the menu.
+  resultLayout(rows = 3) {
+    const w = Math.min(440, this.w - 32);
+    const short = this.h < 360;
+    const av = short ? 40 : 54;
+    const lineH = 14;
+    const need = 24 + 26 + 14 + 10 + av + 16 + 18 + 16 + rows * lineH + 12 + 36 + 18;
+    const h = Math.min(this.h - 16, need);
+    const x = (this.w - w) / 2, y = (this.h - h) / 2;
+    const bw = (w - 40 - 10);
+    return {
+      panel: { x, y, w, h }, av, lineH, need,
+      next: { x: x + 20 + bw * 0.34 + 10, y: y + h - 52, w: bw * 0.66, h: 36 },
+      menu: { x: x + 20, y: y + h - 50, w: bw * 0.34, h: 32 },
+    };
+  }
+
+  resultHit(p) {
+    if (!p) return null;
+    const L = this.resultLayout(this._dbLines || 3);
+    if (inside(p, L.menu)) return 'menu';
+    return 'next';
+  }
+
+  _result(m, opts = {}) {
+    const c = this.ctx;
+    this._cardBack(0.7);
+    // The разбор. Read once, off the tape the match kept of itself, and held
+    // for as long as the card is up — debrief() walks the whole tape and this
+    // card is drawn sixty times a second.
+    //
+    // It is here rather than on a screen of its own because a card that says
+    // only who won is a card nobody reads twice, and because the thing a
+    // beaten player wants is not a tutorial, it is the answer to "what did I
+    // do". Three lines, each one a fact about this match and a fix.
+    if (this._dbTape !== m.tape) { this._dbTape = m.tape; this._db = m.debrief(); }
+    const all = (this._db && this._db.lines) || [];
+    const r = this.result;
+    const gym = r && r.drill && r.drill.tries > 1 ? r.drill : null;
+    // As many lines as the glass has room for.
+    let rows = all.length + (gym ? 1 : 0);
+    while (rows > 0 && this.resultLayout(rows).need > this.h - 16) rows--;
+    const L = this.resultLayout(rows);
+    this._dbLines = rows;
+    this._panel(L.panel);
+    const P = L.panel, mx = P.x + P.w / 2;
+    let y = P.y + 26;
 
     c.textAlign = 'center';
-    c.font = `800 18px ${FONT}`;
-    c.fillStyle = d.passed ? '#ffd166' : 'rgba(255,255,255,0.9)';
-    c.fillText(d.passed ? 'СДАНО' : 'НЕ СДАНО', L.x + L.w / 2, L.y + 26);
-    c.font = `600 11px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.7)';
-    c.fillText(`${d.hits} из ${d.reps} · нужно ${d.need}`, L.x + L.w / 2, L.y + 48);
-    c.font = `600 10px ${FONT}`;
-    c.fillStyle = d.raised ? '#ffd166' : 'rgba(255,255,255,0.45)';
-    c.fillText(d.note, L.x + L.w / 2, L.y + 66);
+    const word = m.winner === 0 ? 'ПОБЕДА' : m.winner === 1 ? 'ПОРАЖЕНИЕ' : 'НИЧЬЯ';
+    c.font = `900 22px ${FONT}`;
+    this._track(4);
+    c.fillStyle = m.winner === 0 ? '#5fe09a' : m.winner === 1 ? '#ff7a64' : '#fff';
+    c.fillText(word, mx, y);
+    this._track(0);
+    y += 20;
+    const by = { submission: 'сдачей', points: 'по очкам', advantages: 'по преимуществам', draw: '' };
+    c.font = `700 10px ${FONT}`;
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    const winner = m.winner === null ? '' : m.winner === 0 ? 'ты' : m.f[m.winner].name.toLowerCase();
+    c.fillText(m.winner === null ? 'очки и преимущества поровну' : `${winner} — ${by[m.winBy] || ''}`, mx, y);
+    y += 14;
 
-    for (const [rect, label] of [[L.again, 'ЕЩЁ РАЗ'], [L.back, 'В ЗАЛ']]) {
-      roundRect(c, rect.x, rect.y, rect.w, rect.h, 7);
-      c.fillStyle = 'rgba(255,255,255,0.08)';
+    // Face to face, the score between them.
+    const faces = opts.faces;
+    const ay = y;
+    const gap = Math.min(150, P.w * 0.36);
+    if (faces) {
+      this._avatar(mx - gap - L.av / 2, ay, L.av, faces[0], m.winner === 0);
+      this._avatar(mx + gap - L.av / 2, ay, L.av, faces[1], m.winner === 1);
+      c.font = `800 9px ${FONT}`;
+      this._track(1);
+      c.fillStyle = 'rgba(255,255,255,0.7)';
+      c.fillText('ТЫ', mx - gap, ay + L.av + 11);
+      c.fillText(m.f[1].name, mx + gap, ay + L.av + 11);
+      this._track(0);
+    }
+    c.font = `900 ${L.av > 44 ? 34 : 28}px ${FONT}`;
+    c.fillStyle = '#fff';
+    c.fillText(`${m.f[0].points} : ${m.f[1].points}`, mx, ay + L.av / 2 + 2);
+    const adv = m.f[0].advantages || m.f[1].advantages;
+    if (adv) {
+      c.font = `700 9px ${FONT}`;
+      c.fillStyle = 'rgba(255,255,255,0.45)';
+      c.fillText(`преимущества ${m.f[0].advantages} : ${m.f[1].advantages}`, mx, ay + L.av / 2 + 24);
+    }
+    y = ay + L.av + 28;
+
+    // What the win was worth, in the tournament the fight was for.
+    if (r) {
+      const beat = r.beatLabel || r.beat, next = r.nextLabel || r.next;
+      const k = r.cup;
+      const line = k && k.kind === 'title'
+        ? (r.champion && !r.climbed ? `турнир чёрных поясов взят — выше некуда`
+          : `турнир взят  ·  ты ${next} пояс`)
+        : k && k.kind === 'next' ? `${k.round} взят  ·  дальше ${k.nextRound} — ${k.nextMan}`
+        : k && k.kind === 'out' ? (k.size > 1 ? `вылет в ${k.round}е  ·  новый турнир с ${k.first}а` : `${k.round} проигран  ·  ещё раз`)
+        : r.spar ? `спарринг  ·  в турнире ждёт ${r.cupRound} — ${r.cupMan}`
+        : r.champion && r.won ? `ты прошёл всю лестницу — ${beat} пояс взят`
+        : r.climbed ? `${beat} пояс взят  ·  следующий: ${next}`
+        : r.won ? `${beat} пояс взят`
+        : `${beat} пояс — ещё раз`;
+      c.font = `800 10px ${FONT}`;
+      const tw = Math.min(P.w - 30, c.measureText(line).width + 22);
+      roundRect(c, mx - tw / 2, y - 9, tw, 18, 9);
+      c.fillStyle = r.won ? 'rgba(255,209,102,0.16)' : 'rgba(255,255,255,0.07)';
       c.fill();
-      c.strokeStyle = 'rgba(255,255,255,0.2)';
-      c.lineWidth = 1;
-      c.stroke();
-      c.font = `700 11px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.9)';
-      c.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
+      c.fillStyle = r.won ? '#ffd166' : 'rgba(255,255,255,0.78)';
+      c.fillText(line, mx, y + 0.5);
+      y += 22;
+    }
+
+    // Разбор: what this match was, in the game's own numbers — and where to
+    // go about it: the room next door has already put that move first.
+    const lines = gym
+      ? [`в зале: ${gym.name.toLowerCase()} — ${plural(gym.tries, 'заход', 'захода', 'заходов')} за бой`, ...all]
+      : all.slice();
+    if (rows > 0) {
+      c.fillStyle = 'rgba(255,255,255,0.08)';
+      c.fillRect(P.x + 30, y - 4, P.w - 60, 1);
+      y += 8;
+      for (let i = 0; i < rows && i < lines.length; i++) {
+        c.font = `600 10px ${FONT}`;
+        c.fillStyle = gym && i === 0 ? 'rgba(255,209,102,0.85)' : 'rgba(255,255,255,0.78)';
+        let t = lines[i];
+        while (t.length > 4 && c.measureText(t).width > P.w - 30) t = t.slice(0, -2) + '…';
+        c.fillText(t, mx, y + i * L.lineH);
+      }
     }
     c.textAlign = 'left';
+
+    const label = r && r.cup && r.cup.kind === 'out' && r.cup.size > 1 ? 'НОВЫЙ ТУРНИР'
+      : r && !r.won ? 'ЕЩЁ РАЗ' : 'ДАЛЬШЕ';
+    this._primary(L.next, label);
+    this._ghost(L.menu, 'МЕНЮ');
   }
 
   // Where the belt is drawn, so a tool can read the picture at the pixel
@@ -1940,24 +2247,28 @@ export class HUD {
     // against the text rather than picked and hoped for.
     const title = `${p.label} ПОЯС`;
     let size = Math.round(Math.min(34, h * 0.075));
-    c.font = `800 ${size}px ${FONT}`;
+    c.font = `900 ${size}px ${FONT}`;
+    this._track(3);
     const room = Math.min(w - 40, 460);
     const got = c.measureText(title).width;
     if (got > room) {
       size = Math.max(14, Math.floor(size * room / got));
-      c.font = `800 ${size}px ${FONT}`;
+      c.font = `900 ${size}px ${FONT}`;
     }
     const titleY = by - 22 - size / 2;
     c.fillStyle = '#fff';
     c.fillText(title, w / 2, titleY);
+    this._track(0);
 
     // And what kind of moment this is, above it — measured off the title's own
     // size, because the first version put it at a fixed offset and the two
     // lines landed on top of each other.
-    c.font = `700 10px ${FONT}`;
-    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.font = `800 10px ${FONT}`;
+    this._track(2.5);
+    c.fillStyle = 'rgba(255,209,102,0.9)';
     c.fillText(p.champion ? 'ЛЕСТНИЦА ПРОЙДЕНА' : p.rounds > 1 ? 'ТУРНИР ВЗЯТ · НОВЫЙ ПОЯС' : 'НОВЫЙ ПОЯС',
       w / 2, titleY - size / 2 - 12);
+    this._track(0);
 
     // Who it came off, and who is next. Two short lines under the band,
     // because a belt with nobody's name on it is a trophy for nothing.
@@ -1971,99 +2282,14 @@ export class HUD {
 
     // The way out, and it appears exactly when it starts working.
     if (p.t > 0.8) {
-      c.font = `600 11px ${FONT}`;
-      c.fillStyle = '#ffd166';
-      c.globalAlpha = 0.5 + 0.5 * Math.sin(this.pulse * 3);
-      c.fillText('КОСНИСЬ, ЧТОБЫ ПРОДОЛЖИТЬ', w / 2, h - 34);
+      c.globalAlpha = 0.6 + 0.4 * Math.sin(this.pulse * 3);
+      this._ghost({ x: w / 2 - 110, y: h - 50, w: 220, h: 30 }, 'КОСНИСЬ, ЧТОБЫ ПРОДОЛЖИТЬ');
       c.globalAlpha = 1;
+      c.textAlign = 'center';
     }
     c.textAlign = 'left';
   }
 
-  _result(m) {
-    const c = this.ctx;
-    c.fillStyle = 'rgba(4,6,10,0.78)';
-    c.fillRect(0, 0, this.w, this.h);
-    c.textAlign = 'center';
-
-    // The разбор. Read once, off the tape the match kept of itself, and held
-    // for as long as the card is up — debrief() walks the whole tape and this
-    // card is drawn sixty times a second.
-    //
-    // It is here rather than on a screen of its own because a card that says
-    // only who won is a card nobody reads twice, and because the thing a
-    // beaten player wants is not a tutorial, it is the answer to "what did I
-    // do". Three lines, each one a fact about this match and a fix.
-    if (this._dbTape !== m.tape) { this._dbTape = m.tape; this._db = m.debrief(); }
-    const lines = (this._db && this._db.lines) || [];
-    const extra = lines.length ? lines.length * 15 + 14 : 0;
-    const base = this.h / 2 - extra / 2;
-    const win = m.winner === null ? 'НИЧЬЯ' : `${m.f[m.winner].name.toUpperCase()}`;
-    c.fillStyle = m.winner === 0 ? '#4fd48a' : m.winner === 1 ? '#ff6a55' : '#fff';
-    c.font = `800 28px ${FONT}`;
-    c.fillText(win, this.w / 2, base - 24);
-    c.fillStyle = 'rgba(255,255,255,0.7)';
-    c.font = `600 13px ${FONT}`;
-    const by = { submission: 'победа сдачей', points: 'победа по очкам', advantages: 'победа по преимуществам', draw: '' };
-    c.fillText(by[m.winBy] || '', this.w / 2, base + 2);
-    c.font = `700 16px ${FONT}`;
-    c.fillStyle = '#fff';
-    c.fillText(`${m.f[0].points} — ${m.f[1].points}`, this.w / 2, base + 30);
-    // What the win was worth. A result card that says only who won is a card
-    // nobody reads twice; this one says which belt was in front of you and
-    // which one is next, because that is the whole of the career mode.
-    const r = this.result;
-    if (r) {
-      c.font = `600 11px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.66)';
-      const beat = r.beatLabel || r.beat, next = r.nextLabel || r.next;
-      // The tournament first, because that is what the fight was for: through,
-      // out, or the belt. Without one (a tool forcing the belt) the old line.
-      const k = r.cup;
-      const line = k && k.kind === 'title'
-        ? (r.champion && !r.climbed ? `турнир чёрных поясов взят — выше некуда`
-          : `турнир взят  ·  ты ${next} пояс`)
-        : k && k.kind === 'next' ? `${k.round} взят  ·  дальше ${k.nextRound} — ${k.nextMan}`
-        : k && k.kind === 'out' ? (k.size > 1 ? `вылет в ${k.round}е  ·  новый турнир с ${k.first}а` : `${k.round} проигран  ·  ещё раз`)
-        : r.spar ? `спарринг  ·  в турнире ждёт ${r.cupRound} — ${r.cupMan}`
-        : r.champion && r.won ? `ты прошёл всю лестницу — ${beat} пояс взят`
-        : r.climbed ? `${beat} пояс взят  ·  следующий: ${next}`
-        : r.won ? `${beat} пояс взят`
-        : `${beat} пояс — ещё раз`;
-      c.fillText(line, this.w / 2, base + 48);
-    }
-    // And where to go about it. The разбор says what happened; this says what
-    // to do next, and the room next door has already put that move on its
-    // first row — see drillOrder.
-    const gym = r && r.drill && r.drill.tries > 1 ? r.drill : null;
-    if (gym) {
-      c.font = `600 10px ${FONT}`;
-      c.fillStyle = 'rgba(255,209,102,0.75)';
-      c.fillText(`в зале: ${gym.name.toLowerCase()} — ${plural(gym.tries, 'заход', 'захода', 'заходов')} за бой`,
-        this.w / 2, base + 64);
-    }
-    const push = gym ? 16 : 0;
-    // Разбор: what this match was, in the game's own numbers.
-    if (lines.length) {
-      const ly = base + 76 + push;
-      c.strokeStyle = 'rgba(255,255,255,0.12)';
-      c.lineWidth = 1;
-      c.beginPath();
-      c.moveTo(this.w / 2 - 90, ly - 12);
-      c.lineTo(this.w / 2 + 90, ly - 12);
-      c.stroke();
-      c.font = `600 11px ${FONT}`;
-      c.fillStyle = 'rgba(255,255,255,0.8)';
-      for (let i = 0; i < lines.length; i++) c.fillText(lines[i], this.w / 2, ly + i * 15);
-    }
-    c.font = `600 12px ${FONT}`;
-    c.fillStyle = '#ffd166';
-    c.globalAlpha = 0.55 + 0.45 * Math.sin(this.pulse * 3);
-    c.fillText(r && r.cup && r.cup.kind === 'out' && r.cup.size > 1 ? 'КОСНИСЬ — НОВЫЙ ТУРНИР'
-      : r && !r.won ? 'КОСНИСЬ, ЧТОБЫ ПОПРОБОВАТЬ СНОВА' : 'КОСНИСЬ, ЧТОБЫ ВЫЙТИ НА СЛЕДУЮЩЕГО',
-      this.w / 2, base + 70 + push + extra);
-    c.globalAlpha = 1;
-  }
 }
 
 // How long the score pill lives, in seconds. Shared with main.js, which is
@@ -2163,4 +2389,210 @@ function wrapText(c, text, x, y, maxW, lh) {
   if (line) lines.push(line);
   const start = y - ((lines.length - 1) * lh) / 2;
   lines.forEach((l, i) => c.fillText(l, x, start + i * lh));
+}
+
+// The colour of each way of fighting, for the badge a portrait sits on.
+const STYLE_HUE = {
+  wrestler: ['#e0703f', '#5a1d0c'],
+  guard: ['#36b3a5', '#0b3a36'],
+  escape: ['#9a74e6', '#2a1652'],
+  pressure: ['#5a86d4', '#13244a'],
+  finisher: ['#d8445c', '#4a0c18'],
+};
+
+// The portrait itself, at size s, into a context of its own. Every measure is
+// a fraction of s, so the same face reads at thirty pixels and at sixty.
+function drawPortrait(c, s, f) {
+  const P = (v) => v * s;
+  const [hi, lo] = STYLE_HUE[f.style] || ['#6a7488', '#1a1f2b'];
+  const r = Math.max(4, s * 0.22);
+  c.save();
+  roundRect(c, 0, 0, s, s, r);
+  c.clip();
+  // The badge: his game's colour, lit from above, with a fine diagonal grain.
+  const bg = c.createRadialGradient(P(0.35), P(0.2), P(0.05), P(0.5), P(0.5), P(0.85));
+  bg.addColorStop(0, hi);
+  bg.addColorStop(1, lo);
+  c.fillStyle = bg;
+  c.fillRect(0, 0, s, s);
+  c.strokeStyle = 'rgba(255,255,255,0.06)';
+  c.lineWidth = Math.max(1, s * 0.02);
+  for (let k = -s; k < s * 2; k += s * 0.12) {
+    c.beginPath();
+    c.moveTo(k, 0);
+    c.lineTo(k - s, s);
+    c.stroke();
+  }
+
+  const skin = f.skin, hair = f.hair;
+  const tone = (col, m) => srgb([col[0] * m, col[1] * m, col[2] * m]);
+  const look = f.look || 'crop';
+  const beard = look.includes('beard');
+  const cut = look.split('+')[0];
+
+  // Hair that falls behind the head goes first.
+  if (cut === 'long') {
+    c.fillStyle = tone(hair, 1);
+    roundRect(c, P(0.29), P(0.24), P(0.42), P(0.46), P(0.14));
+    c.fill();
+  }
+
+  // The shoulders, in his kimono: lit across the top, the lapels crossing
+  // into a V at the chest.
+  const gi = f.gi || [0.88, 0.89, 0.87];
+  const giG = c.createLinearGradient(0, P(0.68), 0, s);
+  giG.addColorStop(0, tone(gi, 1.12));
+  giG.addColorStop(1, tone(gi, 0.62));
+  c.fillStyle = giG;
+  c.beginPath();
+  c.moveTo(P(0.02), s);
+  c.bezierCurveTo(P(0.04), P(0.82), P(0.2), P(0.73), P(0.37), P(0.71));
+  c.lineTo(P(0.63), P(0.71));
+  c.bezierCurveTo(P(0.8), P(0.73), P(0.96), P(0.82), P(0.98), s);
+  c.closePath();
+  c.fill();
+  // The neck, and the skin the lapels leave open.
+  c.fillStyle = tone(skin, 0.82);
+  c.fillRect(P(0.42), P(0.55), P(0.16), P(0.2));
+  c.beginPath();
+  c.moveTo(P(0.4), P(0.71));
+  c.lineTo(P(0.6), P(0.71));
+  c.lineTo(P(0.5), P(0.9));
+  c.closePath();
+  c.fill();
+  // The lapels: a darker band on a white kimono, a lighter one on a dark.
+  const light = gi[0] + gi[1] + gi[2] > 1.2;
+  c.strokeStyle = light ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.22)';
+  c.lineWidth = P(0.07);
+  c.lineCap = 'butt';
+  c.beginPath();
+  c.moveTo(P(0.36), P(0.7));
+  c.lineTo(P(0.52), P(1.0));
+  c.moveTo(P(0.64), P(0.7));
+  c.lineTo(P(0.48), P(1.0));
+  c.stroke();
+
+  // The head: an oval lit from the upper left, ears a shade darker.
+  c.fillStyle = tone(skin, 0.78);
+  for (const ex of [0.305, 0.695]) {
+    c.beginPath();
+    c.ellipse(P(ex), P(0.45), P(0.035), P(0.06), 0, 0, Math.PI * 2);
+    c.fill();
+  }
+  const hg = c.createRadialGradient(P(0.43), P(0.33), P(0.03), P(0.5), P(0.43), P(0.26));
+  hg.addColorStop(0, tone(skin, 1.22));
+  hg.addColorStop(0.7, tone(skin, 0.98));
+  hg.addColorStop(1, tone(skin, 0.74));
+  c.fillStyle = hg;
+  c.beginPath();
+  c.ellipse(P(0.5), P(0.43), P(0.19), P(0.235), 0, 0, Math.PI * 2);
+  c.fill();
+
+  // The haircut, clipped to above a hairline that dips to the brow at the
+  // middle.
+  const hairFill = () => {
+    c.save();
+    c.beginPath();
+    c.moveTo(0, 0);
+    c.lineTo(s, 0);
+    c.lineTo(s, P(0.43));
+    c.lineTo(P(0.7), P(0.43));
+    c.quadraticCurveTo(P(0.5), P(0.25), P(0.3), P(0.43));
+    c.lineTo(0, P(0.43));
+    c.closePath();
+    c.clip();
+    c.beginPath();
+    c.ellipse(P(0.5), P(0.42), P(0.205), P(0.25), 0, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+  };
+  if (cut !== 'bald') {
+    c.fillStyle = tone(hair, cut === 'buzz' ? 1.6 : 1.15);
+    c.globalAlpha = cut === 'buzz' ? 0.7 : 1;
+    hairFill();
+    c.globalAlpha = 1;
+  }
+  if (cut === 'quiff') {
+    c.fillStyle = tone(hair, 1.25);
+    c.beginPath();
+    c.ellipse(P(0.46), P(0.2), P(0.16), P(0.075), -0.25, 0, Math.PI * 2);
+    c.fill();
+  }
+  if (cut === 'curly') {
+    c.fillStyle = tone(hair, 1.2);
+    for (let k = 0; k < 9; k++) {
+      const a = Math.PI * (1.08 + k * 0.105);
+      c.beginPath();
+      c.arc(P(0.5) + Math.cos(a) * P(0.19), P(0.38) + Math.sin(a) * P(0.2), P(0.05), 0, Math.PI * 2);
+      c.fill();
+    }
+  }
+  if (cut === 'bald') {
+    c.fillStyle = 'rgba(255,255,255,0.22)';
+    c.beginPath();
+    c.ellipse(P(0.44), P(0.27), P(0.07), P(0.035), -0.4, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // The face: brows set low, eyes, a shadow under the nose, a mouth.
+  const ink = tone(hair, 0.9);
+  c.strokeStyle = ink;
+  c.lineCap = 'round';
+  c.lineWidth = Math.max(1, P(0.03));
+  c.beginPath();
+  c.moveTo(P(0.37), P(0.385));
+  c.lineTo(P(0.46), P(0.4));
+  c.moveTo(P(0.63), P(0.385));
+  c.lineTo(P(0.54), P(0.4));
+  c.stroke();
+  c.fillStyle = 'rgba(20,14,12,0.9)';
+  for (const ex of [0.425, 0.575]) {
+    c.beginPath();
+    c.ellipse(P(ex), P(0.435), P(0.022), P(0.016), 0, 0, Math.PI * 2);
+    c.fill();
+  }
+  c.fillStyle = tone(skin, 0.7);
+  c.beginPath();
+  c.ellipse(P(0.5), P(0.5), P(0.03), P(0.014), 0, 0, Math.PI * 2);
+  c.fill();
+  if (beard) {
+    c.save();
+    c.beginPath();
+    c.ellipse(P(0.5), P(0.43), P(0.195), P(0.24), 0, 0, Math.PI * 2);
+    c.clip();
+    c.fillStyle = tone(hair, 1.1);
+    c.globalAlpha = 0.92;
+    c.beginPath();
+    c.moveTo(P(0.28), P(0.46));
+    c.quadraticCurveTo(P(0.36), P(0.56), P(0.5), P(0.545));
+    c.quadraticCurveTo(P(0.64), P(0.56), P(0.72), P(0.46));
+    c.lineTo(P(0.72), P(0.8));
+    c.lineTo(P(0.28), P(0.8));
+    c.closePath();
+    c.fill();
+    c.restore();
+    c.globalAlpha = 1;
+    c.strokeStyle = tone(skin, 0.6);
+    c.lineWidth = Math.max(1, P(0.022));
+    c.beginPath();
+    c.moveTo(P(0.46), P(0.575));
+    c.lineTo(P(0.54), P(0.575));
+    c.stroke();
+  } else {
+    c.strokeStyle = tone(skin, 0.58);
+    c.lineWidth = Math.max(1, P(0.022));
+    c.beginPath();
+    c.moveTo(P(0.455), P(0.565));
+    c.quadraticCurveTo(P(0.5), P(0.575), P(0.545), P(0.565));
+    c.stroke();
+  }
+
+  // And a dark fall-off at the bottom of the badge, so the shoulders sit in
+  // it rather than being cut by its edge.
+  const v = c.createLinearGradient(0, P(0.75), 0, s);
+  v.addColorStop(0, 'rgba(0,0,0,0)');
+  v.addColorStop(1, 'rgba(0,0,0,0.35)');
+  c.fillStyle = v;
+  c.fillRect(0, P(0.75), s, P(0.25));
+  c.restore();
 }

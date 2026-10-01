@@ -98,43 +98,47 @@ export const HAIR = {
   black: [0.035, 0.028, 0.026], dark: [0.07, 0.045, 0.03], brown: [0.13, 0.08, 0.05],
   sandy: [0.26, 0.19, 0.11], grey: [0.20, 0.19, 0.18],
 };
-const F = (id, name, of, style, head, skin, hair, gi, mass = 0) =>
-  ({ id, name, of, style, head, skinCol: SKIN[skin], hairCol: HAIR[hair], gi, mass });
+// `look` is the portrait's and nothing else's: the haircut and whether there
+// is a beard, for the face drawn on the fighter's card (hud.js, _avatar). The
+// men on the mat are the two baked heads; a card can afford more variety than
+// a mesh, and a list of twenty-four men needs it to be told apart at a glance.
+const F = (id, name, of, style, head, skin, hair, gi, mass = 0, look = 'crop') =>
+  ({ id, name, of, style, head, skinCol: SKIN[skin], hairCol: HAIR[hair], gi, mass, look });
 
 // Six a class. The order is the ladder: whichever five the player did not
 // pick, first to last, are the white belt to the black.
 export const FIGHTERS = {
   feather: [
-    F('mark', 'МАРК', 'МАРКА', 'wrestler', 'A', 'fair', 'sandy', 'blue', -0.1),
-    F('tiago', 'ТИАГО', 'ТИАГО', 'guard', 'B', 'tan', 'black', 'white', 0),
-    F('ilya', 'ИЛЬЯ', 'ИЛЬИ', 'escape', 'A', 'light', 'brown', 'white', -0.15),
-    F('kaio', 'КАЙО', 'КАЙО', 'finisher', 'B', 'brown', 'black', 'black', 0.05),
-    F('timur', 'ТИМУР', 'ТИМУРА', 'pressure', 'A', 'olive', 'dark', 'blue', 0.1),
-    F('lev', 'ЛЕВ', 'ЛЬВА', 'guard', 'B', 'fair', 'brown', 'white', 0),
+    F('mark', 'МАРК', 'МАРКА', 'wrestler', 'A', 'fair', 'sandy', 'blue', -0.1, 'crop'),
+    F('tiago', 'ТИАГО', 'ТИАГО', 'guard', 'B', 'tan', 'black', 'white', 0, 'curly'),
+    F('ilya', 'ИЛЬЯ', 'ИЛЬИ', 'escape', 'A', 'light', 'brown', 'white', -0.15, 'quiff'),
+    F('kaio', 'КАЙО', 'КАЙО', 'finisher', 'B', 'brown', 'black', 'black', 0.05, 'buzz'),
+    F('timur', 'ТИМУР', 'ТИМУРА', 'pressure', 'A', 'olive', 'dark', 'blue', 0.1, 'crop+beard'),
+    F('lev', 'ЛЕВ', 'ЛЬВА', 'guard', 'B', 'fair', 'brown', 'white', 0, 'long'),
   ],
   light: [
-    F('denis', 'ДЕНИС', 'ДЕНИСА', 'guard', 'A', 'tan', 'dark', 'blue', 0),
-    F('joao', 'ЖОАН', 'ЖОАНА', 'wrestler', 'B', 'brown', 'black', 'white', 0.1),
-    F('artyom', 'АРТЁМ', 'АРТЁМА', 'escape', 'A', 'fair', 'sandy', 'white', -0.1),
-    F('ruslan', 'РУСЛАН', 'РУСЛАНА', 'pressure', 'B', 'olive', 'black', 'black', 0.15),
-    F('mateus', 'МАТЕУС', 'МАТЕУСА', 'finisher', 'A', 'dark', 'black', 'blue', 0),
-    F('gleb', 'ГЛЕБ', 'ГЛЕБА', 'wrestler', 'B', 'light', 'brown', 'white', 0.05),
+    F('denis', 'ДЕНИС', 'ДЕНИСА', 'guard', 'A', 'tan', 'dark', 'blue', 0, 'quiff'),
+    F('joao', 'ЖОАН', 'ЖОАНА', 'wrestler', 'B', 'brown', 'black', 'white', 0.1, 'curly+beard'),
+    F('artyom', 'АРТЁМ', 'АРТЁМА', 'escape', 'A', 'fair', 'sandy', 'white', -0.1, 'crop'),
+    F('ruslan', 'РУСЛАН', 'РУСЛАНА', 'pressure', 'B', 'olive', 'black', 'black', 0.15, 'buzz+beard'),
+    F('mateus', 'МАТЕУС', 'МАТЕУСА', 'finisher', 'A', 'dark', 'black', 'blue', 0, 'bald'),
+    F('gleb', 'ГЛЕБ', 'ГЛЕБА', 'wrestler', 'B', 'light', 'brown', 'white', 0.05, 'quiff+beard'),
   ],
   middle: [
-    F('rafael', 'РАФАЭЛ', 'РАФАЭЛА', 'escape', 'B', 'brown', 'black', 'white', -0.1),
-    F('andrey', 'АНДРЕЙ', 'АНДРЕЯ', 'pressure', 'A', 'olive', 'dark', 'blue', 0.1),
-    F('kirill', 'КИРИЛЛ', 'КИРИЛЛА', 'wrestler', 'A', 'light', 'brown', 'white', 0.05),
-    F('bruno', 'БРУНО', 'БРУНО', 'guard', 'B', 'tan', 'black', 'black', 0),
-    F('savva', 'САВВА', 'САВВЫ', 'pressure', 'A', 'fair', 'sandy', 'white', 0.1),
-    F('olavo', 'ОЛАВО', 'ОЛАВО', 'finisher', 'B', 'dark', 'grey', 'black', 0),
+    F('rafael', 'РАФАЭЛ', 'РАФАЭЛА', 'escape', 'B', 'brown', 'black', 'white', -0.1, 'curly'),
+    F('andrey', 'АНДРЕЙ', 'АНДРЕЯ', 'pressure', 'A', 'olive', 'dark', 'blue', 0.1, 'crop+beard'),
+    F('kirill', 'КИРИЛЛ', 'КИРИЛЛА', 'wrestler', 'A', 'light', 'brown', 'white', 0.05, 'quiff'),
+    F('bruno', 'БРУНО', 'БРУНО', 'guard', 'B', 'tan', 'black', 'black', 0, 'bald+beard'),
+    F('savva', 'САВВА', 'САВВЫ', 'pressure', 'A', 'fair', 'sandy', 'white', 0.1, 'long+beard'),
+    F('olavo', 'ОЛАВО', 'ОЛАВО', 'finisher', 'B', 'dark', 'grey', 'black', 0, 'buzz+beard'),
   ],
   heavy: [
-    F('ivan', 'ИВАН', 'ИВАНА', 'pressure', 'A', 'fair', 'brown', 'white', 0.1),
-    F('rodrigo', 'РОДРИГО', 'РОДРИГО', 'guard', 'B', 'tan', 'black', 'blue', 0),
-    F('bogdan', 'БОГДАН', 'БОГДАНА', 'wrestler', 'A', 'light', 'dark', 'white', 0.15),
-    F('felipe', 'ФЕЛИПЕ', 'ФЕЛИПЕ', 'escape', 'B', 'brown', 'black', 'black', -0.1),
-    F('maksim', 'МАКСИМ', 'МАКСИМА', 'finisher', 'A', 'olive', 'grey', 'blue', 0),
-    F('eduardo', 'ЭДУАРДО', 'ЭДУАРДО', 'pressure', 'B', 'dark', 'black', 'white', 0.05),
+    F('ivan', 'ИВАН', 'ИВАНА', 'pressure', 'A', 'fair', 'brown', 'white', 0.1, 'crop+beard'),
+    F('rodrigo', 'РОДРИГО', 'РОДРИГО', 'guard', 'B', 'tan', 'black', 'blue', 0, 'curly'),
+    F('bogdan', 'БОГДАН', 'БОГДАНА', 'wrestler', 'A', 'light', 'dark', 'white', 0.15, 'buzz'),
+    F('felipe', 'ФЕЛИПЕ', 'ФЕЛИПЕ', 'escape', 'B', 'brown', 'black', 'black', -0.1, 'quiff'),
+    F('maksim', 'МАКСИМ', 'МАКСИМА', 'finisher', 'A', 'olive', 'grey', 'blue', 0, 'bald+beard'),
+    F('eduardo', 'ЭДУАРДО', 'ЭДУАРДО', 'pressure', 'B', 'dark', 'black', 'white', 0.05, 'curly+beard'),
   ],
 };
 export const FIGHTER_BY_ID = Object.fromEntries(
