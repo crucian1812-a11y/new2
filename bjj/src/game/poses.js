@@ -253,22 +253,22 @@ export const POSES = {
     label: 'KNEE ON BELLY',
     points: 2, top: 'A', ground: true,
     A: {
-      root: { p: [0.09, 0.572, 0.109], r: [-6, 100, 0] },
+      root: { p: [0.023, 0.542, 0.061], r: [-6, 100, 0] },
       j: {
-        hips: [-39.1, -29.2, 10.5], spine: [7.3, 1.7, 17.4], chest: [-38.6, -23.9, 30.8], neck: [3.8, -42.6, 10.6], head: [-16.7, -14.2, 0],
-        clavL: [-10.8, 30.9, 28.4], armL: [-53.2, 23.9, -38.1], foreL: [-61.3, -0.7, -2.1],
-        clavR: [12.4, -35.1, 22.2], armR: [-51.6, -65.5, -40.2], foreR: [-72.8, -8.2, -0.8],
-        thighL: [-137.4, -8, -18.4], shinL: [59.6, 3.8, 0], footL: [8, -0.7, 0],
-        thighR: [-26.1, -25.9, -49.9], shinR: [38.3, 10.8, -23], footR: [-17.5, 2.8, 14],
+        hips: [-18.1, -123.9, 59.7], spine: [27.1, 24.6, 26.7], chest: [6.1, 22.4, 35], neck: [3.8, -42.6, 10.6], head: [-16.7, -14.2, 0],
+        clavL: [-10.8, 28.7, 30.7], armL: [156.7, 97.9, 37.8], foreL: [-70, -2.2, 0],
+        clavR: [-8.5, -17.7, 39.5], armR: [-63.5, -52, -29.7], foreR: [-74.2, -8.9, -0.8],
+        thighL: [-80.7, -27.7, -5.1], shinL: [149.5, 23.3, -21], footL: [8, -0.7, 0],
+        thighR: [-20.1, 24.8, -17.8], shinR: [37.6, 31.9, -23.7], footR: [14.1, -2.4, -9.9],
       },
     },
     B: {
-      root: { p: [-0.196, 0.243, 0.005], r: [-90, 180, 0] },
+      root: { p: [-0.226, 0.236, -0.002], r: [-90, 180, 0] },
       j: {
-        hips: [9.3, 77.4, -3.7], spine: [-19.8, -24.5, 13.6], chest: [17.3, 6.9, 30.1], neck: [-13, -0.7, -0.7], head: [13.5, -24.7, -1.4],
-        clavL: [-4.7, 25.8, 35.4], armL: [-133.1, 37.4, 16.7], foreL: [-88.6, -0.8, -0.7],
-        clavR: [-4.6, -4.1, -44.5], armR: [-155.9, 82.6, -15.3], foreR: [-92.1, 0, 0],
-        thighL: [-39.1, 15.1, 12.1], shinL: [52.1, 6, -3], footL: [-16, 0, 0.8],
+        hips: [9.3, 53.5, -9.7], spine: [-14.5, -33.5, 12.1], chest: [15.1, 9.2, 25.6], neck: [-13, -0.7, -2.9], head: [13.5, -23.9, -1.4],
+        clavL: [0.6, 25.1, 37.7], armL: [-131.6, 34.4, 10], foreL: [-92.3, -4.5, -5.2],
+        clavR: [-18, -16.8, -35.5], armR: [-166.3, 82.6, -4], foreR: [-94.3, 1.5, 0.8],
+        thighL: [-34.6, 25.7, 12.1], shinL: [50.6, 4.5, -3], footL: [-16, 0, 0.8],
         thighR: [-20.7, -6, -10], shinR: [40.8, 0, -0.7], footR: [-16, 0, 0],
       },
     },
@@ -283,6 +283,16 @@ export const POSES = {
       { of: 'A.hips', above: 'B.chest', by: 0.34 },
       { of: 'A.hips', near: 'B.chest', within: 0.32 },
       { of: 'A.shinL', near: 'B.chest', within: 0.24 },
+      // And on it, not over it. `near` is measured across the mat, and that
+      // was the gap: for as far back as the history goes the knee stood ninety
+      // centimetres off the mat and the foot a hundred, and every line above
+      // still held — the knee was «near» the chest, directly above it. A
+      // player saw a man hanging in the air. The knee rests on a belly about a
+      // third of a metre up, and the shin lies across it with the foot down by
+      // the far hip. (Getting it there took turning the pelvis, not the leg:
+      // see HANDOFF, the round where the knee went onto the belly.)
+      { of: 'A.shinL', below: 0.46 },
+      { of: 'A.footL', below: 0.34 },
       { of: 'A.footR', below: 0.145 },
       { of: 'A.shinR', above: 'A.footR', by: 0.20 },
     ],
@@ -1195,24 +1205,24 @@ export const POSES = {
     name: 'Колено на животе — вес вниз',
     variantOf: 'KNEE_ON_BELLY',
     A: {
-      root: { p: [0.096, 0.581, 0.084], r: [-6, 100, 0] },
+      root: { p: [0.029, 0.536, 0.062], r: [-6, 100, 0] },
       j: {
-        hips: [-48.5, -32.9, 18.3], spine: [9.4, -18.2, 12.9], chest: [-29.1, -10.4, 34.8],
-        neck: [-0.4, -35.2, 6.1], head: [-20.5, -13.5, 0], clavL: [-3.3, 16.9, 41.3],
-        armL: [-155.3, 118.4, 58.5], foreL: [-67.2, -4.4, 0], clavR: [4.7, -22.1, 32.1],
-        armR: [-49.1, -79.9, -32.7], foreR: [-73.3, -2.2, 0], thighL: [-128.9, -31.2, -1.2],
-        shinL: [45.8, 0, 0.8], footL: [8, 0, 0], thighR: [-46.8, -19.9, -48.1],
-        shinR: [24.2, 10.1, -21.5], footR: [-14.1, 2.3, 6.2],
+        hips: [-28.3, -131.1, 66.2], spine: [35.4, 24.6, 29.3], chest: [6.9, 23.1, 35.3],
+        neck: [-0.4, -35.2, 6.1], head: [-20.5, -13.5, 0], clavL: [-5.6, 16.3, 41.1],
+        armL: [161.1, 106.5, 40.5], foreL: [-68.9, -4.5, -0.8], clavR: [-9.5, -14.5, 41.9],
+        armR: [-60.3, -65.6, -19.1], foreR: [-74, -2.9, 0], thighL: [-92.7, -34.4, -11.1],
+        shinL: [148.8, 29.3, -19.5], footL: [8, -0.7, 0], thighR: [-14.9, 33.8, -3.6],
+        shinR: [36.9, 12.4, -20.7], footR: [16.4, 6.6, -18.1],
       },
     },
     B: {
-      root: { p: [-0.191, 0.243, 0.027], r: [-90, 180, 0] },
+      root: { p: [-0.214, 0.236, 0.034], r: [-90, 180, 0] },
       j: {
-        hips: [2.4, 68.5, 0.8], spine: [-19.1, -30.3, 15], chest: [14.4, 24.8, 36.9],
-        neck: [-19.7, -0.7, 0.8], head: [19.3, -23.2, -0.7], clavL: [9.9, 33.3, 32.1],
-        armL: [161.3, -13.6, 20.2], foreL: [-69.9, -3.7, 0], clavR: [-18.4, -1.9, -37.6],
-        armR: [-62.6, -20.6, 23.4], foreR: [-89.9, 0, -0.7], thighL: [-52.7, 12.1, 15.1],
-        shinL: [65, 4.6, -2.8], footL: [-18.1, -2, -15.6], thighR: [-20, -6.7, -10],
+        hips: [2.4, 61, -5.2], spine: [-13.1, -46.8, 15], chest: [18.9, 26.4, 36.9],
+        neck: [-18.9, -1.5, -1.4], head: [19.3, -22.4, -0.7], clavL: [-6.8, 22.1, 37.7],
+        armL: [-131.6, 35.2, 11.5], foreL: [-89.3, -3, -2.9], clavR: [-20.3, -13.8, -35.5],
+        armR: [-23.9, -53.8, 131.2], foreR: [-127.3, 0.8, 0], thighL: [-45.9, 26.4, 15.1],
+        shinL: [62.8, 3.1, -2.8], footL: [-18.1, -2.7, -17.1], thighR: [-18.5, -5.9, -5.5],
         shinR: [40, 0, 0], footR: [-16, 0.8, 0],
       },
     },

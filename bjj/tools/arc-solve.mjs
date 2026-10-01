@@ -639,7 +639,15 @@ for (const key of keys) {
   // has cost anything, because joint-check is in the battery now and an elbow
   // folded past what an elbow does is more visible than eight centimetres of
   // overlap. The rule has not changed: worsen nothing anybody measures.
-  const worseFold = after.fold > incoming[key].fold + 1e-9;
+  //
+  // With the spine's half degree of slack, and only under the line joint-check
+  // ships on. The fold is an arccosine off bone positions on a grid, like the
+  // trunk reading, and lands a hair either side of where it was:
+  // CLINCH>TURTLE_X, re-solved after the knee-on-belly it runs through moved,
+  // came back 15 → 12 cm, cost 26.7 → 3.4 — nearly all of it a hip turned 121°
+  // past a hip — and was refused on 154.9° against 154.9°. Past 155 any
+  // worsening is still a worsening.
+  const worseFold = after.fold > incoming[key].fold + (after.fold <= FOLD_FAIL ? 0.5 : 1e-9);
   // And the fifth: how far the deepest bit of skin goes under the mat.
   //
   // The same lesson for the fifth time, and this one cost a run. blend-check
@@ -693,8 +701,9 @@ for (const key of keys) {
     // Say what the refused answer was and what it lost on: a refusal with no
     // numbers is a run that cannot be learned from.
     const f = (m) => `${(m.worst * 100).toFixed(1)}cm, lift ${(m.lift * 100).toFixed(1)}, sink ${(m.sink * 100).toFixed(1)}, ` +
-      `fold ${m.fold.toFixed(0)}°, spine ${(m.spine ?? 0).toFixed(1)}°, cost ${m.sum.toFixed(3)}`;
-    process.stderr.write(`${key} refused: ${f(after)}\n  against ${f(incoming[key])}\n`);
+      `fold ${m.fold.toFixed(1)}°, spine ${(m.spine ?? 0).toFixed(1)}°, cost ${m.sum.toFixed(3)}`;
+    const on = [worseCost && 'cost', ...Object.keys(past).filter((k) => past[k]), worseSpine && 'spine'].filter(Boolean);
+    process.stderr.write(`${key} refused on ${on.join(', ')}: ${f(after)}\n  against ${f(incoming[key])}\n`);
     if (shipped[key]) ARCS[key] = JSON.parse(JSON.stringify(shipped[key]));
     else delete ARCS[key];
     after = measure(from, to);

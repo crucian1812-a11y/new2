@@ -18,6 +18,7 @@
 //   node bjj/tools/arc-all.mjs --write    and write src/game/arcs.js
 //   node bjj/tools/arc-all.mjs --jobs 2   fewer children (default: the cores)
 //   node bjj/tools/arc-all.mjs --only A>B,C>D --write   just those
+//   node bjj/tools/arc-all.mjs --only A>B --fresh --write   from cold, after a pose moved
 //   node bjj/tools/arc-all.mjs --merge /tmp/arc-all-XXXX --write
 //                                        stitch a run whose parent died
 
@@ -90,7 +91,10 @@ const runs = shards.filter((s2) => s2.length).map((shard, i) => MERGE
   ? Promise.resolve({ shard, out: join(dir, `arcs-${i}.js`), log: '' })
   : new Promise((done, fail) => {
   const out = join(dir, `arcs-${i}.js`);
-  const args = [solver, '--only', shard.join(','), '--write', '--out', out];
+  // --fresh goes through: after a pose has moved, the arcs in the file were
+  // solved for the old one and are no start at all.
+  const args = [solver, '--only', shard.join(','), '--write', '--out', out,
+    ...(process.argv.includes('--fresh') ? ['--fresh'] : [])];
   const child = spawn(process.execPath, args, { env: process.env });
   let log = '';
   child.stdout.on('data', (d) => { log += d; });
