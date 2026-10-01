@@ -50,22 +50,52 @@ node bjj/tools/mixamo-fetch.mjs --wanted             # everything picked, below
 ```
 
 What `--wanted` fetches, picked off the catalogue's thumbnails: five ordinary
-men of sporting build in ordinary clothes, unlike each other and unlike the two
-already baked — **Bryce** (t-shirt and shorts, dark hair), **Remy** (t-shirt
+men of sporting build in ordinary clothes, meant to be unlike each other and
+unlike the two already baked (one of them turned out to be fighter A; see the
+table below) — **Bryce** (t-shirt and shorts, dark hair), **Remy** (t-shirt
 and shorts, fair), **Lewis** (short sleeves, dark skin), **Brian** (polo,
 shaved head), **David** (long sleeves, dark skin). Short sleeves and shorts
 are the better source: the baker inflates the gi sleeve out of a bare arm.
 And ten clips on or toward the ground, among them the one recorded pair in the
 catalogue, **Double Leg Takedown — Attacker / Victim**.
 
-**State on 2026-10-01: the API works from the container, the download does
-not.** Export answers and names a file, but the file sits on
-`mixamo-storage-prod.s3-us-west-2.amazonaws.com`, and the environment's network
-policy refuses that host (`CONNECT tunnel failed, 403`). With that host added to
-the allowed domains, `--wanted` is the whole job. Every new character then goes
-through `bake-mixamo --tris 20000`, `asset-check`, `hand-check`, `figure-check`
-and `cloth-check`, and every clip through `clip-check` before anything is taken
-from it.
+**State on 2026-10-01: everything works.** The storage host
+`mixamo-storage-prod.s3-us-west-2.amazonaws.com` is open now (a bare `curl` of
+it answers 403 — that is S3 refusing to list the bucket, not the proxy), and
+`--wanted` fetched all five characters and all ten clips in about two minutes.
+None of it is in git (see `.gitignore`): the characters are 30–55 MB each, and
+the whole set comes back with one command and a fresh token.
+
+There is no **Bruce** in the catalogue; the nearest names are Bryce and Brute.
+
+Every character was baked with `bake-mixamo --tris 20000` and put through
+`asset-check`, `hand-check`, `figure-check` and `cloth-check` standing in for
+fighter B (the last two read only `assets/fighter.bin` and `fighter-b.bin`, so
+the bake was copied over fighter B in a scratch copy of `bjj/`), then looked at
+on the mat with `shot.mjs --pose STANDING`:
+
+| character | bake | checks | on the mat | verdict |
+|---|---|---|---|---|
+| **Brian** | 10 441 verts, 342 KB | all green | shaved head, gi sits right | **ready** |
+| **David** | 20 113 verts, 549 KB | all green | dark skin, short hair, gi sits right | **ready** |
+| **Remy** | byte for byte `assets/fighter.bin` | — | — | **already fighter A**: `body-block.fbx` is Remy |
+| **Bryce** | 13 558 verts, 409 KB | `asset-check` red: feet 12 cm against 15 cm of rig | gi trousers end at the knee | baker work |
+| **Lewis** | 19 555 verts, 537 KB | green | **no gi on torso or legs** — skin with blue sleeves | baker work |
+
+What is wrong with the last two is the source, read wrongly:
+
+- **Bryce wears shorts**, and the baker says "trouser legs: none needed — the
+  character arrived in long trousers". So the gi trousers are built from his
+  shorts and stop at the knee. The trouser-length test has to measure how far
+  down the shin the `trousers` part reaches, not that the part exists.
+- **Lewis is one mesh.** `parts:` lists a single `body` of 34 719 vertices: the
+  clothes are welded into the skin and told apart only by texture. The waist
+  profile reads zero all round, and the jacket has nothing to be measured onto.
+  He also stands 5.3 cm through the floor. Splitting him needs the texture, not
+  the geometry; it is not worth it while Brian and David are clean.
+
+Every clip still has to go through `clip-check` before anything is taken from
+it; none has been yet.
 
 ## What each character bakes into
 

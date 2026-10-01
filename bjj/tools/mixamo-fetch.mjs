@@ -98,7 +98,7 @@ function download(url, out) {
 // movement is on the ground or leads to it; the takedown is a recorded pair.
 const WANTED = [
   ['char', 'Bryce'], // t-shirt and shorts: bare arms and legs, dark hair
-  ['char', 'Remy'], // t-shirt and shorts, fair hair
+  ['char', 'Remy'], // t-shirt and shorts, fair hair — this is body-block.fbx, fighter A
   ['char', 'Lewis'], // short sleeves, dark skin
   ['char', 'Brian'], // polo, shaved head
   ['char', 'David'], // long sleeves, dark skin, short hair

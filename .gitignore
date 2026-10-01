@@ -5,3 +5,12 @@ node_modules/
 # The 54 MB character source lives in the GitHub release, not in git.
 bjj/art/mixamo/Ch31_nonPBR.fbx
 bjj/data/h4d/
+
+# Mixamo downloads come back with one command (tools/mixamo-fetch.mjs --wanted)
+# and are 30-55 MB each; Adobe's terms also don't allow redistributing the raw files.
+bjj/art/mixamo/brian.fbx
+bjj/art/mixamo/bryce.fbx
+bjj/art/mixamo/david.fbx
+bjj/art/mixamo/lewis.fbx
+bjj/art/mixamo/remy.fbx
+bjj/art/mixamo/clips/
