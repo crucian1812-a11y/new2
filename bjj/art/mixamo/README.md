@@ -35,6 +35,38 @@ node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/Ch31_nonPBR.fbx --tris 20000 --out
 Without `--tris` the file comes out half again as big and every measure of
 the fighters moves with it.
 
+## Fetching more from Mixamo directly
+
+`tools/mixamo-fetch.mjs` does what the site's Download button does — export,
+poll, fetch — with the token from `MIXAMO_TOKEN` (the `access_token` the site
+keeps in localStorage after a login; it lives about a day).
+
+```bash
+node bjj/tools/mixamo-fetch.mjs --chars              # all 108 characters
+node bjj/tools/mixamo-fetch.mjs --clips "getting up" # clips, with ids
+node bjj/tools/mixamo-fetch.mjs char Bryce           # -> bryce.fbx, With Skin, T-pose
+node bjj/tools/mixamo-fetch.mjs clip <id> --out NAME # -> clips/NAME.fbx, no skin
+node bjj/tools/mixamo-fetch.mjs --wanted             # everything picked, below
+```
+
+What `--wanted` fetches, picked off the catalogue's thumbnails: five ordinary
+men of sporting build in ordinary clothes, unlike each other and unlike the two
+already baked — **Bryce** (t-shirt and shorts, dark hair), **Remy** (t-shirt
+and shorts, fair), **Lewis** (short sleeves, dark skin), **Brian** (polo,
+shaved head), **David** (long sleeves, dark skin). Short sleeves and shorts
+are the better source: the baker inflates the gi sleeve out of a bare arm.
+And ten clips on or toward the ground, among them the one recorded pair in the
+catalogue, **Double Leg Takedown — Attacker / Victim**.
+
+**State on 2026-10-01: the API works from the container, the download does
+not.** Export answers and names a file, but the file sits on
+`mixamo-storage-prod.s3-us-west-2.amazonaws.com`, and the environment's network
+policy refuses that host (`CONNECT tunnel failed, 403`). With that host added to
+the allowed domains, `--wanted` is the whole job. Every new character then goes
+through `bake-mixamo --tris 20000`, `asset-check`, `hand-check`, `figure-check`
+and `cloth-check`, and every clip through `clip-check` before anything is taken
+from it.
+
 ## What each character bakes into
 
 ```

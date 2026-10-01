@@ -2363,8 +2363,12 @@ Animation Pack v2» (84 клипа, плоские фигуры) и «Stage 4 Mo
 
 ## 9. Ограничения среды
 
-- `drive.google.com`, `mixamo.com` и вообще все домены Google **заблокированы**
-  сетевой политикой машины (`CONNECT tunnel failed, 403`). Открыты GitHub и
+- `drive.google.com` и вообще все домены Google **заблокированы**
+  сетевой политикой машины (`CONNECT tunnel failed, 403`). `mixamo.com` с
+  2026-10-01 **открыт**, и его API с токеном отвечает
+  (`tools/mixamo-fetch.mjs`), но готовый файл лежит на
+  `mixamo-storage-prod.s3-us-west-2.amazonaws.com`, а этот хост закрыт;
+  подробности в `art/mixamo/README.md`. Открыты GitHub и
   `huggingface.co` (вместе с его CDN `*.hf.co`): HTTP Range там работает.
   Файлы приходят либо загрузкой прямо в чат, либо через GitHub Releases (2 ГБ через
   браузер; вкладка «Add file → Upload files» — только 25 МБ).
