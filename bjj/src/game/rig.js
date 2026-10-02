@@ -116,6 +116,10 @@ const GRIP_ROUND = 0.09;
 // of a hold loop. Every arm displaced at once, twice per attempt, sixty times
 // a match.
 const DRIVE_EASE = 0.25;
+// Leaving a held position mid-loop, the pose eases from where the loop had it
+// over this long rather than landing on the base pose in one frame. See
+// _exitT in applyAt.
+const EXIT_EASE = 0.25;
 // Degrees at a full lean on the base: spine, chest, neck, head, and the
 // collarbones brought forward. See _life.
 export const BASE_LEAN = [5, 4, 5, 3, 4];
@@ -276,6 +280,10 @@ export class PairRig {
     // something that is actually playing — main.js, and the tools that play
     // real matches.
     this.live = false;
+    // Where a held position last was, per man, and how long ago the
+    // transition out of it started (negative: not leaving anything).
+    this._exitSnap = { A: null, B: null };
+    this._exitT = -1;
   }
 
   invalidate(id) { invalidatePose(id); }
@@ -290,6 +298,8 @@ export class PairRig {
     this.time = 0;
     this.breath.A = 0;
     this.breath.B = 0;
+    this._exitT = -1;
+    this._exitSnap.A = this._exitSnap.B = null;
   }
 
   // from/to are pose ids, t is 0..1 across the transition.
@@ -436,6 +446,19 @@ export class PairRig {
     // transition lands on the base pose, so a loop resumed from the middle of
     // its cycle would jump on arrival — leaving and coming back to the same
     // position has to start the cycle again.
+    //
+    // But the loop is not at the base pose when the fight leaves it: it is
+    // wherever the cycle had got to, out towards a variant and carrying that
+    // variant's arc. Landing on the base in one frame was a jump of everything
+    // the loop had moved, and the hands, solved on top, jumped furthest —
+    // shake-check traced its teleports to the first frames of moves out of
+    // held positions, and to the loop arcs: the old ones put it at 11 a minute,
+    // re-solved ones at 17 and 25. So the pose the loop last had is kept, and
+    // the transition eases out of it over a quarter of a second. Only in play:
+    // a tool stepping a path never holds, so nothing it measures moves.
+    if (!inPlace && this.heldId != null && this.live) this._exitT = 0;
+    else if (inPlace) this._exitT = -1;
+    else if (this._exitT >= 0) this._exitT += dt;
     if (!inPlace) this.heldId = null;
     const arc = ARCS[from + '>' + to];
     const plan = inPlace ? null : planFor(from + '>' + to);
@@ -615,6 +638,7 @@ export class PairRig {
           }
         }
       }
+      if (this.live) this._exitEase(role, sk, inPlace);
       this._life(role, sk, from, to, e);
       sk.pose();
       this._ground(sk, role, dt);
@@ -898,6 +922,31 @@ export class PairRig {
 
   // What the sim asks for, arriving at the body over a moment. Snapped when the
   // rig is not live, so a solver sees exactly what it set.
+  // Keep the held pose while a position is held; blend out of it while a
+  // transition leaves it. Before the life layer, the grips and the feet, so
+  // everything solved on top starts from a body that has not jumped.
+  _exitEase(role, sk, inPlace) {
+    let snap = this._exitSnap[role];
+    if (inPlace && this.heldId != null) {
+      if (!snap) {
+        snap = this._exitSnap[role] = { local: sk.local.map((q) => Float64Array.from(q)), rot: quat(), pos: v3(0, 0, 0) };
+      }
+      for (let i = 0; i < sk.local.length; i++) snap.local[i].set(sk.local[i]);
+      snap.rot.set(sk.rootRot);
+      v3set(snap.pos, sk.rootPos[0] - this.origin[0], sk.rootPos[1], sk.rootPos[2] - this.origin[2]);
+      return;
+    }
+    if (!snap || this._exitT < 0) return;
+    const w = smooth(clamp(this._exitT / EXIT_EASE, 0, 1));
+    if (w >= 1) { this._exitSnap[role] = null; return; }
+    for (let i = 0; i < sk.local.length; i++) qSlerp(sk.local[i], snap.local[i], sk.local[i], w);
+    qSlerp(sk.rootRot, snap.rot, sk.rootRot, w);
+    for (let k = 0; k < 3; k += 2) {
+      sk.rootPos[k] = this.origin[k] + snap.pos[k] + (sk.rootPos[k] - this.origin[k] - snap.pos[k]) * w;
+    }
+    sk.rootPos[1] = snap.pos[1] + (sk.rootPos[1] - snap.pos[1]) * w;
+  }
+
   _settle(dt) {
     const k = this.live && dt > 0 ? Math.min(1, dt / DRIVE_EASE) : 1;
     for (const role of ['A', 'B']) {

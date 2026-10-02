@@ -5,8 +5,8 @@
 // contact between them, or to how far either is into the mat, in any pose or
 // at any of blend-check's samples of any blend. See src/render/build.js.
 //
-//   heavy +12.0% of a man, light -10.9%
+//   heavy +11.7% of a man, light -11.3%
 export const BUILD_ROOM = {
-  heavy: { trunkW: 1.035, trunkD: 1.045, neck: 1.095, arm: 1.085, fore: 1.095, thigh: 1.06, shin: 1.075 },
-  light: { trunkW: 0.96, trunkD: 0.96, neck: 0.895, arm: 0.92, fore: 0.91, thigh: 0.94, shin: 0.93 },
+  heavy: { trunkW: 1.035, trunkD: 1.04, neck: 1.1, arm: 1.08, fore: 1.09, thigh: 1.06, shin: 1.075 },
+  light: { trunkW: 0.96, trunkD: 0.96, neck: 0.905, arm: 0.915, fore: 0.91, thigh: 0.94, shin: 0.92 },
 };
