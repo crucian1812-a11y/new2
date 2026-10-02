@@ -88,29 +88,47 @@ try {
 }
 // The referee is the baked man as he was baked: no weight class, no roster.
 const gpuRef = gpuYou;
-// The second head, once it lands.
-let bakedB = null;
+// The other heads, by the letter roster.js gives them, once each has landed.
+// A is `baked` above; B is Ch31, C is Brian, D is David (art/mixamo/README.md).
+const HEAD_FILE = { B: 'fighter-b.bin', C: 'fighter-c.bin', D: 'fighter-d.bin' };
+const bakedHead = {};
+const headAsked = new Set();
 
 // A man from the roster, as the GPU draws him: his head's baked mesh with his
 // build on it (src/render/build.js). Shaped once per head and build and kept —
 // a tournament is six men and the menu is twenty-four, and a shaped copy is a
 // few milliseconds and a few hundred kilobytes.
 //
-// Until the second head has arrived its men wear the first one, under a key
-// of their own, so the right head replaces it the moment it lands rather than
-// the cache handing the stand-in back for good.
+// Until his head has arrived a man wears the first one, under a key of its
+// own, so the right head replaces it the moment it lands rather than the
+// cache handing the stand-in back for good. Asking for a man is what fetches
+// his head: C and D are nobody's until a match puts one of their men on the
+// mat, and a player who never meets them never downloads them.
 const gpuCache = new Map();
 function gpuFor(f) {
   if (!baked) return gpuYou;
-  const useB = f.head === 'B' && bakedB;
+  fetchHead(f.head);
+  const head = bakedHead[f.head] ? f.head : 'A';
   const m = massOf(f);
-  const key = `${useB ? 'B' : 'A'}:${m.toFixed(3)}`;
+  const key = `${head}:${m.toFixed(3)}`;
   let g = gpuCache.get(key);
   if (!g) {
-    g = renderer.makeFighterGPU([shapeMesh(useB ? bakedB : baked, buildAt(m, BUILD_ROOM))]);
+    g = renderer.makeFighterGPU([shapeMesh(head === 'A' ? baked : bakedHead[head], buildAt(m, BUILD_ROOM))]);
     gpuCache.set(key, g);
   }
   return g;
+}
+
+function fetchHead(h) {
+  if (!HEAD_FILE[h] || headAsked.has(h)) return;
+  headAsked.add(h);
+  loadFighter(new URL(`../assets/${HEAD_FILE[h]}`, import.meta.url).href)
+    .then((mesh) => {
+      bakedHead[h] = mesh;
+      bodySource += ` + ${h} (${(mesh.count / 3) | 0} tris)`;
+      dress();
+    })
+    .catch((e) => console.info(`head ${h} is the first man in another gi:`, e.message));
 }
 
 // The opponent is a second character when there is one. He is optional on
@@ -126,13 +144,9 @@ function gpuFor(f) {
 // loading card goes was tried, on the theory that it was sharing the pipe with
 // the code and the first fighter; net-check says it is not — the first frame
 // landed at 6.9 seconds either way — so it starts as early as it can.
-loadFighter(new URL('../assets/fighter-b.bin', import.meta.url).href)
-    .then((other) => {
-      bakedB = other;
-      bodySource += ` + opponent (${(other.count / 3) | 0} tris)`;
-      dress();
-    })
-    .catch((e) => console.info('the opponent is the same man in another gi:', e.message));
+//
+// C and D are not fetched here: they wait for a man who wears them (gpuFor).
+fetchHead('B');
 
 // The title card.
 //
