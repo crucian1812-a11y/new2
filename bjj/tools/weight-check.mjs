@@ -424,6 +424,101 @@ if (air.length) {
 } else {
   console.log('     everybody on the ground is on the ground');
 }
+// A man on his back lies on it.
+//
+// A player sent the mount and the open guard from the gym and said the man
+// underneath was floating over the mat. Nothing here said so: his pelvis was
+// down, so the pose touched the mat, and the hover rule watches limbs in a band
+// three to nine centimetres up and forgives anything higher as plainly lifted.
+// His trunk was higher. Every man on his back in the library was written sitting
+// up — 36° off the mat under a mount, 39° in the open guard and the triangle —
+// with his shoulder blades ten to twenty centimetres up and nothing under them,
+// a sit-up held for as long as the position lasts. The one exception was the
+// man under knee-on-belly, 2°, and he is the one who looks like he is lying
+// down.
+//
+// So: a man whose chest faces the ceiling has his upper back on something —
+// the mat, the other man, or an arm propped on the mat behind him. Sitting up
+// on a posted hand is a real guard; sitting up on nothing is a held crunch.
+// Waypoints are the middle of a movement and are left out, as they are from
+// the weight rule above: halfway into a guard is allowed to be halfway up.
+// Variants are in, since the hold loop puts every one of them on the screen.
+// Which way the chest faces: the trunk's length crossed with the shoulder
+// line, signed on the standing pose, whose A faces +Z.
+function chestNormal(sk) {
+  const u = pos(sk, 'neck').map((x, k) => x - pos(sk, 'hips')[k]);
+  const s = pos(sk, 'armR').map((x, k) => x - pos(sk, 'armL')[k]);
+  const n = [u[1] * s[2] - u[2] * s[1], u[2] * s[0] - u[0] * s[2], u[0] * s[1] - u[1] * s[0]];
+  const l = Math.hypot(n[0], n[1], n[2]) || 1;
+  return n.map((x) => x / l);
+}
+const faceSign = (() => {
+  rig.rewind(); rig.applyAt('STANDING', 'STANDING', 1, 0.016);
+  return chestNormal(rig.skel.A)[2] > 0 ? 1 : -1;
+})();
+const facing = (sk) => chestNormal(sk).map((x) => x * faceSign);
+const POSTS = ['handL', 'handR', 'fingL', 'fingR', 'foreL', 'foreR'].map((b) => BONE_INDEX[b]);
+// The gate is 0.3, not a half: a chest turned two thirds of the way to the
+// ceiling is still a man on his back, and the solver's first run on this rule
+// rolled the man under the mount to exactly 0.50 to get past it.
+function backUnrested(sk, mine, other) {
+  if (facing(sk)[1] < 0.3) return null;
+  const i = BONE_INDEX.chest;
+  const gap = mine.low[i] - FLOOR;
+  if (gap <= ON_MAT) return null;
+  if (POSTS.some((b) => mine.low[b] <= FLOOR + ON_MAT)) return null;
+  if (underneath(other, mine.lowPt[i], -1)) return null;
+  if (leansOn(sk, other)) return null;
+  const t = pos(sk, 'neck').map((x, k) => x - pos(sk, 'hips')[k]);
+  return { gap, rise: Math.asin(t[1] / Math.hypot(t[0], t[1], t[2])) * 180 / Math.PI };
+}
+// Or he is leaning back on the other man rather than lying on him: in seated
+// back control the man in front sits on the mat with his back against the
+// chest behind him, and the support is behind, not below. The back of the
+// chest is the strip between the shoulder blades and the bottom of the ribs,
+// a hand's breadth behind the spine; the other man's skin within a few
+// centimetres of it is something to lean on.
+const LEAN = 0.04;
+function leansOn(sk, other) {
+  const n = facing(sk);
+  const c0 = pos(sk, 'chest'), c1 = pos(sk, 'neck');
+  for (let k = 0; k <= 4; k++) {
+    const t = k / 4;
+    const p = [0, 1, 2].map((d) => c0[d] + (c1[d] - c0[d]) * t - n[d] * 0.12);
+    const cx = Math.floor(p[0] / CELL), cz = Math.floor(p[2] / CELL);
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        const cell = other.grid.get((cx + i + 64) * 4096 + cz + j + 64);
+        if (!cell) continue;
+        for (let q = 0; q < cell.length; q += 4) {
+          const dx = cell[q] - p[0], dy = cell[q + 1] - p[1], dz = cell[q + 2] - p[2];
+          if (dx * dx + dy * dy + dz * dz <= LEAN * LEAN) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+const backs = [];
+for (const id of Object.keys(POSES)) {
+  if (!POSES[id].ground || POSES[id].waypoint || POSES[id].mirrorOf) continue;
+  rig.rewind(); rig.applyAt(id, id, 1, 0.016);
+  const fa = highest(rig.skel.A), fb = highest(rig.skel.B);
+  for (const [role, mine, other] of [['A', fa, fb], ['B', fb, fa]]) {
+    const b = backUnrested(rig.skel[role], mine, other);
+    if (b) backs.push({ id, role, ...b });
+  }
+}
+backs.sort((a, b) => b.gap - a.gap);
+check(backs.length === 0, 'a man on his back has his back on something',
+  backs.length ? `${backs.length} not: ` + backs.slice(0, 4).map((b) =>
+    `${b.id} ${b.role} ${(b.gap * 100).toFixed(0)}cm up at ${b.rise.toFixed(0)}°`).join(', ') : 'the mat, the other man or a posted arm');
+if (HOVER) {
+  for (const b of backs) {
+    console.log(`       ${b.id.padEnd(18)} ${b.role}  chest ${(b.gap * 100).toFixed(1)}cm off the mat, trunk ${b.rise.toFixed(0)}° up, nothing under it`);
+  }
+}
+
 console.log(`\n     the pair's weight is worst outside its base in ${worstPair.id}, ` +
   `by ${(worstPair.pair * 100).toFixed(0)}cm`);
 console.log(`     the worst look-away by a head nobody is holding is ${worstGaze.id}, ` +

@@ -121,12 +121,20 @@ function judge(label, joint, bad, say, key) {
       `${POSES_ONLY ? 'poses only' : `no more than ${cap}`}`
     : `all ${n} samples`);
   if (ALL && over.length) {
+    // The worst of each, and how many samples it brings: the line is a count,
+    // and the transition that breaks it is the one with the most samples, not
+    // always the one with the worst degree.
     const by = new Map();
     for (const r of over) {
       const k = `${r.n}${r.s} of ${r.role} in ${r.what.split(' @')[0]}`;
-      by.set(k, Math.max(by.get(k) || 0, say(r)));
+      const e = by.get(k) || { worst: 0, n: 0 };
+      e.worst = Math.max(e.worst, say(r)); e.n++;
+      by.set(k, e);
     }
-    for (const [k, v] of [...by].sort((a, b) => b[1] - a[1]).slice(0, +(process.env.TOP || 15))) console.log(`       ${v.toFixed(0).padStart(4)}°  ${k}`);
+    const order = process.env.BY_COUNT ? (a, b) => b[1].n - a[1].n : (a, b) => b[1].worst - a[1].worst;
+    for (const [k, v] of [...by].sort(order).slice(0, +(process.env.TOP || 15))) {
+      console.log(`       ${v.worst.toFixed(0).padStart(4)}°  ${String(v.n).padStart(3)}×  ${k}`);
+    }
   }
 }
 console.log(`     ${rows.length / 16} bodies, ${POSES_ONLY ? 'poses only' : 'poses and blends'}\n`);

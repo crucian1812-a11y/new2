@@ -450,11 +450,93 @@ function hoverPlayed(id, count = false) {
   rig.apply(id, id, 1, 0.016);
   skinNow();
   const v = hoverCost(count);
+  // The back is read off the same played skin, while it is here: two more
+  // applies an evaluation for a second term would double what this costs.
+  BACK_PLAYED = backCost(id, count);
   rig.rewind();
   rig.plantFeet = planting(id);
   rig.apply(id, id, 1, 0.016);
   skinNow();
   return v;
+}
+
+// A man on his back lies on it — the rule weight-check draws in those words.
+//
+// Every man on his back in the library was written sitting up: 36° off the mat
+// under a mount, 39° in the open guard and the triangle, his shoulder blades
+// ten to twenty-five centimetres up with nothing under them. A player saw it as
+// floating. So a man whose chest faces the ceiling pays for every centimetre his
+// upper back is off the mat, unless it rests on something: the other man under
+// it or right behind it, or a hand or a forearm posted on the mat — a seated
+// guard on a posted hand is a guard, a crunch held on nothing is not. Solved
+// past weight-check's line, to a centimetre and a half, for the reason the
+// hover term is: a cost that stops at the line parks everything on it.
+const BACK_W = +(process.env.BACK_W || 300);
+const BACK_LO = 0.015, BACK_SEEN = 0.03, LEAN = 0.04;
+let BACK_PLAYED = 0;
+const SUPINE = { A: false, B: false };
+function pickSupine(id) {
+  rig.rewind();
+  rig.plantFeet = true;
+  rig.apply(id, id, 1, 0.016);
+  for (const role of ['A', 'B']) {
+    SUPINE[role] = !!POSES[id].ground && !POSES[id].waypoint &&
+      chestNormal(rig.skel[role])[1] * FACE_SIGN >= 0.3;
+  }
+}
+const POST_IDX = ['handL', 'handR', 'fingL', 'fingR', 'foreL', 'foreR'].map((b) => BONE_INDEX[b]);
+const at3 = (sk, b) => { const m = sk.world[BONE_INDEX[b]]; return [m[12], m[13], m[14]]; };
+function chestNormal(sk) {
+  const h = at3(sk, 'hips'), n = at3(sk, 'neck'), l = at3(sk, 'armL'), r = at3(sk, 'armR');
+  const u = [n[0] - h[0], n[1] - h[1], n[2] - h[2]], w = [r[0] - l[0], r[1] - l[1], r[2] - l[2]];
+  const c = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+  const len = Math.hypot(c[0], c[1], c[2]) || 1;
+  return c.map((x) => x / len);
+}
+// Signed on the standing pose, whose A faces +Z, as weight-check signs it.
+const FACE_SIGN = (() => {
+  const r = new PairRig();
+  r.rewind(); r.applyAt('STANDING', 'STANDING', 1, 0.016);
+  return chestNormal(r.skel.A)[2] > 0 ? 1 : -1;
+})();
+function leansOn(sk, o, n) {
+  const c0 = at3(sk, 'chest'), c1 = at3(sk, 'neck');
+  for (let k = 0; k <= 4; k++) {
+    const t = k / 4;
+    const px = c0[0] + (c1[0] - c0[0]) * t - n[0] * 0.12;
+    const py = c0[1] + (c1[1] - c0[1]) * t - n[1] * 0.12;
+    const pz = c0[2] + (c1[2] - c0[2]) * t - n[2] * 0.12;
+    for (let v = 0; v < o.n; v++) {
+      const dx = o.xyz[v * 3] - px, dy = o.xyz[v * 3 + 1] - py, dz = o.xyz[v * 3 + 2] - pz;
+      if (dx * dx + dy * dy + dz * dz <= LEAN * LEAN) return true;
+    }
+  }
+  return false;
+}
+function backCost(id, count = false) {
+  if (!POSES[id].ground || POSES[id].waypoint) return 0;
+  const chest = BONE_INDEX.chest;
+  let c = 0;
+  for (const [me, you] of [['A', 'B'], ['B', 'A']]) {
+    const sk = rig.skel[me], s = SKIN[me], o = SKIN[you];
+    const n = chestNormal(sk).map((x) => x * FACE_SIGN);
+    // Who is on his back is decided once, off the pose as it came in (see
+    // SUPINE), never off the pose being searched. Both ways of asking it live
+    // were gamed on the first runs: with a gate at weight-check's line the
+    // search rolled the man under the mount's working variant to exactly 0.50
+    // and sat him up another four degrees; with a ramp it rolled three men to
+    // the bottom of the ramp, one of them eleven degrees further up. A man who
+    // came in on his back pays for his back until it rests on something.
+    if (count ? n[1] < 0.3 : !SUPINE[me]) continue;
+    const gap = s.low[chest] - MAT_Y;
+    if (gap <= (count ? BACK_SEEN : BACK_LO)) continue;
+    if (POST_IDX.some((b) => s.low[b] - MAT_Y <= BACK_SEEN)) continue;
+    const v = s.lowV[chest];
+    if (v >= 0 && underneath(o, s.xyz[v * 3], s.xyz[v * 3 + 1], s.xyz[v * 3 + 2], -1)) continue;
+    if (leansOn(sk, o, n)) continue;
+    c += count ? 1 : (gap - BACK_LO) * (gap - BACK_LO);
+  }
+  return c;
 }
 
 function hoverCost(count = false) {
@@ -775,6 +857,7 @@ function cost(id) {
 
   // And nothing hanging in the air an inch off the mat.
   c += hoverPlayed(id) * HOVER_W;
+  c += BACK_PLAYED * BACK_W;
 
   // Still a grappling position and not two solos: the closest pair of read
   // points has to stay inside a forearm's length.
@@ -1107,11 +1190,13 @@ const ids = (ONLY.length ? ONLY : Object.keys(POSES));
 const changed = [];
 for (const id of ids) {
   pickMeshes(id);
+  pickSupine(id);
   const before = cost(id).pen;
   const matBefore = underMat();
   const balBefore = balance(rig.skel.A, rig.skel.B);
   const lookBefore = lookCost(id);
   const hovBefore = hoverPlayed(id);
+  const backBefore = BACK_PLAYED;
   const hangBefore = hoverPlayed(id, true);
   const spineBefore = spineNow();
   const roomBefore = roomNow();
@@ -1138,6 +1223,7 @@ for (const id of ids) {
   let balAfter = balance(rig.skel.A, rig.skel.B);
   let lookAfter = lookCost(id);
   let hovAfter = hoverPlayed(id);
+  let backAfter = BACK_PLAYED;
   let spineAfter = spineNow();
   let roomAfter = roomNow();
   let kept = false;
@@ -1167,10 +1253,21 @@ for (const id of ids) {
   // by the thing being bought, and by the line the number itself ships on. Half
   // a centimetre per five degrees of spine won, and never past six centimetres
   // — two clear of the eight where pose-check stops calling squash contact.
+  // Laying a man down onto his back is bought the way straightening a spine
+  // is, and bounded the same way: half a centimetre of squash per five
+  // centimetres of back brought down, never past six; mat to three, which
+  // seat-solve takes out on its pass; and weight out of the base to five,
+  // the line below for a man leaning rather than falling. Six of the backs
+  // were refused for exactly these prices — a centimetre of mat, half a
+  // centimetre of squash — while bringing their shoulders down by fifteen to
+  // twenty-five.
+  const backWon = Math.sqrt(Math.max(0, backBefore)) - Math.sqrt(Math.max(0, backAfter));
+  const layingDown = backWon >= 0.05;
   const spineWon = Math.max(0, spineBefore - spineAfter);
   const squashAllowed = Math.min(0.03, (spineWon / 5) * 0.005);
   const straightening = spineWon >= 5 && after.worst <= 0.06;
-  if (after.worst > before.worst + SLACK + (straightening ? squashAllowed : 0)) {
+  const backSquash = layingDown && after.worst <= 0.06 ? Math.min(0.03, (backWon / 0.05) * 0.005) : 0;
+  if (after.worst > before.worst + SLACK + Math.max(straightening ? squashAllowed : 0, backSquash)) {
     refused.push(`overlap ${(before.worst * 100).toFixed(1)}→${(after.worst * 100).toFixed(1)}cm` +
       (straightening ? ` against ${spineWon.toFixed(0)}° of spine` : ''));
   }
@@ -1179,7 +1276,13 @@ for (const id of ids) {
   if (after.raw > GRIP_ALLOW + SLACK && after.raw > before.raw + SLACK) {
     refused.push(`contact ${(before.raw * 100).toFixed(1)}→${(after.raw * 100).toFixed(1)}cm`);
   }
-  if (matAfter.worst > matBefore.worst + SLACK) refused.push(`mat ${(matBefore.worst * 100).toFixed(1)}→${(matAfter.worst * 100).toFixed(1)}cm`);
+  // The mat a back may spend, and only two centimetres of it — the target
+  // weight-check prints beside its line. Five was tried and was a mistake: the
+  // men written sitting up steeply came down by sinking the whole pelvis into
+  // the floor, which seat-solve does not undo and should not, rather than by
+  // lying back from the hips. Those are intent to edit, not mat to spend.
+  const backMat = layingDown ? 0.02 : 0;
+  if (!(matAfter.worst <= backMat) && matAfter.worst > matBefore.worst + SLACK) refused.push(`mat ${(matBefore.worst * 100).toFixed(1)}→${(matAfter.worst * 100).toFixed(1)}cm`);
   // Balance, and not on a waypoint. The cost does not ask a waypoint to keep
   // its weight over its base — the middle of falling into a guard is a pair
   // falling, and that is the note written beside the term — so the guard must
@@ -1193,7 +1296,7 @@ for (const id of ids) {
   // floor may spend balance down to five, and no further — which is how the
   // last pose with a leg buried, the rear naked choke's second work variant,
   // paid 3.4cm for thirty-seven.
-  const leaning = wonMat > 0.05 && balAfter < 0.05;
+  const leaning = (wonMat > 0.05 || layingDown) && balAfter < 0.05;
   if (!POSES[id].waypoint && !leaning && balAfter > balBefore + 0.01) {
     refused.push(`weight ${(balBefore * 100).toFixed(1)}→${(balAfter * 100).toFixed(1)}cm`);
   }
@@ -1219,9 +1322,15 @@ for (const id of ids) {
   // fourteen millimetres of slack is what the old square number allowed, in
   // length.
   const hoverLen = (v) => Math.sqrt(Math.max(0, v));
-  if (hoverLen(hovAfter) > hoverLen(hovBefore) + 0.014 + wonMat) {
+  // A hanging limb is a work list in weight-check and a back off the mat is a
+  // line, so a back may buy a little hover: a centimetre per five brought down.
+  if (hoverLen(hovAfter) > hoverLen(hovBefore) + 0.014 + wonMat + (layingDown ? backWon / 5 : 0)) {
     refused.push(`hover ${(hoverLen(hovBefore) * 100).toFixed(1)}→${(hoverLen(hovAfter) * 100).toFixed(1)}cm ` +
       `against ${(wonMat * 100).toFixed(0)}cm out of the mat`);
+  }
+  // And a back that was down stays down: the same length test, the same slack.
+  if (hoverLen(backAfter) > hoverLen(backBefore) + 0.014) {
+    refused.push(`back ${(hoverLen(backBefore) * 100).toFixed(1)}→${(hoverLen(backAfter) * 100).toFixed(1)}cm`);
   }
   if (refused.length) {
     restore(id, undo);
@@ -1230,6 +1339,7 @@ for (const id of ids) {
     balAfter = balance(rig.skel.A, rig.skel.B);
     lookAfter = lookCost(id);
     hovAfter = hoverPlayed(id);
+    backAfter = BACK_PLAYED;
     spineAfter = spineNow();
     roomAfter = roomNow();
     kept = true;
@@ -1246,6 +1356,7 @@ for (const id of ids) {
     `${(matBefore.worst * 100).toFixed(0).padStart(3)} -> ${(matAfter.worst * 100).toFixed(0).padStart(3)}cm ` +
     `weight out ${(balBefore * 100).toFixed(0).padStart(3)} -> ${(balAfter * 100).toFixed(0).padStart(3)}cm  ` +
     `hangs ${String(hangBefore).padStart(2)} -> ${String(hangAfter).padStart(2)}  ` +
+    `back ${(Math.sqrt(backBefore) * 100).toFixed(0).padStart(2)} -> ${(Math.sqrt(backAfter) * 100).toFixed(0).padStart(2)}cm  ` +
     `spine ${Math.max(0, spineBefore).toFixed(0).padStart(2)} -> ${Math.max(0, spineAfter).toFixed(0).padStart(2)}°  ` +
     `room ${roomBefore.toFixed(0).padStart(3)} -> ${roomAfter.toFixed(0).padStart(3)}°  ` +
     `${kept ? ` (kept what it had: ${refused.join(', ')})` : ''}` +

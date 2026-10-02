@@ -123,6 +123,14 @@ function play(level, stats) {
     }
     const from = m.prevPosition;
     const to = m.pending || m.position;
+    // How often each move is set off, so a count of jumps in it can be read
+    // per attempt rather than per minute — a move the fight reaches more often
+    // jumps more often without jumping any harder.
+    if (from !== to && (stats.lastMove || '') !== from + '>' + to) {
+      stats.starts = stats.starts || {};
+      stats.starts[from + '>' + to] = (stats.starts[from + '>' + to] || 0) + 1;
+    }
+    stats.lastMove = from !== to ? from + '>' + to : '';
     if (from === to && m.blend >= 1) rig.hold(to, DT);
     else rig.apply(from, to, m.blend, DT);
 
@@ -250,6 +258,11 @@ if (EVENTS) {
   const byB = {}; for (const e of stats.events) byB[e.bone] = (byB[e.bone] || 0) + 1;
   console.log('     ' + Object.entries(byB).sort((a, b) => b[1] - a[1]).slice(0, 8)
     .map(([k, v]) => `${k}:${v}`).join(' '));
+  // And by transition, which is the question after a round of pose work:
+  // which of the moves that changed is the one that started jumping.
+  const byT = {}; for (const e of stats.events) { const k = `${e.from}>${e.to}`; byT[k] = (byT[k] || 0) + 1; }
+  console.log('     ' + Object.entries(byT).sort((a, b) => b[1] - a[1]).slice(0, 10)
+    .map(([k, v]) => `${k}:${v}/${(stats.starts || {})[k] || 0}`).join(' ') + '   (jumps/times set off)');
   console.log(`     of ${stats.events.length}, ${stats.events.filter((e) => e.swap).length} on a role swap\n`);
 }
 console.log(`     average acceleration ${(stats.accSum / samples).toFixed(1)} m/s², ` +
