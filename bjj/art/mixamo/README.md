@@ -1,12 +1,15 @@
 # Mixamo clips and characters
 
-Six Mixamo exports, all **With Skin**. Two of them are the game's two fighters;
-the rest are clips and a mannequin.
+Mixamo exports, all **With Skin**. Four of them are the game's four heads —
+every man in `src/game/roster.js` wears one of them; the rest are clips and a
+mannequin.
 
 | file | what it is | used for |
 |---|---|---|
 | `body-block.fbx` | a dressed man, Beta rig | **fighter A** — `assets/fighter.bin` |
 | `Ch31_nonPBR.fbx` | a dressed man, long hair | **fighter B** — `assets/fighter-b.bin` |
+| `brian.fbx` | polo, shaved head | **head C** — `assets/fighter-c.bin` |
+| `david.fbx` | long sleeves, short dark hair | **head D** — `assets/fighter-d.bin` |
 | `passive-marker-man.fbx` | a mocap actor in a marker suit | nothing in the game; see below |
 | `standing.fbx` | neutral idle | clip |
 | `situp-to-idle.fbx` | lying down to standing, 4.4 s | clip |
@@ -21,16 +24,33 @@ curl -sL -o bjj/art/mixamo/Ch31_nonPBR.fbx \
 node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/Ch31_nonPBR.fbx --out bjj/assets/fighter-b.bin
 ```
 
+`brian.fbx` and `david.fbx` are not in git either; they come back with
+`mixamo-fetch.mjs char Brian` / `char David` and a fresh token (below).
+
 The baked `.bin` files are in git, so nothing here is needed to run the game —
-only to re-bake a fighter. **Both are baked at 20 000 triangles**, and the
-bake is deterministic: with `--tris 20000` the current baker reproduces the
+only to re-bake a fighter. **All four are baked at 20 000 triangles**, and the
+bake is deterministic: with these flags the current baker reproduces the
 file in git byte for byte, which is the first thing to check before changing
 the baker —
 
 ```bash
 node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/body-block.fbx  --tris 20000 --out bjj/assets/fighter.bin
 node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/Ch31_nonPBR.fbx --tris 20000 --out bjj/assets/fighter-b.bin
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/brian.fbx       --tris 20000 --out bjj/assets/fighter-c.bin
+node bjj/tools/bake-mixamo.mjs bjj/art/mixamo/david.fbx       --tris 20000 --strands 0.5 --out bjj/assets/fighter-d.bin
 ```
+
+**`--strands 0.5` is David's and nobody else's.** His hair is 3 324 loose
+cards — 15 538 vertices — and the decimator cannot thin a card, because every
+border is a mesh boundary it will not collapse. Baked whole, the hair was 71%
+of his mesh and `budget-check` failed his trunk: 0.28× its share of the screen
+against a line of 0.3. More triangles do not help — at 26 000 the head grew
+with the body and the trunk only reached 0.30. Dropping every card made him
+bald, which is Brian in another skin. So the baker keeps a fraction of the
+strand triangles, biggest cards first, since they are the outline of the
+haircut: at 0.5 the trunk is 0.39×, the same as fighter B's, and the hair
+still reads as short and dark; at 0.3 he is balding. Ch31's hair is not cards
+(more triangles than vertices), so the flag does not touch him.
 
 Without `--tris` the file comes out half again as big and every measure of
 the fighters moves with it.
@@ -76,8 +96,8 @@ on the mat with `shot.mjs --pose STANDING`:
 
 | character | bake | checks | on the mat | verdict |
 |---|---|---|---|---|
-| **Brian** | 10 441 verts, 342 KB | all green | shaved head, gi sits right | **ready** |
-| **David** | 20 113 verts, 549 KB | all green | dark skin, short hair, gi sits right | **ready** |
+| **Brian** | 10 441 verts, 342 KB | all green | shaved head, gi sits right | **in the game, head C** |
+| **David** | 20 113 verts, 549 KB | green here; `budget-check` red in the battery, see `--strands` above | dark skin, short hair, gi sits right | **in the game, head D**, at 14 698 verts, 433 KB |
 | **Remy** | byte for byte `assets/fighter.bin` | — | — | **already fighter A**: `body-block.fbx` is Remy |
 | **Bryce** | 13 558 verts, 409 KB | `asset-check` red: feet 12 cm against 15 cm of rig | gi trousers end at the knee | baker work |
 | **Lewis** | 19 555 verts, 537 KB | green | **no gi on torso or legs** — skin with blue sleeves | baker work |
@@ -97,12 +117,33 @@ What is wrong with the last two is the source, read wrongly:
 Every clip still has to go through `clip-check` before anything is taken from
 it; none has been yet.
 
+**How C and D were let onto the mat.** The pose solvers and most of the
+battery measure contact on two baked skins, `fighter.bin` in role A and
+`fighter-b.bin` in role B, while in a match the mesh follows the man and either
+man can be on top. So each new head ran the whole battery (`verify.mjs`) four
+times in a scratch copy of `bjj/`: Brian in place of fighter A, Brian in place
+of B, David in place of A, David in place of B. Brian was green in both roles
+as he came. David was green everywhere but `budget-check`, which `--strands
+0.5` fixed; with it he is green in both roles too. The per-head checks —
+`asset-check` (in `verify`), `figure-check`, `cloth-check`, `hand-check`,
+`mark-check` — now read all four files. The contact checks still read A and B
+only: a new head, or a re-bake of C or D, goes through the four swapped runs
+again.
+
 ## What each character bakes into
 
 ```
 fighter A  body-block.fbx    16 851 verts  29 865 tris  471 KB
 fighter B  Ch31_nonPBR.fbx   28 854 verts  46 314 tris  779 KB
 ```
+
+That table is from before `--tris 20000`. At 20 000: A 373 KB, B 451 KB,
+C (Brian) 342 KB, D (David, `--strands 0.5`) 433 KB.
+
+C and D are fetched only when a man who wears them is about to be drawn
+(`gpuFor` in `main.js`), so the default first match — Kirill against Rafael,
+heads A and B — never downloads them, and `net-check`'s first minute is the
+same bytes as before.
 
 A vertex costs one byte more than it used to: from asset version 2 each one
 carries how much of the room it can see, measured on the mesh by the baker

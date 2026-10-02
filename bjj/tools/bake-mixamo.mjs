@@ -40,6 +40,49 @@ const NOSHAPE = argv.includes('--no-shape');
 // a collar, a skirt and a belt — is put on the body instead. --nogi keeps what
 // the character arrived in.
 const NOGI = argv.includes('--nogi');
+// Thin the strands by whole cards. Mixamo's hair is, on some men, a few
+// thousand loose cards, and the decimator cannot thin them — every card border
+// is a mesh boundary it will not touch — so on David they took 71% of a
+// 20 000-triangle budget and left his trunk below its share of the screen
+// (budget-check). `--strands 0.5` keeps half the strand triangles, the biggest
+// cards first, which are the ones that make the outline of the haircut; the
+// small ones are curls lying on the scalp under them. A strand part is told
+// from a shell by its shape: loose quads have fewer triangles than vertices, a
+// surface about two to a vertex. Dropping every card left David bald, which
+// made him Brian in another skin — so this is a fraction, not a switch.
+const STRANDS = +flag('strands', 1);
+
+function thinStrands(mesh, keep) {
+  const n = mesh.pos.length / 3, idx = mesh.idx;
+  const par = Int32Array.from({ length: n }, (_, i) => i);
+  const find = (x) => { while (par[x] !== x) x = par[x] = par[par[x]]; return x; };
+  const join = (a, b) => { a = find(a); b = find(b); if (a !== b) par[a] = b; };
+  for (let i = 0; i < idx.length; i += 3) { join(idx[i], idx[i + 1]); join(idx[i], idx[i + 2]); }
+  // A card split at a UV seam is still one card: weld by position as well.
+  const at = new Map();
+  for (let v = 0; v < n; v++) {
+    const k = `${Math.round(mesh.pos[v * 3] * 1e3)},${Math.round(mesh.pos[v * 3 + 1] * 1e3)},${Math.round(mesh.pos[v * 3 + 2] * 1e3)}`;
+    if (at.has(k)) join(v, at.get(k)); else at.set(k, v);
+  }
+  const cards = new Map();
+  for (let i = 0; i < idx.length; i += 3) {
+    const r = find(idx[i]);
+    const [a, b, c] = [idx[i], idx[i + 1], idx[i + 2]].map((v) => mesh.pos.slice(v * 3, v * 3 + 3));
+    const e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const area = Math.hypot(e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]) / 2;
+    const card = cards.get(r) || { area: 0, tris: [] };
+    card.area += area; card.tris.push(i);
+    cards.set(r, card);
+  }
+  const order = [...cards.values()].sort((x, y) => y.area - x.area);
+  const want = Math.round((idx.length / 3) * keep);
+  const kept = [];
+  for (const c of order) {
+    if (kept.length / 3 >= want) break;
+    for (const t of c.tris) kept.push(idx[t], idx[t + 1], idx[t + 2]);
+  }
+  mesh.idx = kept.length === idx.length ? idx : Int32Array.from(kept);
+}
 
 // The lapel's own shape, shared by the strip that builds it and the UVs that
 // the shader draws its edges from. Open at the throat, crossed at the waist.
@@ -320,7 +363,10 @@ function classify(mesh, clusters) {
   // knows to leave them alone. They are two triangles thick and an inverted
   // hull turns them into a black stripe across the face.
   if (bones.size <= 2 && bones.has('Head') && mesh.pos.length / 3 < 400) return { kind: 'brows', mat: 8 };
-  if (bones.has('Head') && bot > 0.82) return { kind: 'hair', mat: 5 };
+  if (bones.has('Head') && bot > 0.82) {
+    if (mesh.idx.length / 3 < mesh.pos.length / 3) return { kind: 'strands', mat: STRANDS > 0 ? 5 : -1 };
+    return { kind: 'hair', mat: 5 };
+  }
   // The body is the part that runs from the feet to the head. Nothing a person
   // wears does that, and the obvious alternative — "the body is what the hand
   // bones move" — is wrong for anyone in long sleeves: a shirt whose cuffs
@@ -343,6 +389,11 @@ const parts = [];
 for (const mesh of parsed.meshes) {
   const clusters = parsed.skins.get(mesh.id) || [];
   const info = classify(mesh, clusters);
+  if (info.kind === 'strands' && STRANDS > 0 && STRANDS < 1) {
+    const before = mesh.idx.length / 3;
+    thinStrands(mesh, STRANDS);
+    info.kind = `strands ${(100 * mesh.idx.length / 3 / before).toFixed(0)}%`;
+  }
   parts.push({ ...info, verts: mesh.pos.length / 3, tris: mesh.idx.length / 3 });
   if (info.mat < 0) continue;   // barefoot: the body under the shoes is real
 

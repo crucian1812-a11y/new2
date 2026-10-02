@@ -105,7 +105,7 @@ const rows = [];
 // (src/render/build.js): a heavyweight is still a person, and so is a
 // featherweight, or the build table has made a shape rather than a class.
 const BUILDS = [['', null], [' heavy', BUILD_ROOM.heavy], [' light', BUILD_ROOM.light]];
-for (const [tag, build] of BUILDS) for (const bin of ['fighter.bin', 'fighter-b.bin']) {
+for (const [tag, build] of BUILDS) for (const bin of ['fighter.bin', 'fighter-b.bin', 'fighter-c.bin', 'fighter-d.bin']) {
   const file = bin + tag;
   const mesh = shapeMesh(load(bin), build);
   const lite = skinLite(mesh);

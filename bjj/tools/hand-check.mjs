@@ -303,7 +303,7 @@ const STATES = [['rest', [HAND_REST, TIP_REST]], ['grip', [HAND_GRIP, TIP_GRIP]]
 const named = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--dump');
 const FIGHTERS = named.length
   ? named.map((f, i) => [String.fromCharCode(65 + i), f])
-  : [['A', 'fighter.bin'], ['B', 'fighter-b.bin']];
+  : [['A', 'fighter.bin'], ['B', 'fighter-b.bin'], ['C', 'fighter-c.bin'], ['D', 'fighter-d.bin']];
 
 console.log('  who state hand    gap mm  worst mm   air cm²  thumb mm  fingers');
 let worstGap = { v: 0 }, worstAir = { v: 0 }, worstThumb = { v: 0 };

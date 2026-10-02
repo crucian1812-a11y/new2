@@ -25,7 +25,7 @@
 import { readFileSync } from 'fs';
 import { decodeFighter } from '../src/render/asset.js';
 
-const FILES = ['bjj/assets/fighter.bin', 'bjj/assets/fighter-b.bin'];
+const FILES = ['bjj/assets/fighter.bin', 'bjj/assets/fighter-b.bin', 'bjj/assets/fighter-c.bin', 'bjj/assets/fighter-d.bin'];
 
 let fail = 0;
 const check = (ok, msg, extra = '') => {

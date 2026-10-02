@@ -363,7 +363,8 @@ check(rimSoftTotal / Math.max(1, rimTotal) > 0.3, 'curved edges across the atlas
 // body UV, which every bake shares, but the body under that UV is a different
 // man each time: what is a 19 cm patch on one chest is another size on the next,
 // and a rectangle that clears one jacket's collar may sit on top of another's.
-const fighters = ['bjj/assets/fighter.bin', 'bjj/assets/fighter-b.bin'].filter((f) => existsSync(f));
+const fighters = ['bjj/assets/fighter.bin', 'bjj/assets/fighter-b.bin', 'bjj/assets/fighter-c.bin', 'bjj/assets/fighter-d.bin']
+  .filter((f) => existsSync(f));
 if (!fighters.length) {
   console.log('no baked fighter on disk — skipping the patch checks');
 }

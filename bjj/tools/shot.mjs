@@ -1,6 +1,8 @@
 // Screenshot driver. Usage:
 //   node bjj/tools/shot.mjs out.png [--w 900 --h 420 --wait 2500 --pose MOUNT --scene]
 //   --blend FROM,TO,t   freeze one moment of a transition instead of a pose
+//   --fighter ID   play as that man from roster.js (his head, skin, build);
+//                  with ?belt= in --path it also picks whom he fights
 //   --clip x,y,w,h   just that rectangle of the page, at the same device scale,
 //                    which is how you look closely at a hand rather than
 //                    squinting at a whole match.
@@ -28,6 +30,7 @@ const CLIP = flag('clip', null);
 // higher is how you look at something small — a hand, a patch, an eye —
 // without asking the page for a viewport the renderer will not give you.
 const DPR = +flag('dpr', 2);
+const FIGHTER = flag('fighter', null);
 
 const browser = await chromium.launch({
   // The sandbox ships a browser; CHROME_PATH points at it when the npm copy
@@ -39,6 +42,11 @@ const ctx = await browser.newContext({
   viewport: { width: W, height: H }, deviceScaleFactor: DPR, isMobile: true, hasTouch: true,
 });
 const page = await ctx.newPage();
+if (FIGHTER) {
+  await page.addInitScript((id) => {
+    localStorage.setItem('bjj.progress', JSON.stringify({ rank: 0, fighter: id, gi: 'white' }));
+  }, FIGHTER);
+}
 const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${(e.stack||'').split('\n').slice(0,4).join('\n')}`));

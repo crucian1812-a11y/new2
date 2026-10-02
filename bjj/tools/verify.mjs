@@ -83,6 +83,8 @@ const steps = [
   ['weight', 'weight-check.mjs', []],
   ['baked fighter', 'asset-check.mjs', ['bjj/assets/fighter.bin']],
   ['the opponent', 'asset-check.mjs', ['bjj/assets/fighter-b.bin']],
+  ['third head (Brian)', 'asset-check.mjs', ['bjj/assets/fighter-c.bin']],
+  ['fourth head (David)', 'asset-check.mjs', ['bjj/assets/fighter-d.bin']],
   // And whether the cloth the baker builds from nothing faces out of the man:
   // the belt and the collar were both wound inwards and lit from inside.
   ['the cloth', 'cloth-check.mjs', []],
