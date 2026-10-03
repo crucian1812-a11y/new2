@@ -21,11 +21,55 @@
 //   node bjj/tools/net-check.mjs --fast     8 Mbit/s, 80 ms, for comparison
 
 import { createRequire } from 'module';
+import { createServer } from 'node:http';
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { join, normalize, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_PATH || 'playwright');
 
-const PORT = +(process.env.PORT || 8099);
 const FAST = process.argv.includes('--fast');
+// The server the phone talks to compresses text, and this one has to as well.
+//
+// The game is served from GitHub Pages, whose CDN sends HTML, CSS, JavaScript,
+// JSON and SVG gzipped and the binaries as they are. `python3 -m http.server`
+// compresses nothing, and the code here is commented the way the rest of the
+// project is, so it measured the first frame at 1338 KB of which 960 were
+// JavaScript that no phone ever downloads at that size. The line was red for
+// it, and red for a cost that does not exist is a line nobody reads. So this
+// serves the repository itself, the way Pages would; --plain goes back to the
+// uncompressed server on PORT for comparison.
+const PLAIN = process.argv.includes('--plain');
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const TEXT = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.txt': 'text/plain', '.md': 'text/markdown' };
+const BIN = { '.bin': 'application/octet-stream', '.png': 'image/png', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg',
+  '.m4a': 'audio/mp4', '.wav': 'audio/wav', '.glb': 'model/gltf-binary' };
+let PORT = +(process.env.PORT || 8099);
+let server = null;
+if (!PLAIN) {
+  server = createServer((req, res) => {
+    const path = normalize(join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
+    if (!path.startsWith(ROOT) || !existsSync(path)) { res.writeHead(404); res.end(); return; }
+    if (statSync(path).isDirectory()) {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end('<!doctype html><title>dir</title>');
+      return;
+    }
+    const ext = extname(path).toLowerCase();
+    const body = readFileSync(path);
+    if (TEXT[ext] && /gzip/.test(req.headers['accept-encoding'] || '')) {
+      res.writeHead(200, { 'content-type': TEXT[ext], 'content-encoding': 'gzip' });
+      res.end(gzipSync(body, { level: 6 }));
+    } else {
+      res.writeHead(200, { 'content-type': TEXT[ext] || BIN[ext] || 'application/octet-stream' });
+      res.end(body);
+    }
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  PORT = server.address().port;
+}
 // A 3G line that is not having a good day, which is the line the game has to
 // be usable on. --fast is the same run on a decent connection, for the sake of
 // telling "slow because of the network" from "slow anyway".
@@ -61,7 +105,7 @@ async function throttle(page) {
   return cdp;
 }
 
-console.log(`the line: ${LINE.name}\n`);
+console.log(`the line: ${LINE.name}, ${PLAIN ? 'uncompressed (--plain)' : 'text gzipped, as Pages serves it'}\n`);
 
 /* ------------------------------------------------------- the page itself */
 
@@ -75,7 +119,8 @@ console.log(`the line: ${LINE.name}\n`);
   const cdp = await throttle(page);
   let bytes = 0;
   const each = new Map();
-  cdp.on('Network.loadingFinished', (e) => { bytes += e.encodedDataLength; });
+  const done = [];
+  cdp.on('Network.loadingFinished', (e) => { bytes += e.encodedDataLength; done.push([e.requestId, e.encodedDataLength]); });
   cdp.on('Network.responseReceived', (e) => each.set(e.requestId, e.response.url));
 
   const t0 = Date.now();
@@ -85,6 +130,7 @@ console.log(`the line: ${LINE.name}\n`);
   await page.waitForFunction(() => window.__stats, null, { timeout: 60000 });
   const drawn = (Date.now() - t0) / 1000;
   const atFrame = bytes;
+  const before = done.length;
   // And what the whole of it costs, so the first-frame figure has a scale.
   await page.waitForTimeout(3000);
   console.log(`  first frame at ${drawn.toFixed(1)}s after ${(atFrame / 1024).toFixed(0)} KB` +
@@ -97,6 +143,14 @@ console.log(`the line: ${LINE.name}\n`);
   check(atFrame < 1024 * 1024, 'the first frame does not wait for a megabyte',
     `${(atFrame / 1024).toFixed(0)} KB`);
   check(errors.length === 0, 'no errors on the way', errors.join(' / '));
+  // --files: what the first frame waited for, biggest first — the number above
+  // says how much and this says which, which is the question it always raises.
+  if (process.argv.includes('--files')) {
+    const rows = done.slice(0, before).map(([id, n]) => [n, (each.get(id) || id).replace(/^.*\/bjj\//, '')]);
+    rows.sort((a, b) => b[0] - a[0]);
+    for (const [n, u] of rows.slice(0, 25)) console.log(`     ${(n / 1024).toFixed(0).padStart(5)} KB  ${u}`);
+    console.log(`     ${rows.length} files before the first frame`);
+  }
   await page.close();
 }
 
@@ -169,5 +223,6 @@ console.log(`the line: ${LINE.name}\n`);
 }
 
 await browser.close();
+if (server) server.close();
 console.log(fail ? `\n${fail} problem(s)` : '\nthe first minute holds up on a slow line');
 process.exit(fail ? 1 : 0);
