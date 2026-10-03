@@ -96,13 +96,18 @@ float band(float v) {
   return (f + smoothstep(0.42, 0.58, r)) / 3.0;
 }
 
+// How much of the key light a point gets past its own cavities. One for
+// everything but skin, where the fighter shader sets it from the baked
+// occlusion before calling shade() — see where it is set.
+float g_keyAO = 1.0;
+
 vec3 shade(vec3 world, vec3 N, vec3 albedo, float rough, float spec, float wrap, float ao, float amb) {
   vec3 V = normalize(u_camPos - world);
   vec3 L = u_sunDir;
   float ndl = dot(N, L);
   float sh = shadowAt(world, max(ndl, 0.0));
 
-  vec3 diff = u_sunCol * band(wrapDiffuse(ndl, wrap)) * sh;
+  vec3 diff = u_sunCol * band(wrapDiffuse(ndl, wrap)) * sh * g_keyAO;
 
   // Hemispheric ambient: the ceiling is bright, the floor throws back the
   // mat's own colour. This is the whole of the indirect lighting and it is
@@ -781,6 +786,14 @@ void main() {
   // The plate's fill: skin and cloth on their own dials. See the fill argument
   // to render().
   float amb = (m == 0 || m == 6 || m == 7 || m == 8) ? u_fill.x : u_fill.y;
+  // On skin the baked occlusion takes some of the key light too, not only the
+  // ambient. A socket is a cavity for every light in the room, and the shadow
+  // map is a hand's breadth a texel — it cannot see one. With the occlusion on
+  // the ambient alone, a face in the key light had its hollows drawn at a few
+  // per cent of its brightness, and look-check, judging the face on the frame
+  // where it is largest, read 1 to 4 % against a line of 10 — red since the
+  // walkout round. Half, so a cavity darkens rather than goes black.
+  if (m == 0) g_keyAO = mix(1.0, 0.10 + 0.90 * v_ao, u_ao * 0.5);
   vec3 c = shade(v_world, N, albedo, rough, spec, wrap, ao, amb);
   c += vec3(1.0, 0.45, 0.3) * u_flash * 0.6;
   // Belt and braces: anything that is not a sane positive number never reaches
