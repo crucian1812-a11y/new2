@@ -109,8 +109,13 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // sideways 124 and backwards 0, hips 93; shoulders came back at 642, inside
 // their 5% but not under 617, so that line stays where it was. What is
 // left is mostly in the blends, and a line may not get worse than this, with
-// 5% for the noise a re-solved arc brings.
-const NOW = { 'knee-back': 0, 'knee-side': 64, 'elbow-back': 0, 'elbow-side': 124, 'hip-turn': 93, 'shoulder-turn': 617 };
+// 5% for the noise a re-solved arc brings. Then the poses that sat on a seam
+// of the grip solve had the limb the rig builds written into them
+// (seam-bake.mjs), the arcs through them were re-solved and two thighs were
+// turned by a measured six degrees: knees sideways 59, elbows sideways 45,
+// hips 82, shoulders 215 — the shoulders' first real move since the rig began
+// turning them.
+const NOW = { 'knee-back': 0, 'knee-side': 59, 'elbow-back': 0, 'elbow-side': 45, 'hip-turn': 82, 'shoulder-turn': 215 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
