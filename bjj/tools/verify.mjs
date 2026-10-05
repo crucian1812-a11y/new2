@@ -147,11 +147,13 @@ if (withBrowser) {
 //                                    time — the whole subject is human timing
 //                                    and there is no fast-forwarding it
 
-let failed = 0;
+// By name at the end: a step can fail without a FAIL line of its own (a
+// crash, a signal), and a thousand lines up is not where anybody looks.
+const failed = [];
 for (const [name, script, args] of steps) {
   console.log(`\n=== ${name} ===`);
   const r = spawnSync(process.execPath, [join(here, script), ...args], { stdio: 'inherit' });
-  if (r.status !== 0) failed++;
+  if (r.status !== 0) failed.push(`${name} (${r.status ?? r.signal})`);
 }
-console.log(failed ? `\n${failed} step(s) failed` : '\neverything green');
-process.exit(failed ? 1 : 0);
+console.log(failed.length ? `\n${failed.length} step(s) failed: ${failed.join(', ')}` : '\neverything green');
+process.exit(failed.length ? 1 : 0);
