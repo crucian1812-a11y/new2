@@ -114,8 +114,11 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // (seam-bake.mjs), the arcs through them were re-solved and two thighs were
 // turned by a measured six degrees: knees sideways 59, elbows sideways 45,
 // hips 82, shoulders 215 — the shoulders' first real move since the rig began
-// turning them.
-const NOW = { 'knee-back': 0, 'knee-side': 59, 'elbow-back': 0, 'elbow-side': 45, 'hip-turn': 82, 'shoulder-turn': 215 };
+// turning them. Then the triangle's working variant had its caught man's feet
+// taken out of the mat — forty centimetres down, and the ground clamp turning
+// his thigh to lift them (plant-check.mjs, pose-relax's PLANT_W) — and its
+// loop re-solved: hips 62.
+const NOW = { 'knee-back': 0, 'knee-side': 58, 'elbow-back': 0, 'elbow-side': 40, 'hip-turn': 62, 'shoulder-turn': 215 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];

@@ -102,6 +102,9 @@ const rig = new PairRig();
 // the whole library moving at once. It is here to measure that before anybody
 // asks for it.
 const planting = (id) => process.env.PLANT !== '0' && !!POSES[id].ground;
+// What a foot the clamp lifts costs, per square metre — the same as skin under
+// the mat (see cost).
+const PLANT_W = +(process.env.PLANT_W ?? 200);
 const overlap = new Overlap();
 const READ = ['headTop', 'handL', 'handR', 'footL', 'footR', 'hips', 'chest', 'shinL', 'shinR'];
 
@@ -691,6 +694,22 @@ function cost(id) {
       if (s.low[b] > 8) continue;
       const under = MAT_Y - s.low[b];
       if (under > 0) c += under * under * 200;
+    }
+  }
+
+  // And the feet the clamp has to lift.
+  //
+  // The skin term above is measured after the planting, and the planting is
+  // exactly what hides a leg written through the floor: rig._ground lifts the
+  // foot back with a two-bone solve in the thigh's forward plane, and the knee
+  // and hip the eye then sees are the clamp's. tools/plant-check.mjs found
+  // thirty-four of them, the triangle's working variant forty centimetres deep
+  // on both feet and the largest single source of hinge-check's hips. So the
+  // lift is paid for on the same terms as skin under the mat.
+  for (const role of ['A', 'B']) {
+    for (const foot of ['footL', 'footR']) {
+      const lift = rig._plant[role][foot] || 0;
+      if (lift > 0.03) c += (lift - 0.03) * (lift - 0.03) * PLANT_W;
     }
   }
 
