@@ -117,8 +117,9 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // turning them. Then the triangle's working variant had its caught man's feet
 // taken out of the mat — forty centimetres down, and the ground clamp turning
 // his thigh to lift them (plant-check.mjs, pose-relax's PLANT_W) — and its
-// loop re-solved: hips 62.
-const NOW = { 'knee-back': 0, 'knee-side': 58, 'elbow-back': 0, 'elbow-side': 40, 'hip-turn': 62, 'shoulder-turn': 215 };
+// loop re-solved: hips 62. Seven more working variants the same way, and
+// half guard's top thigh turned back three measured degrees: hips 59.
+const NOW = { 'knee-back': 0, 'knee-side': 58, 'elbow-back': 0, 'elbow-side': 40, 'hip-turn': 59, 'shoulder-turn': 215 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
