@@ -926,6 +926,127 @@ export const POSES = {
     ],
   }),
 
+  // Four more, for the transitions whose arc fixes the middle and pays for it
+  // at the end: the straight line runs through the other man from a fifth of
+  // the way to four fifths, the arc that clears the middle is still a third
+  // in when the pose has arrived, and blend-check lists the last tenth.
+  // Changing the arc's envelope only moved that peak to t = 0.9 (HANDOFF, «Из
+  // круга, где поза оказалась на шве»). Each is lifted off its straight blend
+  // at the deepest moment (waypoint-from.mjs) and relaxed, and route-arc may
+  // route through it like any other.
+  GUARD_OPENING: P('GUARD_OPENING', {
+    name: 'Раскрытие гарда',
+    label: 'OPEN GUARD',
+    points: 0, top: 'A', ground: true, waypoint: true,
+    A: {
+      root: { p: [-0.065, 0.558, -0.449], r: [0, 0, 0] },
+      j: {
+        hips: [5.8, -14.3, -8.7], spine: [32.2, -0.2, -6.1], chest: [14.8, -9.6, -2.2],
+        neck: [-2.6, -0.4, -3.2], head: [-6.6, -0.2, 2.2], clavL: [24.8, -3.9, 3.4],
+        armL: [35.4, 6.3, 129.2], foreL: [-77.4, 175.7, -175.8], clavR: [-18.6, 35.7, -8.6],
+        armR: [15.2, 45.6, -96.9], foreR: [-69.6, 66.3, -64.8], thighL: [9.5, 18.8, 4.7],
+        shinL: [84.2, 178.9, 178.9], footL: [21.9, 0, 0.4], thighR: [5.8, 7.5, -27.5],
+        shinR: [78.8, -5.6, -5.5], footR: [3.6, -0.1, -0.2],
+      },
+    },
+    B: {
+      root: { p: [-0.12, 0.215, -0.056], r: [-84, 180, 0] },
+      j: {
+        hips: [-7.8, 11.3, 21.5], spine: [18.2, 0.5, 17.5], chest: [13.7, 2.4, -27.9],
+        neck: [-20.3, 0.5, -0.4], head: [18.2, -1.4, -0.3], clavL: [-5.1, -4.3, 11],
+        armL: [-22, 21, -17.4], foreL: [-63.2, 26.4, -23.9], clavR: [-24.6, 14.6, -9.4],
+        armR: [-3.7, -15.7, 13.1], foreR: [-58.4, 0.1, -0.1], thighL: [-73.1, 16.2, -7.1],
+        shinL: [72.8, 65.6, 64.6], footL: [-14.6, 1.1, 0.7], thighR: [-71.2, -157.2, 158.4],
+        shinR: [84.8, -25.8, -26.3], footR: [-14.2, -0.3, 0.4],
+      },
+    },
+    hold: [],
+  }),
+  TURTLE_TURN: P('TURTLE_TURN', {
+    name: 'Переворот на колени',
+    label: 'TURTLE',
+    points: 0, top: 'A', ground: true, waypoint: true,
+    A: {
+      root: { p: [0.017, 0.633, -0.039], r: [2.5, 3.5, -0.2] },
+      j: {
+        hips: [26.7, 15.5, 5.5], spine: [12.5, 22.8, -16], chest: [34.2, -26.7, -3.3],
+        neck: [22.2, 0.6, 1.4], head: [-11.5, 4.1, 1.7], clavL: [27.7, -14.4, -18.9],
+        armL: [-48.8, -28, 12.8], foreL: [-79.1, 177.3, -177.4], clavR: [1.9, 9.1, 21.7],
+        armR: [-51.5, -173.1, -164], foreR: [-74.1, 171.5, -171.8], thighL: [-66.7, 24.2, 38.4],
+        shinL: [63.1, 4.9, -4.4], footL: [15, 1.1, 0], thighR: [-28.8, -32, -17.1],
+        shinR: [71.5, -7.9, -11.3], footR: [17.9, 1.5, 2.1],
+      },
+    },
+    B: {
+      root: { p: [0.08, 0.333, 0.151], r: [-51.5, 177.8, 1.8] },
+      j: {
+        hips: [-27.2, -33.2, 12.7], spine: [1.1, 2.3, -17.3], chest: [1.3, 8.2, 20.6],
+        neck: [-4.2, 5.1, 3.3], head: [15.2, 2.1, 3], clavL: [-2.6, -13.7, 1.7],
+        armL: [-20.7, 148.7, -173.4], foreL: [-75.7, 163.8, -164.3], clavR: [6.3, -6.6, -10.2],
+        armR: [-46.7, -144.2, -169.3], foreR: [-81.1, 1.1, -1.1], thighL: [-8.2, -33.7, -9],
+        shinL: [61.7, 9, 13.3], footL: [1.2, 2.6, -6.1], thighR: [-21.2, 8.1, -4.6],
+        shinR: [50.7, -27.6, -1.9], footR: [-6.9, 1.3, 1.8],
+      },
+    },
+    hold: [],
+  }),
+  TURTLE_DROP: P('TURTLE_DROP', {
+    name: 'Уход в черепаху',
+    label: 'TURTLE',
+    points: 0, top: 'B', ground: true, waypoint: true,
+    A: {
+      root: { p: [-0.031, 0.529, 0.016], r: [27.5, 73.9, -33.6] },
+      j: {
+        hips: [-5.9, 7, 17.6], spine: [23.8, 12.4, 23.8], chest: [4.2, 24.6, -1.3],
+        neck: [11.3, 15.7, 9.4], head: [23.5, 9.6, 1.3], clavL: [18, 1.8, -5.2],
+        armL: [-59.4, 45.8, 79.8], foreL: [-69, 166.1, -165.5], clavR: [18.3, -9.3, 10],
+        armR: [-49.4, -9.9, 18.3], foreR: [-84.7, 8.4, -8.3], thighL: [39.4, -2, 6],
+        shinL: [86.9, -121.1, -121.2], footL: [-3.3, -2.3, 1.9], thighR: [39.5, 20.9, -26.8],
+        shinR: [79.5, -83.2, -83], footR: [-15.9, 7.4, 2],
+      },
+    },
+    B: {
+      root: { p: [-0.187, 0.722, -0.233], r: [5, 100.4, 4.7] },
+      j: {
+        hips: [-16.9, -7.3, 29.5], spine: [30.2, 11.5, 9.2], chest: [20.1, 4.9, -4.1],
+        neck: [12.6, -5, -3.6], head: [-9.3, 0, 1.2], clavL: [19.8, -15.4, 14.9],
+        armL: [-74.4, 5.9, -17.4], foreL: [-84.3, -151.4, 151.5], clavR: [-12.8, 8.1, -10.5],
+        armR: [-17.9, -146.5, 144.8], foreR: [-79.3, -1.3, 1.2], thighL: [-26.2, 11.7, 8.3],
+        shinL: [74.3, -1.5, -1.4], footL: [-3, -4, -0.7], thighR: [0.2, -11.1, 0.8],
+        shinR: [60.3, 4.2, 3.6], footR: [14.6, 13.2, 14.2],
+      },
+    },
+    hold: [],
+  }),
+  ARMBAR_SWING: P('ARMBAR_SWING', {
+    name: 'Замах на рычаг',
+    label: 'ARMBAR',
+    points: 0, top: 'A', ground: true, waypoint: true,
+    A: {
+      root: { p: [-0.297, 0.409, 0.32], r: [-52.2, 96.9, -3.1] },
+      j: {
+        hips: [-38.8, -53.7, 19.6], spine: [26, 17.6, 29.4], chest: [23.9, 14.2, 23.3],
+        neck: [-1.5, -18.9, 5.1], head: [4.3, -6.2, 0], clavL: [-18.7, 6.7, 32.2],
+        armL: [12.1, -29.2, -140.3], foreL: [-81.8, 180, -180], clavR: [-8.6, 1.8, 1.9],
+        armR: [-25.9, -54.1, 46.6], foreR: [-73.3, -175.8, 175.9], thighL: [-57.5, 46, -19],
+        shinL: [70.1, -3.8, -3.6], footL: [-4.2, 1, 1], thighR: [-9.6, 20, -33.9],
+        shinR: [38.2, -19.6, -14], footR: [4.4, -12.9, -31.1],
+      },
+    },
+    B: {
+      root: { p: [-0.121, 0.23, -0.024], r: [-90, 180, 0] },
+      j: {
+        hips: [-2.1, 43.6, -8.4], spine: [-4.3, -25.3, 0.9], chest: [4.4, -8.5, 24.7],
+        neck: [-11, 1.3, -0.5], head: [13.4, -10.7, 1], clavL: [6.6, 6.9, 36.1],
+        armL: [-65.1, -163.5, -153.9], foreL: [-60.7, 5.1, -4.5], clavR: [5.2, -6.3, -24],
+        armR: [-61.6, -94.9, 119.2], foreR: [-76.1, -5, 4.9], thighL: [-28.5, 11.5, 9.5],
+        shinL: [43.4, -4.5, -3.1], footL: [-12.9, -3.3, 0.5], thighR: [-13.9, -2.4, -10.1],
+        shinR: [37.2, -1.8, -1.1], footR: [-14.2, 0.4, 0.4],
+      },
+    },
+    hold: [],
+  }),
+
 
   /* ------------------------------------------------- the same, working - */
   //
