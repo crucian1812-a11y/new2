@@ -26,7 +26,8 @@ import { readFileSync, writeFileSync, openSync, closeSync, unlinkSync } from 'no
 import { PairRig, ARM_NEAR } from '../src/game/rig.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { skinLite, skinInto } from './skin-lite.mjs';
-import { POSES } from '../src/game/poses.js';
+import { POSES, HOLD_LOOPS } from '../src/game/poses.js';
+import { TRANSITIONS, visualEnds } from '../src/game/positions.js';
 import { GRIP_POINTS } from '../src/render/body.js';
 import { BONE_INDEX, quatFromMat } from '../src/render/skeleton.js';
 import { Overlap } from '../src/game/collide.js';
@@ -85,6 +86,14 @@ const ROOT_LIMIT = +(process.env.ROOT_LIMIT || 0.11);
 // What a hip or a shoulder turned past its range costs, per radian squared.
 // A knob for the same reason TORSO_W is one: the ranges are a textbook person.
 const LIMB_W = +(process.env.LIMB_W || 200);
+// The same limbs on the paths out of the pose (see cost). Off unless asked:
+// a base pose is the end of a dozen blends and this is seven rig applies on
+// each, every evaluation. Tried on the knee-on-belly at 50: the foot came out
+// of the mat one centimetre of eighteen and the knees went 58 → 65 — the
+// planted leg cannot come up without the knee on the way to side control
+// paying for it, so that pose stays as it is.
+const PATH_LIMB_W = +(process.env.PATH_LIMB_W || 0);
+const PATH_SAMPLES = 7;
 // What a declared contact past its own line costs, against one for the rest.
 const GRIP_PAST_W = +(process.env.GRIP_PAST_W || 100);
 
@@ -622,6 +631,15 @@ const EDGES = (process.env.EDGES || '').split(',').map((e) => e.trim()).filter(B
 const EDGE_W = +(process.env.EDGE_W || 2000);
 // Which named edges this pose is an end of, its mirrors counted as itself: a
 // mirrored pose is generated, so the only way to move MOUNT_X is to move MOUNT.
+// Every blend a pose is an end of, its mirrors counted as itself.
+const PATHS = [
+  ...TRANSITIONS.flatMap((tr) => visualEnds(tr).map((to) => [tr.from, to])),
+  ...Object.entries(HOLD_LOOPS).flatMap(([pos, loop]) => loop.map((v) => [pos, v])),
+].filter(([from, to], i, all) => from !== to && all.findIndex(([f, t]) => f === from && t === to) === i);
+function pathsFor(id) {
+  const mine = (e) => e === id || (POSES[e] && POSES[e].mirrorOf === id);
+  return PATHS.filter(([from, to]) => mine(from) || mine(to));
+}
 function edgesFor(id) {
   return EDGES.filter((key) => {
     const [from, to] = key.split('>');
@@ -870,6 +888,31 @@ function cost(id) {
   // the arm by a man's side rotated 133° in the shoulder. The turn is read the
   // way hinge-check reads it (tools/limbs.mjs).
   for (const role of ['A', 'B']) c += limbCost(rig.skel[role]) * LIMB_W;
+
+  // And on the paths out of it.
+  //
+  // The term above prices the pose, and a base pose is the end of a dozen
+  // transitions. Solved against itself alone it moved the knee-on-belly's top
+  // leg out of the mat and turned his knee 21° past a knee on nineteen samples
+  // of the way to side control: hinge-check across the library went from 58
+  // knees to 82 and 59 hips to 130, and the whole run was thrown away. So,
+  // when asked, the same limbCost is paid on samples of every blend the pose
+  // is an end of — the arcs are stale while this runs, as they are for
+  // blendDepth, and that is the number hinge-check would print today.
+  if (PATH_LIMB_W > 0) {
+    for (const [from, to] of pathsFor(id)) {
+      for (let i = 1; i <= PATH_SAMPLES; i++) {
+        rig.rewind();
+        rig.plantFeet = true;
+        rig.applyAt(from, to, i / (PATH_SAMPLES + 1), 0.016);
+        for (const role of ['A', 'B']) c += limbCost(rig.skel[role]) * PATH_LIMB_W;
+      }
+    }
+    rig.rewind();
+    rig.plantFeet = planting(id);
+    rig.apply(id, id, 1, 0.016);
+    skinNow();
+  }
 
   // And a head that is looking at something.
   c += lookCost(id) * 6;
