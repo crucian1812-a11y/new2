@@ -1063,8 +1063,15 @@ export class PairRig {
       // And the arms stop being carried. Not the collapse `slack` describes —
       // this is weight: elbows hanging lower than they hung in the first
       // minute, and a head that is no longer being held up either.
-      addEuler(sk, 'armL', gas * 7, 0, 0);
-      addEuler(sk, 'armR', gas * 7, 0, 0);
+      //
+      // Except an arm that is holding something. That arm is carried by its
+      // grip, and hanging it only moves the elbow the grip's two-bone solve
+      // starts from: in a tired closed guard the top man's right hand on the
+      // hip went on holding the hip while his upper arm dropped into the
+      // bottom man's thigh, 14 cm of overlap to 19.
+      const holds = (h) => [from, to].some((id) => (POSES[id].grips || []).some((g) => g.role === role && g.hand === h));
+      if (!holds('L')) addEuler(sk, 'armL', gas * 7, 0, 0);
+      if (!holds('R')) addEuler(sk, 'armR', gas * 7, 0, 0);
       addEuler(sk, 'neck', gas * 3.5, 0, 0);
       addEuler(sk, 'head', gas * 4, 0, 0);
     }

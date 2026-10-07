@@ -7,7 +7,7 @@
 // not listed shows all of it.
 
 export const BASE_ROOM = {
-  CLOSED_GUARD: { A: 0, B: 0.9 },
+  CLOSED_GUARD: { A: 0.15, B: 1 },
   OPEN_GUARD: { A: 0.75, B: 1 },
   HALF_GUARD: { A: 0.15, B: 0.35 },
   SIDE_CONTROL: { A: 1, B: 0.75 },
@@ -30,7 +30,7 @@ export const BASE_ROOM = {
   HALF_GUARD_WORK: { A: 0.15, B: 0.35 },
   MOUNT_WORK: { A: 1, B: 1 },
   SIDE_CONTROL_WORK: { A: 1, B: 0.75 },
-  CLOSED_GUARD_WORK: { A: 0, B: 0.9 },
+  CLOSED_GUARD_WORK: { A: 0.15, B: 1 },
   OPEN_GUARD_WORK: { A: 0.75, B: 1 },
   KNEE_ON_BELLY_WORK: { A: 1, B: 1 },
   TURTLE_WORK: { A: 0.45, B: 0.1 },
@@ -45,7 +45,7 @@ export const BASE_ROOM = {
   SIDE_CONTROL_X: { A: 0.85, B: 1 },
   MOUNT_X: { A: 1, B: 1 },
   BACK_X: { A: 1, B: 1 },
-  CLOSED_GUARD_X: { A: 1, B: 0.35 },
+  CLOSED_GUARD_X: { A: 1, B: 0.65 },
   OPEN_GUARD_X: { A: 1, B: 0.8 },
   HALF_GUARD_X: { A: 1, B: 1 },
   TURTLE_X: { A: 1, B: 1 },
