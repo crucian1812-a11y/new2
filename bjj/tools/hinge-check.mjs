@@ -119,8 +119,11 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // his thigh to lift them (plant-check.mjs, pose-relax's PLANT_W) — and its
 // loop re-solved: hips 62. Seven more working variants the same way, and
 // half guard's top thigh turned back three measured degrees: hips 59. Six
-// more variants and their loops: elbows sideways 30.
-const NOW = { 'knee-back': 0, 'knee-side': 58, 'elbow-back': 0, 'elbow-side': 30, 'hip-turn': 59, 'shoulder-turn': 215 };
+// more variants and their loops: elbows sideways 30. Then the top man in
+// closed guard took the second lapel instead of the hip — his arm lay through
+// the bottom man's thigh and fatigue's breathing pushed it in — and the
+// turtle's under-leg was turned four measured degrees: knees 32, shoulders 209.
+const NOW = { 'knee-back': 0, 'knee-side': 32, 'elbow-back': 0, 'elbow-side': 30, 'hip-turn': 59, 'shoulder-turn': 209 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
