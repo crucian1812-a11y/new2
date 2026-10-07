@@ -306,6 +306,27 @@ export class Overlap {
     return radiusToward(ca, s, -ux, -uy, -uz) + radiusToward(cb, t, ux, uy, uz) - d;
   }
 
+  // The deepest overlap and the direction that would undo it: the unit
+  // vector from B's part towards A's at their closest points.
+  deepestDir(skA, skB, out) {
+    this._gather(skA, this.caps[0]);
+    this._gather(skB, this.caps[1]);
+    let deepest = 0;
+    for (const ca of this.caps[0]) {
+      for (const cb of this.caps[1]) {
+        const pen = this._pair(ca, cb);
+        if (pen > deepest) {
+          deepest = pen;
+          const d = v3len(_n);
+          out[0] = d > 1e-6 ? _n[0] / d : 0;
+          out[1] = d > 1e-6 ? _n[1] / d : 1;
+          out[2] = d > 1e-6 ? _n[2] / d : 0;
+        }
+      }
+    }
+    return deepest;
+  }
+
   // The deepest overlap between the two, and which pair of parts caused it.
   measure(skA, skB) {
     this._gather(skA, this.caps[0]);
