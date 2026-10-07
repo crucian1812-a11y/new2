@@ -22,19 +22,23 @@ import { CONTACT_ROOM } from './contact-room.js';
 
 // The last word on overlap, after the grips: find the deepest pair of parts
 // past the line — never below what the two end poses already declare
-// (contact-room.js) — and slide the two men apart along the floor by the
-// excess, half each, keeping a slide only if it made the deepest pair
-// shallower. In play the offset travels rather than jumps.
+// (contact-room.js) plus a centimetre — and slide the two men apart along the
+// floor by the excess, half each, keeping a slide only if it made the deepest
+// pair shallower. In play the offset travels rather than jumps (0.4 s).
 //
-// Measured with it on at 9 cm: blend-check's work list 29 → 17 transitions,
-// every hold loop clean, worst moment 17 → 16 cm, hinge-check unchanged. Not
-// shipped, because the live game does not get it: with the lean and full
-// fatigue a held closed guard is 19 cm either way — the slide that takes an
-// arm out of a thigh puts something else in deeper and is refused — so the
-// judges would see 11 where the player sees 16 (pose-check's living cost),
-// and the slide adds vibration (2.13 → 2.75 reversals a second). Tools can
-// switch it on with BJJ_DEPEN=0.09; the browser never does.
-const DEPEN_LINE = typeof process !== 'undefined' && process.env && process.env.BJJ_DEPEN ? +process.env.BJJ_DEPEN : 0;
+// Offline arcs and routes fix one transition at a time and each pays for its
+// middle at its ends; this takes whatever is left, everywhere, as it happens.
+// blend-check's work list 30 → 17 transitions, every hold loop clean. It was
+// held back until the live game got it too: a tired closed guard was 19 cm
+// with it or without it, the top man's arm lying through the bottom man's
+// thigh — the judges would have seen 11 where the player saw 16. With that
+// arm on the second lapel the living cost is 3.1 cm (line 3.5) and the slide's
+// vibration 2.35 reversals a second (line 2.5).
+//
+// BJJ_DEPEN overrides it for the tools (0 switches it off — contact-room.mjs
+// measures the poses as authored).
+const DEPEN_LINE = typeof process !== 'undefined' && process.env && process.env.BJJ_DEPEN !== undefined
+  ? +process.env.BJJ_DEPEN : 0.09;
 
 // Where along the path a via bites.
 //
@@ -717,10 +721,8 @@ export class PairRig {
     this.skel.B.finishSkin();
   }
 
-  // Take the two of them out of each other by what is past the line.
-  //
-  // Off (DEPEN_LINE), and it is a measured experiment rather than a feature:
-  // see the note at DEPEN_LINE.
+  // Take the two of them out of each other by what is past the line (see
+  // DEPEN_LINE).
   _depenetrate(line) {
     const ov = this._ov || (this._ov = new Overlap());
     const n = this._dn || (this._dn = [0, 0, 0]);
@@ -746,7 +748,7 @@ export class PairRig {
     // In play the offset travels rather than jumps, the way a grip does.
     if (this.live && this._dt > 0) {
       const o = this._depOff || (this._depOff = [0, 0]);
-      const a = 1 - Math.exp(-this._dt / 0.25);
+      const a = 1 - Math.exp(-this._dt / 0.4);
       const nx = o[0] + (ox - o[0]) * a, nz = o[1] + (oz - o[1]) * a;
       shift(nx - ox, nz - oz);
       o[0] = nx; o[1] = nz;

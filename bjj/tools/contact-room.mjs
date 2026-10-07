@@ -13,17 +13,16 @@
 //   node bjj/tools/contact-room.mjs --write   and write src/game/contact-room.js
 
 import { writeFileSync } from 'node:fs';
-import { PairRig } from '../src/game/rig.js';
+
+// The table is measured with the rig's own correction off — it is what that
+// correction is measured against.
+process.env.BJJ_DEPEN = '0';
+const { PairRig } = await import('../src/game/rig.js');
 import { POSES } from '../src/game/poses.js';
 import { Overlap } from '../src/game/collide.js';
 
 const WRITE = process.argv.includes('--write');
 
-// The table is measured with the rig's own correction off.
-if (process.env.BJJ_DEPEN) {
-  console.error('contact-room measures the poses as authored: unset BJJ_DEPEN');
-  process.exit(2);
-}
 const rig = new PairRig();
 rig.live = false;
 const overlap = new Overlap();

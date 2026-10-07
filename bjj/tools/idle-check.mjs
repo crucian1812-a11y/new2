@@ -16,6 +16,13 @@
 // because what an idle arc costs is invisible to everything else here — a
 // blend it does not change is a blend blend-check reads as fine.
 //
+// And it weighs a fourth: the limbs hinge-check counts. The arcs are solved
+// with the limbs in their cost (ARC_LIMB), and an arc that keeps a hip inside
+// its turn is buying something a person sees as surely as a centimetre of
+// overlap. Without this, two hold loops whose overlap the rig's own slide had
+// taken over (DEPEN_LINE) were cut as idle and hinge-check's hips went 59 →
+// 68 — the arcs had been holding them.
+//
 //   node bjj/tools/idle-check.mjs            name the arcs nobody would miss
 //   node bjj/tools/idle-check.mjs --write    and take them out of arcs.js
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -28,6 +35,7 @@ import { Overlap } from '../src/game/collide.js';
 import { decodeFighter } from '../src/render/asset.js';
 import { skinLite, skinInto } from './skin-lite.mjs';
 import { JUDGE_STEPS as STEPS, walkBlend, jointsOf } from './grid.mjs';
+import { readLimbs, overBy } from './limbs.mjs';
 
 const MAT_Y = 0.05;
 const ARCS_PATH = new URL('../src/game/arcs.js', import.meta.url);
@@ -46,7 +54,7 @@ function sink(sk) { let best = -9;
 const rig = new PairRig(); rig.live = false;
 const overlap = new Overlap();
 function walk(from, to) {
-  let worst = 0, sunk = 0; const low = new Array(STEPS);
+  let worst = 0, sunk = 0, limbs = 0; const low = new Array(STEPS);
   // The judge's walk (grid.mjs): the grid, and the points between it where the
   // path is fast.
   walkBlend(STEPS, (t, i) => {
@@ -55,6 +63,10 @@ function walk(from, to) {
     const d = overlap.measure(rig.skel.A, rig.skel.B).deepest;
     if (d > worst) worst = d;
     for (const r of ['A','B']) { const s = sink(rig.skel[r]); if (s > sunk) sunk = s; }
+    // On the grid's own points, as hinge-check samples them.
+    if (i > 0 && i < STEPS - 1) {
+      for (const r of ['A','B']) for (const x of readLimbs(rig.skel[r])) if (overBy(x) > 0) limbs++;
+    }
     if (i >= 0) {
       let lo = Infinity;
       for (const r of ['A','B']) for (const b of LOW) lo = Math.min(lo, rig.skel[r].world[BONE_INDEX[b]][13]);
@@ -67,7 +79,7 @@ function walk(from, to) {
     const base = low[0] + (low[STEPS-1] - low[0]) * (i / (STEPS - 1));
     if (low[i] - base > lift) lift = low[i] - base;
   }
-  return { worst, sunk, lift };
+  return { worst, sunk, lift, limbs };
 }
 
 const keys = []; const seen = new Set();
@@ -84,9 +96,9 @@ for (const [from,to,k] of keys) {
   ARCS[k] = keep;
   const E = 0.002;   // two millimetres: below that an arc is buying nothing
   const buys = (withIt.worst < without.worst - E) || (withIt.sunk < without.sunk - E) ||
-               (withIt.lift < without.lift - E);
+               (withIt.lift < without.lift - E) || (withIt.limbs < without.limbs);
   const costs = (withIt.worst > without.worst + E) || (withIt.sunk > without.sunk + E) ||
-                (withIt.lift > without.lift + E);
+                (withIt.lift > without.lift + E) || (withIt.limbs > without.limbs);
   if (!buys) idle.push({ k, withIt, without, costs });
 }
 const cm = (x) => (x*100).toFixed(1).padStart(5);
