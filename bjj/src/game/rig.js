@@ -17,6 +17,24 @@
 import { POSES, HOLD_LOOPS } from './poses.js';
 import { ARCS, VIAS } from './arcs.js';
 import { BASE_ROOM } from './base-room.js';
+import { Overlap } from './collide.js';
+import { CONTACT_ROOM } from './contact-room.js';
+
+// The last word on overlap, after the grips: find the deepest pair of parts
+// past the line — never below what the two end poses already declare
+// (contact-room.js) — and slide the two men apart along the floor by the
+// excess, half each, keeping a slide only if it made the deepest pair
+// shallower. In play the offset travels rather than jumps.
+//
+// Measured with it on at 9 cm: blend-check's work list 29 → 17 transitions,
+// every hold loop clean, worst moment 17 → 16 cm, hinge-check unchanged. Not
+// shipped, because the live game does not get it: with the lean and full
+// fatigue a held closed guard is 19 cm either way — the slide that takes an
+// arm out of a thigh puts something else in deeper and is refused — so the
+// judges would see 11 where the player sees 16 (pose-check's living cost),
+// and the slide adds vibration (2.13 → 2.75 reversals a second). Tools can
+// switch it on with BJJ_DEPEN=0.09; the browser never does.
+const DEPEN_LINE = typeof process !== 'undefined' && process.env && process.env.BJJ_DEPEN ? +process.env.BJJ_DEPEN : 0;
 
 // Where along the path a via bites.
 //
@@ -300,6 +318,7 @@ export class PairRig {
     this.breath.B = 0;
     this._exitT = -1;
     this._exitSnap.A = this._exitSnap.B = null;
+    this._depOff = null;
   }
 
   // from/to are pose ids, t is 0..1 across the transition.
@@ -688,9 +707,50 @@ export class PairRig {
     }
     swivelHinges(this.skel.A, held.A);
     swivelHinges(this.skel.B, held.B);
+    const DEP = DEPEN_LINE;
+    if (DEP) {
+      const room = (id) => CONTACT_ROOM[id] ?? 0;
+      this._depenetrate(Math.max(DEP, room(from) * (1 - e) + room(to) * e + 0.01));
+    }
 
     this.skel.A.finishSkin();
     this.skel.B.finishSkin();
+  }
+
+  // Take the two of them out of each other by what is past the line.
+  //
+  // Off (DEPEN_LINE), and it is a measured experiment rather than a feature:
+  // see the note at DEPEN_LINE.
+  _depenetrate(line) {
+    const ov = this._ov || (this._ov = new Overlap());
+    const n = this._dn || (this._dn = [0, 0, 0]);
+    const m = this._dn2 || (this._dn2 = [0, 0, 0]);
+    const A = this.skel.A, B = this.skel.B;
+    let ox = 0, oz = 0;
+    const shift = (dx, dz) => {
+      A.rootPos[0] += dx; A.rootPos[2] += dz;
+      B.rootPos[0] -= dx; B.rootPos[2] -= dz;
+      A.pose(); B.pose();
+    };
+    for (let it = 0; it < 3; it++) {
+      const pen = ov.deepestDir(A, B, n);
+      const over = pen - line;
+      if (over <= 0) break;
+      const h = Math.hypot(n[0], n[2]);
+      if (h < 0.2) break;
+      const k = (over * 0.5) / h;
+      shift(n[0] * k, n[2] * k);
+      if (ov.deepestDir(A, B, m) >= pen) { shift(-n[0] * k, -n[2] * k); break; }
+      ox += n[0] * k; oz += n[2] * k;
+    }
+    // In play the offset travels rather than jumps, the way a grip does.
+    if (this.live && this._dt > 0) {
+      const o = this._depOff || (this._depOff = [0, 0]);
+      const a = 1 - Math.exp(-this._dt / 0.25);
+      const nx = o[0] + (ox - o[0]) * a, nz = o[1] + (oz - o[1]) * a;
+      shift(nx - ox, nz - oz);
+      o[0] = nx; o[1] = nz;
+    }
   }
 
   // Put the pose on the floor.
