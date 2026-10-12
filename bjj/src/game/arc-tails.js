@@ -13,5 +13,11 @@
 // in e at both ends instead of as a square root, and the solver re-solves the
 // arc in that shape (it evaluates through the rig). Which transitions are here
 // is a measurement — arc-solve with and without, blend-check keeps the better.
+// Measured with the four whose deepest moment sat in their last or first
+// hundredths: closed guard to open guard 15 -> 12 cm with the arc it had. The
+// other three re-solved in this shape came back worse than without it
+// (knee-on-belly to open guard 12 -> 14, open to closed guard 11 -> 12,
+// closed guard to mount 11 -> 16), so they are not here.
 export const TAILS = new Set([
+  'CLOSED_GUARD>OPEN_GUARD',
 ]);
