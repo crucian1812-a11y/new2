@@ -123,7 +123,10 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // closed guard took the second lapel instead of the hip — his arm lay through
 // the bottom man's thigh and fatigue's breathing pushed it in — and the
 // turtle's under-leg was turned four measured degrees: knees 32, shoulders 209.
-const NOW = { 'knee-back': 0, 'knee-side': 32, 'elbow-back': 0, 'elbow-side': 30, 'hip-turn': 59, 'shoulder-turn': 209 };
+// Then the rig took the two of them out of each other (rig._depenetrate) and
+// the arcs on the work list were re-solved against it: shoulders 200, hips
+// and elbows inside their 5%.
+const NOW = { 'knee-back': 0, 'knee-side': 32, 'elbow-back': 0, 'elbow-side': 30, 'hip-turn': 59, 'shoulder-turn': 200 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
