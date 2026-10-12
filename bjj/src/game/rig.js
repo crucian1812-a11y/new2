@@ -19,6 +19,7 @@ import { ARCS, VIAS } from './arcs.js';
 import { BASE_ROOM } from './base-room.js';
 import { Overlap } from './collide.js';
 import { CONTACT_ROOM } from './contact-room.js';
+import { TAILS } from './arc-tails.js';
 
 // The last word on overlap, after the grips: find the deepest pair of parts
 // past the line — never below what the two end poses already declare
@@ -497,7 +498,10 @@ export class PairRig {
     // pose gets the same correction it was solved with, whatever the timing
     // curve does.
     const arcT = unsmooth(e);
-    const bell = from === to ? 0 : Math.sin(arcT * Math.PI);
+    // A transition in TAILS has its arc die away linearly at the ends rather
+    // than as a square root (arc-tails.js).
+    const sine = Math.sin(arcT * Math.PI);
+    const bell = from === to ? 0 : TAILS.has(from + '>' + to) ? sine * sine : sine;
     // The lobes' weights. Two of them — one leaning early, one late — was
     // enough for everything that has come off the work list; the seven that
     // are left fail at t = 0.42 to 0.85 and want a shape rather than a tilt,
