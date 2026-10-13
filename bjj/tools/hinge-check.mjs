@@ -136,8 +136,9 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // reaches that — the rig's swivel turns the arm afterwards and keeps whatever
 // the slerp gave it. So the poses: pose-relax with LIMB_MARGIN and
 // PATH_LIMB_W on TRIANGLE, GUILLOTINE and SIDE_CONTROL_WORK, then their arcs:
-// knees sideways 21, hips 19, shoulders 68.
-const NOW = { 'knee-back': 0, 'knee-side': 21, 'elbow-back': 0, 'elbow-side': 6, 'hip-turn': 19, 'shoulder-turn': 68 };
+// knees sideways 21, hips 19, shoulders 68. The tail of a sample or two
+// each, the same way: elbows sideways 5, hips 18, shoulders 53.
+const NOW = { 'knee-back': 0, 'knee-side': 21, 'elbow-back': 0, 'elbow-side': 5, 'hip-turn': 18, 'shoulder-turn': 53 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
