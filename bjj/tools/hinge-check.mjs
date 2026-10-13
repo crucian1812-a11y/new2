@@ -131,8 +131,13 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // OPEN_GUARD>CLOSED_GUARD, KNEE_ON_BELLY>OPEN_GUARD): elbows sideways 29,
 // shoulders 187. Then the arcs that held the most of what is left, the same
 // way: knees sideways 22, elbows sideways 16, hips 54, shoulders 168. And the
-// next twelve: elbows sideways 6, hips 53, shoulders 161.
-const NOW = { 'knee-back': 0, 'knee-side': 22, 'elbow-back': 0, 'elbow-side': 6, 'hip-turn': 53, 'shoulder-turn': 161 };
+// next twelve: elbows sideways 6, hips 53, shoulders 161. What was left sat
+// in three hold loops whose two ends were both parked on the line, and no arc
+// reaches that — the rig's swivel turns the arm afterwards and keeps whatever
+// the slerp gave it. So the poses: pose-relax with LIMB_MARGIN and
+// PATH_LIMB_W on TRIANGLE, GUILLOTINE and SIDE_CONTROL_WORK, then their arcs:
+// knees sideways 21, hips 19, shoulders 68.
+const NOW = { 'knee-back': 0, 'knee-side': 21, 'elbow-back': 0, 'elbow-side': 6, 'hip-turn': 19, 'shoulder-turn': 68 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
