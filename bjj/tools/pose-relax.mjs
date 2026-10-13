@@ -93,6 +93,12 @@ const LIMB_W = +(process.env.LIMB_W || 200);
 // planted leg cannot come up without the knee on the way to side control
 // paying for it, so that pose stays as it is.
 const PATH_LIMB_W = +(process.env.PATH_LIMB_W || 0);
+// Both of them charged from this many degrees inside each joint's range
+// (limbs.mjs), so a pose comes back with room rather than on the line. Two
+// ends of a hold loop parked on the line bulge past it between them: the
+// guillotine's bottom shoulder is 100° at one end and 95° at the other and
+// 109° halfway (hinge-check, 64 samples).
+const LIMB_MARGIN = +(process.env.LIMB_MARGIN || 0);
 const PATH_SAMPLES = 7;
 // What a declared contact past its own line costs, against one for the rest.
 const GRIP_PAST_W = +(process.env.GRIP_PAST_W || 100);
@@ -887,7 +893,7 @@ function cost(id) {
   // or a knee somewhere no socket turns it to, that turn is past a person —
   // the arm by a man's side rotated 133° in the shoulder. The turn is read the
   // way hinge-check reads it (tools/limbs.mjs).
-  for (const role of ['A', 'B']) c += limbCost(rig.skel[role]) * LIMB_W;
+  for (const role of ['A', 'B']) c += limbCost(rig.skel[role], LIMB_MARGIN) * LIMB_W;
 
   // And on the paths out of it.
   //
@@ -905,7 +911,7 @@ function cost(id) {
         rig.rewind();
         rig.plantFeet = true;
         rig.applyAt(from, to, i / (PATH_SAMPLES + 1), 0.016);
-        for (const role of ['A', 'B']) c += limbCost(rig.skel[role]) * PATH_LIMB_W;
+        for (const role of ['A', 'B']) c += limbCost(rig.skel[role], LIMB_MARGIN) * PATH_LIMB_W;
       }
     }
     rig.rewind();

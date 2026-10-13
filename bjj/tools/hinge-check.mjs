@@ -130,8 +130,9 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // shoulders 195. Three more of the list the same way (KNEE_ON_BELLY>ARMBAR,
 // OPEN_GUARD>CLOSED_GUARD, KNEE_ON_BELLY>OPEN_GUARD): elbows sideways 29,
 // shoulders 187. Then the arcs that held the most of what is left, the same
-// way: knees sideways 22, elbows sideways 16, hips 54, shoulders 168.
-const NOW = { 'knee-back': 0, 'knee-side': 22, 'elbow-back': 0, 'elbow-side': 16, 'hip-turn': 54, 'shoulder-turn': 168 };
+// way: knees sideways 22, elbows sideways 16, hips 54, shoulders 168. And the
+// next twelve: elbows sideways 6, hips 53, shoulders 161.
+const NOW = { 'knee-back': 0, 'knee-side': 22, 'elbow-back': 0, 'elbow-side': 6, 'hip-turn': 53, 'shoulder-turn': 161 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
