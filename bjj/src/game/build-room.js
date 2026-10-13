@@ -8,5 +8,5 @@
 //   heavy +11.9% of a man, light -11.1%
 export const BUILD_ROOM = {
   heavy: { trunkW: 1.035, trunkD: 1.045, neck: 1.1, arm: 1.085, fore: 1.09, thigh: 1.06, shin: 1.075 },
-  light: { trunkW: 0.96, trunkD: 0.96, neck: 0.905, arm: 0.915, fore: 0.905, thigh: 0.94, shin: 0.93 },
+  light: { trunkW: 0.96, trunkD: 0.96, neck: 0.9, arm: 0.915, fore: 0.905, thigh: 0.94, shin: 0.93 },
 };
