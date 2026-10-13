@@ -125,8 +125,10 @@ const who = (r) => `${r.n}${r.s} of ${r.role} in ${r.what}`;
 // turtle's under-leg was turned four measured degrees: knees 32, shoulders 209.
 // Then the rig took the two of them out of each other (rig._depenetrate) and
 // the arcs on the work list were re-solved against it: shoulders 200, hips
-// and elbows inside their 5%.
-const NOW = { 'knee-back': 0, 'knee-side': 32, 'elbow-back': 0, 'elbow-side': 30, 'hip-turn': 59, 'shoulder-turn': 200 };
+// and elbows inside their 5%. Then MOUNT>BACK's new route was re-solved with
+// the limbs charged from five degrees inside their range (ARC_LIMB_MARGIN):
+// shoulders 195.
+const NOW = { 'knee-back': 0, 'knee-side': 32, 'elbow-back': 0, 'elbow-side': 30, 'hip-turn': 59, 'shoulder-turn': 195 };
 function judge(label, joint, bad, say, key) {
   const over = rows.filter((r) => r.n === joint && bad(r));
   const worst = over.sort((a, b) => say(b) - say(a))[0];
