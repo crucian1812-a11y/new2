@@ -139,6 +139,13 @@ const TORSO_W = +(process.env.ARC_TORSO || 300);
 // itself no longer needs the weight — the two-bone solve folds a knee and an
 // elbow the pose's way (solveTwoBone) — so what is left here is a tie-break.
 const LIMB_W = +(process.env.ARC_LIMB || 0.2);
+// And charged from that many degrees inside each joint's range rather than at
+// its edge (limbs.mjs). A cost that is zero inside and grows outside parks the
+// answer on the line, and the blend between two answers on the line leaves
+// it: MOUNT>BACK came back from the solver with B's elbow two degrees past in
+// three samples, and at two degrees the square costs nothing whatever the
+// weight (ARC_LIMB 1, 4 and 8 gave the same arc).
+const LIMB_MARGIN = +(process.env.ARC_LIMB_MARGIN || 0);
 
 const rig = new PairRig();
 // Measuring the path, not a performance of it: the step planner and the
@@ -255,7 +262,7 @@ function measure(from, to) {
     // through 173° of fold the wrong way halfway across (hinge-check).
     for (const role of ['A', 'B']) {
       const sk = rig.skel[role];
-      sum += limbCost(sk) * LIMB_W;
+      sum += limbCost(sk, LIMB_MARGIN) * LIMB_W;
     }
     for (const role of ['A', 'B']) {
       const tor = readTorso(rig.skel[role]);

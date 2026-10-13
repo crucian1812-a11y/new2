@@ -29,12 +29,17 @@ export const KNEE_BACK = 5, KNEE_SIDE = 15;
 export const ELBOW_BACK = 10, ELBOW_SIDE = 25;
 
 // How far past a person each joint of one reading is, degrees, 0 when fine.
-export function overBy(r) {
+// With a margin, how far past a line that many degrees inside the range: what
+// a solver is charged from, so its answers come back with room rather than on
+// the line (the same reason as TORSO_MARGIN in torso.mjs). The judge reads it
+// without one.
+export function overBy(r, margin = 0) {
+  const m = margin;
   switch (r.n) {
-    case 'hip': return Math.max(0, Math.abs(r.turn) - HIP_TURN);
-    case 'shoulder': return Math.max(0, Math.abs(r.turn) - SHOULDER_TURN);
-    case 'knee': return Math.max(0, r.fwd - KNEE_BACK) + Math.max(0, Math.abs(r.out) - KNEE_SIDE);
-    case 'elbow': return Math.max(0, -r.fwd - ELBOW_BACK) + Math.max(0, Math.abs(r.out) - ELBOW_SIDE);
+    case 'hip': return Math.max(0, Math.abs(r.turn) - HIP_TURN + m);
+    case 'shoulder': return Math.max(0, Math.abs(r.turn) - SHOULDER_TURN + m);
+    case 'knee': return Math.max(0, r.fwd - KNEE_BACK + m) + Math.max(0, Math.abs(r.out) - KNEE_SIDE + m);
+    case 'elbow': return Math.max(0, -r.fwd - ELBOW_BACK + m) + Math.max(0, Math.abs(r.out) - ELBOW_SIDE + m);
   }
   return 0;
 }
@@ -87,10 +92,10 @@ export function readLimbs(sk) {
 // shoulders turned too far, and the knees and elbows the rig could not turn
 // round to fold the right way because the socket above them would not go
 // that far (swivelHinges).
-export function limbCost(sk) {
+export function limbCost(sk, margin = 0) {
   let c = 0;
   for (const r of readLimbs(sk)) {
-    const over = overBy(r) / D;
+    const over = overBy(r, margin) / D;
     c += over * over;
   }
   return c;
