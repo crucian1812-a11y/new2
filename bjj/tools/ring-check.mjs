@@ -25,7 +25,7 @@
 //   node bjj/tools/ring-check.mjs          the phones
 //   node bjj/tools/ring-check.mjs --table  every size, with numbers
 
-import { HUD } from '../src/ui/hud.js';
+import { HUD, RING_NAME_GAP } from '../src/ui/hud.js';
 
 const TABLE = process.argv.includes('--table');
 let fail = 0;
@@ -78,8 +78,10 @@ for (const [name, w, h] of SCREENS) {
       const px = x + Math.cos(t) * grab * 0.9, py = y + Math.sin(t) * grab * 0.9;
       if (hud.ringDir(px, py) !== dir) ambiguous++;
     }
-    // On the glass, label and all: the label sits rr + 14 outside the circle.
-    if (x - rr < 0 || x + rr > w || y - rr - 14 < 0 || y + rr + 14 > h) offGlass++;
+    // On the glass, label and all: the label sits rr + 14 outside the circle,
+    // and the top button's price over its name, an eleven-pixel line higher.
+    const up = dir === 'up' ? rr + 8 + RING_NAME_GAP + 11 : rr + 14;
+    if (x - rr < 0 || x + rr > w || y - up < 0 || y + rr + 14 > h) offGlass++;
   }
   // The thumb's own resting place is not a button.
   if (hud.ringDir(cx, cy) !== null) stolen++;

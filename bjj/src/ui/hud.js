@@ -394,8 +394,13 @@ export class HUD {
         c.font = `800 11px ${FONT}`;
         // On the far side of the button from the name, or the two land on each
         // other: for the left and right buttons dy is 0, so both wanted the
-        // same four pixels above the circle.
-        const py = dy > 0 ? y - rr - 5 : y + rr + 14;
+        // same four pixels above the circle. Except the top button, where the
+        // far side is the inside of the ring — the band between it and the
+        // two side buttons, where their names are. «+4 27%» under the top
+        // button sat on «Колено на живот» over the left one on every screen
+        // (text-check.mjs). So the top button says it on the outside, over
+        // its own name, where nothing else is.
+        const py = dy > 0 ? y - rr - 5 : dy < 0 ? y - rr - 8 - RING_NAME_GAP : y + rr + 14;
         const head = tr.points > 0 ? `+${tr.points} ` : '';
         const wHead = c.measureText(head).width;
         const x0 = x - (wHead + c.measureText(pct).width) / 2;
@@ -1168,6 +1173,10 @@ export class HUD {
       let px = font;
       this._track(0.8);
       do { c.font = `800 ${px}px ${FONT}`; } while (px-- > 7 && c.measureText(labels[i]).width > r.w - 10);
+      // And on the narrowest phones it still did not, at seven pixels: four
+      // pixels of «ТЯЖЁЛЫЙ» lay on «СРЕДНИЙ» (text-check.mjs). There the
+      // spacing between letters goes first, and then the padding.
+      if (c.measureText(labels[i]).width > r.w - 10) this._track(0);
       c.fillStyle = i === on ? '#1a1203' : 'rgba(255,255,255,0.78)';
       c.textAlign = 'center';
       c.fillText(labels[i], r.x + r.w / 2, r.y + r.h / 2 + 0.5);
@@ -1454,11 +1463,18 @@ export class HUD {
       let at = r.x + 42 + c.measureText(b.label).width + 8;
       this._track(0);
       // His round in the bracket: done, next, or still ahead — as a chip.
+      // Only where it clears his name at the far end of the row: on a narrow
+      // phone the chip reached into it and the two printed on each other,
+      // «ФИНАЛ» under «РАФАЭЛ» (text-check.mjs). The round is in the heading
+      // over the list as well; the man is only here.
       const j = cup ? cup.rungs.indexOf(i) : -1;
-      if (j >= 0 && !locked) {
+      c.font = `800 10px ${FONT}`;
+      const nameAt = r.x + r.w - 12 - Math.min(r.h - 4, 24) - (b.man ? c.measureText(b.man).width : 0);
+      c.font = `900 8px ${FONT}`;
+      const chip = j >= 0 && !locked ? (j < cup.stage ? `${cup.rounds[j]} ✓` : cup.rounds[j]) : null;
+      if (chip && at + c.measureText(chip).width + 10 + 4 <= nameAt) {
         const done = j < cup.stage, next = j === cup.stage;
-        const tag = done ? `${cup.rounds[j]} ✓` : cup.rounds[j];
-        c.font = `900 8px ${FONT}`;
+        const tag = chip;
         const tw = c.measureText(tag).width + 10;
         roundRect(c, at, mid - 7, tw, 14, 7);
         c.fillStyle = done ? 'rgba(79,212,138,0.16)' : next ? 'rgba(255,209,102,0.2)' : 'rgba(255,255,255,0.06)';
@@ -2291,6 +2307,12 @@ export class HUD {
   }
 
 }
+
+// How far above the top button's name its price sits: one line of the name
+// and a gap. The name is nine pixels, centred on its line, so a name that
+// wraps to two lines reaches five pixels further up — the longest in the game
+// fit on one at the ring's width.
+export const RING_NAME_GAP = 13;
 
 // How long the score pill lives, in seconds. Shared with main.js, which is
 // what clears it: the HUD draws what it is handed and never owns a timer.

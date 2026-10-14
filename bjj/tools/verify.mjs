@@ -136,6 +136,8 @@ if (withBrowser) {
   steps.push(['a man against the mat', 'gi-check.mjs', []]);
   steps.push(['the belt', 'belt-check.mjs', []]);
   steps.push(['one language', 'words-check.mjs', []]);
+  // And none of it printed over anything else, on any phone.
+  steps.push(['writing on writing', 'text-check.mjs', []]);
   steps.push(['a hall above the boards', 'hall-check.mjs', []]);
   // And the long lens: the stands soft, the pair and the mat as sharp as before.
   steps.push(['the long lens', 'lens-check.mjs', []]);

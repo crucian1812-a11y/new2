@@ -83,6 +83,17 @@ const HUD_STRIP = (() => {
   return [L.y - 10, L.bar + 22];
 })();
 
+// And the ring: the four buttons the right thumb rests on, a disc in the
+// bottom-right corner over the picture. Asked of the HUD for the same reason.
+const RING = (() => {
+  const hud = new HUD({ getContext: () => ({}) });
+  hud.w = 844; hud.h = 844 / ASPECT;
+  const { R, cx, cy } = hud.ringLayout();
+  // The buttons sit R out from the middle and are 0.3R across, with a label
+  // outside each: the disc a thumb and its labels cover.
+  return { cx, cy, r: R * 1.45 };
+})();
+
 let fail = 0;
 const check = (ok, msg, extra = '') => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${msg}${extra ? '  ' + extra : ''}`);
@@ -278,6 +289,29 @@ function play(level, s) {
       if (under) s.headUnder++;
     }
 
+    // How much of the pair is under the ring: the share of both men's joints
+    // whose projection lands inside its disc.
+    {
+      const W = 844, H = 844 / ASPECT;
+      let under = 0, seen = 0;
+      for (const role of ['A', 'B']) {
+        for (const w of rig.skel[role].world) {
+          const x = w[12], y = w[13], z = w[14];
+          const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+          if (cw <= NEAR) continue;
+          const px = ((vp[0] * x + vp[4] * y + vp[8] * z + vp[12]) / cw * 0.5 + 0.5) * W;
+          const py = (0.5 - (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / cw * 0.5) * H;
+          seen++;
+          if (Math.hypot(px - RING.cx, py - RING.cy) < RING.r) under++;
+        }
+      }
+      const f = seen ? under / seen : 0;
+      s.ringShare += f;
+      if (f > 0.1) s.ringOver++;
+      const k = s.ringBy[mode] || (s.ringBy[mode] = [0, 0]);
+      k[0]++; k[1] += f;
+    }
+
     // Fill: how much of the frame's height the pair takes. 2 is the whole of
     // normalised device space, so this is a fraction of the picture.
     const fill = (maxY - minY) / 2;
@@ -302,6 +336,7 @@ function play(level, s) {
 const s = {
   frames: 0, fill: 0, out: 0, lens: 0, inside: 0, refIn: 0, tooClose: 0, nearest: 9, nearestWhere: '', refNear: 9, refOver: 0, refSeen: 0, headUnder: 0, refOff: 9, refOffAt: '', halfLens: 0, walk: 0, refCover: 0, cropped: 0, headOut: 0, tall: 0, small: 0,
   fills: [], byBone: {}, modes: {}, worstFill: 0, worstAt: '',
+  ringShare: 0, ringOver: 0, ringBy: {},
 };
 const t0 = Date.now();
 for (let i = 0; i < N; i++) play(['white', 'blue', 'purple', 'black'][i % 4], s);
@@ -352,6 +387,9 @@ check(+pct(s.refOver) < 15, 'nor behind the fight, in the middle of the picture'
   `some of him is in the picture on ${pct(s.refSeen)}%`);
 check(+pct(s.headUnder) < 5, 'and the words over the fight are not written on a head',
   `a head is under the HUD's strip on ${pct(s.headUnder)}% of frames`);
+console.log(`     under the ring: ${((s.ringShare / s.frames) * 100).toFixed(1)}% of the pair's joints on average, ` +
+  `a tenth or more of them on ${pct(s.ringOver)}% of frames (` +
+  Object.entries(s.ringBy).map(([k, v]) => `${k} ${((v[1] / v[0]) * 100).toFixed(1)}%`).join(', ') + ')');
 check(+pct(s.inside) < 0.5, 'and the camera is never standing inside one',
   `${pct(s.inside)}% of frames, ${s.inside} of ${s.frames}`);
 check(pct(s.headOut) < 5, 'both heads are in the picture',
