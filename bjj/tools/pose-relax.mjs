@@ -607,12 +607,20 @@ function hoverCost(count = false) {
 // Sixteen samples, not eight. The eight-sample version stepped 0.125 at a time
 // and never looked before t=0.125 — which is where two of the three transitions
 // this was written for do their damage.
-function blendDepth(from, to, n = 15) {
+// A named transition's deepest moment is often in its first or last few
+// hundredths — that is why it is named here, where the arc cannot reach — and
+// sixteen even steps never land there: KNEE_ON_BELLY>OPEN_GUARD read 9 cm to
+// this term and 12 to blend-check, at t = 0.97, and the search had nothing to
+// pull on. So a named edge is also sampled close to both ends.
+const NEAR_ENDS = [0.01, 0.02, 0.03, 0.05, 0.95, 0.97, 0.98, 0.99];
+function blendDepth(from, to, n = 15, ends = false) {
   let worst = 0;
-  for (let i = 1; i <= n; i++) {
+  const ts = Array.from({ length: n }, (_, i) => (i + 1) / (n + 1));
+  if (ends) ts.push(...NEAR_ENDS);
+  for (const t of ts) {
     rig.rewind();
     rig.plantFeet = true;
-    rig.applyAt(from, to, i / (n + 1), 0.016);
+    rig.applyAt(from, to, t, 0.016);
     const d = overlap.measure(rig.skel.A, rig.skel.B).deepest;
     if (d > worst) worst = d;
   }
@@ -838,7 +846,7 @@ function cost(id) {
     // higher for the pose it runs from.
     for (const key of mine) {
       const [from, to] = key.split('>');
-      const over = Math.min(0.03, blendDepth(from, to) - line);
+      const over = Math.min(0.03, blendDepth(from, to, 15, true) - line);
       if (over > 0) c += over * over * EDGE_W;
     }
     // The samples left the rig on the last of them; put the pose back so
@@ -1272,7 +1280,7 @@ for (const id of ids) {
   // Without this the report is silent about the one number the run is for.
   const edgeBefore = edgesFor(id).map((key) => {
     const [from, to] = key.split('>');
-    return { key, was: blendDepth(from, to) };
+    return { key, was: blendDepth(from, to, 15, true) };
   });
   // What the pose was, so a search that trades can be refused.
   //
@@ -1415,7 +1423,7 @@ for (const id of ids) {
   const hangAfter = hoverPlayed(id, true);
   const edgeAfter = edgeBefore.map((e) => {
     const [from, to] = e.key.split('>');
-    return `${e.key} ${(e.was * 100).toFixed(0)}→${(blendDepth(from, to) * 100).toFixed(0)}cm`;
+    return `${e.key} ${(e.was * 100).toFixed(0)}→${(blendDepth(from, to, 15, true) * 100).toFixed(0)}cm`;
   });
   const mark = after.worst > 0.08 || matAfter.worst > 0.03 ? '!' : ' ';
   console.log(
