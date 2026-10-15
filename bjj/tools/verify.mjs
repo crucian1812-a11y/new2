@@ -151,11 +151,21 @@ if (withBrowser) {
 
 // By name at the end: a step can fail without a FAIL line of its own (a
 // crash, a signal), and a thousand lines up is not where anybody looks.
+// And how long each took. The battery was five seconds when it was written and
+// is minutes now; without a clock on each step nobody can say which of them
+// grew, and a battery too slow to run is a battery that stops being run.
 const failed = [];
+const took = [];
+const t0 = Date.now();
 for (const [name, script, args] of steps) {
   console.log(`\n=== ${name} ===`);
+  const t = Date.now();
   const r = spawnSync(process.execPath, [join(here, script), ...args], { stdio: 'inherit' });
+  took.push([name, (Date.now() - t) / 1000]);
   if (r.status !== 0) failed.push(`${name} (${r.status ?? r.signal})`);
 }
+const slow = took.slice().sort((a, b) => b[1] - a[1]).slice(0, 6);
+console.log(`\n${((Date.now() - t0) / 1000).toFixed(0)} s in all; the slowest: ` +
+  slow.map(([n, s]) => `${n} ${s.toFixed(0)} s`).join(', '));
 console.log(failed.length ? `\n${failed.length} step(s) failed: ${failed.join(', ')}` : '\neverything green');
 process.exit(failed.length ? 1 : 0);
