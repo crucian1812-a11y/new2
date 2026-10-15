@@ -6,9 +6,10 @@
 // The first two checks are pure modules and take under a second, which is the
 // point: pose work and balance work both get a fast answer.
 
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { availableParallelism } from 'os';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const withBrowser = process.argv.includes('--browser');
@@ -126,6 +127,10 @@ const steps = [
   // button marked «+4» fought for a grip instead.
   ['the ring is buttons', 'ring-check.mjs', []],
 ];
+// Where the browser steps begin: they run one at a time, after everything
+// else. A browser on a software rasteriser draws a frame a second, and two of
+// them racing for the cores made smoke miss a tap that it lands alone.
+const firstBrowser = steps.length;
 if (withBrowser) {
   steps.push(['browser smoke', 'smoke.mjs', []]);
   steps.push(['sound', 'sound-check.mjs', []]);
@@ -154,18 +159,49 @@ if (withBrowser) {
 // And how long each took. The battery was five seconds when it was written and
 // is minutes now; without a clock on each step nobody can say which of them
 // grew, and a battery too slow to run is a battery that stops being run.
+//
+// The steps are separate processes and none of them writes anything, so the
+// logic ones run side by side — as many at once as the machine has cores, or
+// VERIFY_JOBS — and each one's output is held and printed in the order above,
+// as if they had run one after another. Seven minutes on four cores was three.
+const JOBS = Math.max(1, +(process.env.VERIFY_JOBS || availableParallelism()));
 const failed = [];
 const took = [];
 const t0 = Date.now();
-for (const [name, script, args] of steps) {
-  console.log(`\n=== ${name} ===`);
+const results = new Array(steps.length);
+let printed = 0;
+const flush = () => {
+  while (printed < steps.length && results[printed]) {
+    const [name] = steps[printed];
+    const r = results[printed];
+    process.stdout.write(`\n=== ${name} ===\n` + r.out);
+    took.push([name, r.secs]);
+    if (r.code !== 0) failed.push(`${name} (${r.code ?? r.signal})`);
+    printed++;
+  }
+};
+const run = (i) => new Promise((done) => {
+  const [, script, args] = steps[i];
   const t = Date.now();
-  const r = spawnSync(process.execPath, [join(here, script), ...args], { stdio: 'inherit' });
-  took.push([name, (Date.now() - t) / 1000]);
-  if (r.status !== 0) failed.push(`${name} (${r.status ?? r.signal})`);
-}
+  const p = spawn(process.execPath, [join(here, script), ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  p.stdout.on('data', (d) => { out += d; });
+  p.stderr.on('data', (d) => { out += d; });
+  p.on('close', (code, signal) => {
+    results[i] = { out, code, signal, secs: (Date.now() - t) / 1000 };
+    flush();
+    done();
+  });
+});
+const pool = async (from, to, width) => {
+  let next = from;
+  const lane = async () => { while (next < to) await run(next++); };
+  await Promise.all(Array.from({ length: Math.min(width, to - from) }, lane));
+};
+await pool(0, firstBrowser, JOBS);
+await pool(firstBrowser, steps.length, 1);
 const slow = took.slice().sort((a, b) => b[1] - a[1]).slice(0, 6);
-console.log(`\n${((Date.now() - t0) / 1000).toFixed(0)} s in all; the slowest: ` +
+console.log(`\n${((Date.now() - t0) / 1000).toFixed(0)} s in all, ${JOBS} at a time; the slowest: ` +
   slow.map(([n, s]) => `${n} ${s.toFixed(0)} s`).join(', '));
 console.log(failed.length ? `\n${failed.length} step(s) failed: ${failed.join(', ')}` : '\neverything green');
 process.exit(failed.length ? 1 : 0);
