@@ -606,6 +606,52 @@ export const POSES = {
     ],
   }),
 
+  ANKLE_LOCK: P('ANKLE_LOCK', {
+    name: 'Ахилл',
+    label: 'STRAIGHT ANKLE LOCK',
+    points: 0, top: 'B', ground: true, submission: 'joint', from: 'OPEN_GUARD', invert: true,
+    // A straight footlock out of open guard: the man underneath sits up into
+    // the leg he was holding, traps the foot under his armpit, wraps the
+    // forearm under the Achilles and falls back. The man on the end of it has
+    // been pulled down onto his seat with that leg straight out in front.
+    // Face to face, A's right foot is on B's left side, so it is B's left arm
+    // that wraps it.
+    A: {
+      root: { p: [0, 0.297, -0.493], r: [-25, 0, 0] },
+      j: {
+        hips: [0, 6.8, -7.5], spine: [8, 0, 0], chest: [8, 0, 0], neck: [5, 0, 0], head: [-5, 0, 0],
+        clavL: [0, 0, 8], armL: [35, 0, -25], foreL: [-10, 0, 0],
+        clavR: [0, 0, -8], armR: [35, 0, 25], foreR: [-10, 0, 0],
+        thighL: [-70.4, 0, 35], shinL: [15, 0, 0], footL: [10, 0, 0],
+        thighR: [-95.7, 6, -5], shinR: [30.9, 9.8, 3], footR: [3.3, 3.9, 19.6],
+      },
+    },
+    B: {
+      root: { p: [0.02, 0.211, 0.061], r: [-60, 180, 0] },
+      j: {
+        hips: [-25.5, 1.5, 1.5], spine: [2.5, -18, 12], chest: [30.6, -18, 4.6], neck: [-20, 0, 0], head: [10, 0, 0],
+        clavL: [22.6, -11.9, 29.9], armL: [33.3, -16.4, 10.6], foreL: [-109.2, 1.6, 1.5],
+        clavR: [-0.7, 0.1, -30.4], armR: [-23.7, -4.4, 26.3], foreR: [-90.2, -2.2, -2.2],
+        thighL: [-39.1, 0.1, 31], shinL: [40, 0, 0], footL: [0, 0, 0],
+        thighR: [-70.7, -6.6, -21], shinR: [79.3, 0, 0], footR: [0, 0, 0],
+      },
+    },
+    hold: [
+      // The foot is under the armpit, and the leg it belongs to runs between
+      // the attacker's knees.
+      { of: 'A.footR', near: 'B.armL', within: 0.18 },
+      { of: 'A.shinR', near: 'B.hips', within: 0.45 },
+      // One foot on his hip, the other leg over his thigh to the mat.
+      { of: 'B.footR', near: 'A.hips', within: 0.3 },
+      { of: 'A.hips', below: 0.3 },
+      { of: 'B.hips', below: 0.3 },
+    ],
+    grips: [
+      { role: 'B', hand: 'L', point: 'ankleR' },
+      { role: 'B', hand: 'R', point: 'wristL', self: true },
+    ],
+  }),
+
   KIMURA: P('KIMURA', {
     name: 'Кимура',
     label: 'KIMURA',
@@ -1284,6 +1330,39 @@ export const POSES = {
         shinR: [38.2, 2.4, -2.9], footR: [-13.2, 0.8, 0.8],
       },
     },
+  }),
+
+  ANKLE_LOCK_WORK: P('ANKLE_LOCK_WORK', {
+    // B выгибается и толкает бёдрами вперёд — давление идёт на ахилл;
+    // A откидывается от боли и тянет носок на себя.
+    name: 'Ахилл — прогиб',
+    variantOf: 'ANKLE_LOCK',
+    A: {
+      root: { p: [0.015, 0.267, -0.49], r: [-32, 0, 0] },
+      j: {
+        hips: [6, 12.1, 0.8], spine: [1.8, 0, 0], chest: [4, 0, 0], neck: [12, 0, 0], head: [-2, 0, 0],
+        clavL: [0, 0, 8], armL: [40, 0, -25], foreL: [-12, 0, 0],
+        clavR: [0, 0, -8], armR: [40, 0, 25], foreR: [-12, 0, 0],
+        thighL: [-69.7, 0.8, 35.8], shinL: [18, -1.5, 11.3], footL: [10, 0, 0],
+        thighR: [-87.5, 0, -5], shinR: [17, 23.3, 3], footR: [-6, 24.2, 24.1],
+      },
+    },
+    B: {
+      root: { p: [0.028, 0.206, 0.071], r: [-66, 180, 0] },
+      j: {
+        hips: [-30.5, 11.3, 3], spine: [2, -13.5, 1.5], chest: [31.8, -16.5, 4.6], neck: [-14, 0, 0], head: [6, 0, 0],
+        clavL: [31.6, -14.1, 21.7], armL: [48.5, -19.4, 16.6], foreL: [-112, 0.8, 1.5],
+        clavR: [-4.4, 0.1, -34.1], armR: [-22.2, -5.9, 24.8], foreR: [-92.5, -2.2, -2.2],
+        thighL: [-34, 0.1, 31], shinL: [36, 0, 0], footL: [0, 0, 0],
+        thighR: [-64, -7.3, -21.7], shinR: [72, 0, 0], footR: [0, 0, 0],
+      },
+    },
+    // Its own grips: a variant without them lets go, and the foot is the whole
+    // of this position.
+    grips: [
+      { role: 'B', hand: 'L', point: 'ankleR' },
+      { role: 'B', hand: 'R', point: 'wristL', self: true },
+    ],
   }),
 
   TRIANGLE_WORK: P('TRIANGLE_WORK', {

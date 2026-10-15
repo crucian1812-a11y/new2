@@ -121,6 +121,13 @@ export const TRANSITIONS = [
     name: 'Подъём', en: 'Technical stand-up', points: 0, cost: 20, base: 0.55,
     time: 0.8, deny: 'left',
   }),
+  // The fourth flick underneath an open guard did nothing, and the one thing
+  // a man on his back with both hands on his opponent's legs has that nothing
+  // else in the graph used is the legs: the first submission on a leg.
+  T('OPEN_GUARD', 'bottom', 'down', 'ANKLE_LOCK', {
+    name: 'Ахилл', en: 'Straight ankle lock', points: 0, cost: 22, base: 0.3,
+    time: 0.85, deny: 'up', sub: true,
+  }),
 
   /* ---------------------------------------------------------- half guard */
   T('HALF_GUARD', 'top', 'up', 'SIDE_CONTROL', {
