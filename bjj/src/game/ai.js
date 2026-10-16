@@ -48,7 +48,7 @@ const VALUE = {
   SIDE_CONTROL: [7.5, 1.4], KNEE_ON_BELLY: [8, 0.9], MOUNT: [9.5, 0.5],
   BACK: [10.5, 0.3],
   RNC: [14, 0], ARMBAR: [13, 0], TRIANGLE: [13, 0], KIMURA: [12, 0], GUILLOTINE: [11, 0],
-  ANKLE_LOCK: [11, 0],
+  ANKLE_LOCK: [11, 0], CROSS_CHOKE: [12, 0],
 };
 
 // Five men, five ways of fighting.
@@ -66,7 +66,7 @@ const VALUE = {
 //   move   extra score for a move, by what the move is
 //   floor  the odds floor under a submission (0.15 for everybody else): a
 //          finisher takes a lock colder than a patient man does
-const SUBS = ['RNC', 'ARMBAR', 'TRIANGLE', 'KIMURA', 'GUILLOTINE', 'ANKLE_LOCK'];
+const SUBS = ['RNC', 'ARMBAR', 'TRIANGLE', 'KIMURA', 'GUILLOTINE', 'ANKLE_LOCK', 'CROSS_CHOKE'];
 const each = (ids, v) => Object.fromEntries(ids.map((k) => [k, v]));
 export const STYLES = {
   // Takes you down. Every scoring move off the feet is worth more to him, and

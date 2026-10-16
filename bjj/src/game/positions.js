@@ -227,6 +227,13 @@ export const TRANSITIONS = [
     name: 'Кимура', en: 'Kimura from mount', points: 0, cost: 22, base: 0.36,
     time: 0.9, deny: 'right', sub: true,
   }),
+  // The fourth flick on top of the mount did nothing. A man sitting on
+  // another man's chest with both hands in his collar has the oldest finish
+  // in the sport, and it is the one the mount had no button for.
+  T('MOUNT', 'top', 'down', 'CROSS_CHOKE', {
+    name: 'Крест', en: 'Cross collar choke', points: 0, cost: 22, base: 0.34,
+    time: 0.95, deny: 'up', sub: true,
+  }),
   T('MOUNT', 'bottom', 'left', 'CLOSED_GUARD', {
     name: 'Мост (упа)', en: 'Upa escape', points: 2, cost: 32, base: 0.26,
     time: 1.05, deny: 'right', becomes: 'top',
