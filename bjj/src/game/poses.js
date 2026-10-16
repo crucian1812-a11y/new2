@@ -652,6 +652,58 @@ export const POSES = {
     ],
   }),
 
+  CROSS_CHOKE: P('CROSS_CHOKE', {
+    name: 'Крест',
+    label: 'CROSS COLLAR CHOKE',
+    points: 4, top: 'A', ground: true, submission: 'choke', from: 'MOUNT',
+    // The cross-collar choke from mount: both hands deep in the collar, the
+    // right one in his right side and the left over it in his left, and the
+    // top man drops his chest and his head to the mat beside the other man's
+    // ear, so the two forearms close like scissors on the neck. The man
+    // underneath keeps one hand of the mount's frame, on the hip, and the
+    // other is free by his head. Measured: pushing the elbows was the first
+    // intent, and from under a high mount neither is in his reach — 30 to
+    // 48 cm short; holding the sleeve, the wrist or the lapel lays his
+    // forearm through the choking one, 11 to 12 cm, against 8 for none.
+    A: {
+      root: { p: [0.042, 0.575, 0.3], r: [0, 0, 0] },
+      j: {
+        hips: [41.6, -2.8, -11.2], spine: [36.3, 4.5, 3.5], chest: [47.8, 8.3, 3], neck: [18.6, 0, 25.8], head: [-5, 30, 10],
+        clavL: [8.9, -4, 2.6], armL: [-91.3, 16.5, -41], foreL: [-92.1, -2.9, -5.2],
+        clavR: [0.6, -5, 24.6], armR: [-44.2, -50.6, 66.3], foreR: [-54.4, -15.7, -4.5],
+        thighL: [-37.4, -5.9, 82.4], shinL: [51.6, 36.2, -7.4], footL: [17.3, 0, 0],
+        thighR: [-25.9, -41.1, -10.4], shinR: [71, -16.4, -8.9], footR: [16.6, 0, 0.8],
+      },
+    },
+    B: {
+      root: { p: [0.099, 0.221, 0.102], r: [-90, 180, 0] },
+      j: {
+        hips: [-15.1, -51.3, 6.1], spine: [1.8, 20, -17.2], chest: [16.3, 20, 15], neck: [13.3, 8.3, 18], head: [24.6, 6.8, -11.8],
+        clavL: [-8.9, -26, -15.6], armL: [63.2, -16.6, 112.6], foreL: [-110.9, 9.1, -1.4],
+        clavR: [14.7, -10, 15.7], armR: [-72.1, 70.5, 39.4], foreR: [-131.9, 8.3, 2.3],
+        thighL: [-22.1, -24.3, -12.2], shinL: [31.4, 0, 6.8], footL: [-3.4, 3.1, -8.9],
+        thighR: [-23, -13.3, 8.2], shinR: [34.1, -2.2, 1.7], footR: [-13.9, 0.8, 2.3],
+      },
+    },
+    hold: [
+      // Still a mount, a knee either side and the insteps down, but a high
+      // one: he has walked up off the hips onto the ribs.
+      { of: 'A.hips', above: 'B.chest', by: 0.14 },
+      { of: 'A.hips', near: 'B.chest', within: 0.22 },
+      { straddle: 'B.chest', with: ['A.shinL', 'A.shinR'], by: 0.13 },
+      { of: 'A.footL', below: 0.135 },
+      { of: 'A.footR', below: 0.135 },
+      // And the head has come down beside his.
+      { of: 'A.head', near: 'B.head', within: 0.32 },
+      { of: 'A.head', below: 0.55 },
+    ],
+    grips: [
+      { role: 'A', hand: 'R', point: 'collarR' },
+      { role: 'A', hand: 'L', point: 'collarL' },
+          { role: 'B', hand: 'L', point: 'hipR' },
+    ],
+  }),
+
   KIMURA: P('KIMURA', {
     name: 'Кимура',
     label: 'KIMURA',
@@ -1362,6 +1414,39 @@ export const POSES = {
     grips: [
       { role: 'B', hand: 'L', point: 'ankleR' },
       { role: 'B', hand: 'R', point: 'wristL', self: true },
+    ],
+  }),
+  CROSS_CHOKE_WORK: P('CROSS_CHOKE_WORK', {
+    // A сжимает: грудь и голова ниже, предплечья смыкаются на шее;
+    // B выгибается под ним и прячет подбородок.
+    name: 'Крест — сжатие',
+    variantOf: 'CROSS_CHOKE',
+    A: {
+      root: { p: [0.042, 0.565, 0.306], r: [0, 0, 0] },
+      j: {
+        hips: [37.1, -8.8, -11.2], spine: [41.3, 4.5, 1.3], chest: [47.8, 9.8, 4.5], neck: [23.9, 0, 25], head: [-5, 30, 10],
+        clavL: [7.4, -10.7, 16.1], armL: [-89.8, 18, -41], foreL: [-89.1, -2.2, -5.2],
+        clavR: [0.6, -5, 23.9], armR: [-48.7, -58.1, 62.5], foreR: [-43.9, -12.7, -4.5],
+        thighL: [-36.6, -2.2, 82.4], shinL: [53.1, 34.7, -7.4], footL: [17.3, -0.7, -0.7],
+        thighR: [-23.7, -41.8, -15.6], shinR: [71, -16.4, -8.9], footR: [16.6, 0, 0.8],
+      },
+    },
+    B: {
+      root: { p: [0.099, 0.221, 0.102], r: [-90, 180, 0] },
+      j: {
+        hips: [-21.1, -51.3, 5.4], spine: [1.8, 20, -17.2], chest: [17.3, 20, 15], neck: [12.6, 11.3, 17.3], head: [29.6, 0.1, -8.8],
+        clavL: [-10.4, -26, -17.8], armL: [68.5, -16.6, 112.6], foreL: [-110.9, 9.1, -1.5],
+        clavR: [-9.3, 0.4, 28.5], armR: [-60.8, 65.3, 38.7], foreR: [-129.6, 4.6, -0.7],
+        thighL: [-22.1, -24.3, -12.2], shinL: [31.4, 0, 6.8], footL: [-3.4, 3.1, -8.9],
+        thighR: [-23, -13.3, 8.2], shinR: [34.1, -2.2, 1.7], footR: [-13.9, 0.8, 2.3],
+      },
+    },
+    // Its own grips: a variant without them lets go of the collar, and the
+    // collar is the whole of this position.
+    grips: [
+      { role: 'A', hand: 'R', point: 'collarR' },
+      { role: 'A', hand: 'L', point: 'collarL' },
+          { role: 'B', hand: 'L', point: 'hipR' },
     ],
   }),
 

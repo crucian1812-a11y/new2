@@ -412,6 +412,14 @@ export const GRIP_POINTS = {
   ankleL: ['footL', [0, -0.01, 0.045]],
   ankleR: ['footR', [0, -0.01, 0.045]],
   neck: ['neck', [0, 0.04, 0.075]],
+  // Either side of the collar, a little up the neck: where a hand goes
+  // in, thumb first, for a cross-collar choke. The neck's radius plus the
+  // collar standing off it plus the knuckles round it. Measured, not guessed:
+  // at the neck's base the two forearms lie in the other man's chest (9 to
+  // 10 cm whatever his hands do); four centimetres up and six off the skin
+  // they lie across the throat, which is the choke, and the pose solves to 7.
+  collarL: ['neck', [0.075, 0.04, 0.06]],
+  collarR: ['neck', [-0.075, 0.04, 0.06]],
   beltBack: ['hips', [0, 0.05, -0.17]],
   hipL: ['hips', [0.2, 0.03, 0]],
   hipR: ['hips', [-0.2, 0.03, 0]],
