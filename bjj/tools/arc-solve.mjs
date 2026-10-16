@@ -114,6 +114,15 @@ const CULPRITS = +(process.env.ARC_BONES || 6);
 // joint-check fails at 155, and a blend over that line fails the battery.
 const FOLD_OK = 148;
 const FOLD_FAIL = 155;
+// And where it starts costing *for the search*, which is the limbs' lesson
+// again (ARC_LIMB_MARGIN below): a cost that is zero up to the line parks the
+// answer on it. MOUNT>CROSS_CHOKE came back 15 -> 10 cm and its cost 202 ->
+// 1.3, and was refused for an elbow at 148.2 degrees — a fifth of a degree
+// past where the term even begins. The guard still reads FOLD_OK; only the
+// cost starts earlier, and its weight is a knob because 4e-4 a degree squared
+// is nothing against a centimetre at five degrees in.
+const FOLD_MARGIN = +(process.env.ARC_FOLD_MARGIN || 0);
+const FOLD_W = +(process.env.ARC_FOLD_W || 4e-4);
 // How many lobes a correction is made of. See the note in rig.js.
 const LOBES = +(process.env.ARC_LOBES || 2);
 // What a spine past its range costs mid-flight.
@@ -273,10 +282,9 @@ function measure(from, to) {
     for (const role of ['A', 'B']) {
       for (const [upper, mid, low] of CHAINS) {
         const a = fold(rig.skel[role], upper, mid, low);
-        if (a > FOLD_OK) {
-          sum += (a - FOLD_OK) * (a - FOLD_OK) * 4e-4;
-          if (a > deepestFold) deepestFold = a;
-        }
+        const from = FOLD_OK - FOLD_MARGIN;
+        if (a > from) sum += (a - from) * (a - from) * FOLD_W;
+        if (a > FOLD_OK && a > deepestFold) deepestFold = a;
         if (a > FOLD_FAIL) sum += (a - FOLD_FAIL) * (a - FOLD_FAIL) * 0.05;
       }
     }
